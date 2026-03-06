@@ -1,33 +1,45 @@
 # Computer Use Preview
 
+Browser agent example for Gemini Computer Use with two browser backends:
+
+- `playwright`: local Chromium controlled by Playwright
+- `browserbase`: remote browser session via Browserbase
+
+The CLI entry point is [`main.py`](/Users/junyeong-nero/workspace/computer-use-preview/main.py). Runtime code lives in [`src/`](/Users/junyeong-nero/workspace/computer-use-preview/src).
+
 ## Quick Start
 
-This section will guide you through setting up and running the Computer Use Preview model, either the Gemini Developer API or Vertex AI. Follow these steps to get started.
-
-### 1. Installation
-
-**Clone the Repository**
-
 ```bash
-git clone https://github.com/google/computer-use-preview.git
+git clone https://github.com/junyeong-nero/computer-use-preview.git
 cd computer-use-preview
+uv sync --dev
+uv run playwright install chromium
+export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+uv run python main.py --env playwright --query "Summarize this page"
 ```
 
-**Set up the `uv` Environment and Install Dependencies**
+If Playwright needs system packages on your machine, run:
+
+```bash
+uv run playwright install-deps chromium
+```
+
+## Requirements
+
+- Python `>=3.12,<3.13`
+- `uv`
+- A Gemini API key, or Vertex AI credentials
+- For Browserbase: `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID`
+
+## Installation
+
+Create the environment and install dependencies:
 
 ```bash
 uv sync --dev
 ```
 
-This project now uses a `src/` layout, with the application code under `src/agent.py` and `src/computers/`.
-
-If you want an interactive shell inside the environment:
-
-```bash
-source .venv/bin/activate
-```
-
-If you prefer the old `venv` + `pip` flow, `requirements.txt` is still available:
+Optional legacy setup with `venv` and `pip`:
 
 ```bash
 python3 -m venv .venv
@@ -35,42 +47,21 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Install Playwright and Browser Dependencies**
+Install Chromium for the Playwright backend:
 
 ```bash
-# Install system dependencies required by Playwright for Chromium
-uv run playwright install-deps chromium
-
-# Install the Chromium browser used by this project
 uv run playwright install chromium
 ```
 
-### 2. Configuration
-You can get started using either the Gemini Developer API or Vertex AI.
+## Configuration
 
-#### A. If using the Gemini Developer API:
-
-You need a Gemini API key to use the agent:
+### Gemini Developer API
 
 ```bash
 export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
 ```
 
-Or to add this to your virtual environment:
-
-```bash
-echo 'export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"' >> .venv/bin/activate
-# After editing, you'll need to deactivate and reactivate your virtual
-# environment if it's already active:
-deactivate
-source .venv/bin/activate
-```
-
-Replace `YOUR_GEMINI_API_KEY` with your actual key.
-
-#### B. If using the Vertex AI Client:
-
-You need to explicitly use Vertex AI, then provide project and location to use the agent:
+### Vertex AI
 
 ```bash
 export USE_VERTEXAI=true
@@ -78,127 +69,164 @@ export VERTEXAI_PROJECT="YOUR_PROJECT_ID"
 export VERTEXAI_LOCATION="YOUR_LOCATION"
 ```
 
-Or to add this to your virtual environment:
+### Browserbase
 
 ```bash
-echo 'export USE_VERTEXAI=true' >> .venv/bin/activate
-echo 'export VERTEXAI_PROJECT="your-project-id"' >> .venv/bin/activate
-echo 'export VERTEXAI_LOCATION="your-location"' >> .venv/bin/activate
-# After editing, you'll need to deactivate and reactivate your virtual
-# environment if it's already active:
-deactivate
-source .venv/bin/activate
+export BROWSERBASE_API_KEY="YOUR_BROWSERBASE_API_KEY"
+export BROWSERBASE_PROJECT_ID="YOUR_BROWSERBASE_PROJECT_ID"
 ```
 
-Replace `YOUR_PROJECT_ID` and `YOUR_LOCATION` with your actual project and location.
+## Usage
 
-### 3. Running the Tool
-
-The primary way to use the tool is via the top-level `main.py` entry point.
-
-**General Command Structure:**
+Basic command:
 
 ```bash
-uv run python main.py --query "Go to Google and type 'Hello World' into the search bar"
+uv run python main.py --query "Go to Google and search for Gemini Computer Use"
 ```
 
-If you already activated `.venv`, this also works:
+If `.venv` is already activated, you can also run:
 
 ```bash
-python main.py --query "Go to Google and type 'Hello World' into the search bar"
+python main.py --query "Go to Google and search for Gemini Computer Use"
 ```
 
-**Available Environments:**
+### Playwright
 
-You can specify a particular environment with the ```--env <environment>``` flag.  Available options:
-
-- `playwright`: Runs the browser locally using Playwright.
-- `browserbase`: Connects to a Browserbase instance.
-
-**Local Playwright**
-
-Runs the agent using a Chrome browser instance controlled locally by Playwright.
+Run locally with Playwright:
 
 ```bash
-uv run python main.py --query="Go to Google and type 'Hello World' into the search bar" --env="playwright"
+uv run python main.py \
+  --env playwright \
+  --query "Open Example Domain and summarize the page"
 ```
 
-You can also specify an initial URL for the Playwright environment:
+Start from a specific URL:
 
 ```bash
-uv run python main.py --query="Go to Google and type 'Hello World' into the search bar" --env="playwright" --initial_url="https://www.google.com/search?q=latest+AI+news"
+uv run python main.py \
+  --env playwright \
+  --initial_url "https://example.com" \
+  --query "Summarize this page"
 ```
 
-To save a Playwright session log, add `--log`. This writes per-step screenshots and
-DOM snapshots under `logs/history/<timestamp>/history/` and records browser video
-under `logs/history/<timestamp>/video/`.
+Run headless:
 
 ```bash
-uv run python main.py --query="summarize this page" --env="playwright" --log
+uv run python main.py \
+  --env playwright \
+  --headless True \
+  --query "Summarize this page"
 ```
 
-**Browserbase**
-
-Runs the agent using Browserbase as the browser backend. Ensure the proper Browserbase environment variables are set:`BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID`.
+Show cursor highlighting for visual debugging:
 
 ```bash
-uv run python main.py --query="Go to Google and type 'Hello World' into the search bar" --env="browserbase"
+uv run python main.py \
+  --env playwright \
+  --highlight_mouse \
+  --query "Click the first link"
 ```
 
-**Available Models:**
+### Session Logging
 
-You can choose the model to use by specifying the ```--model <model name>``` flag. Available options on Gemini Developer API and Vertex AI Client:
+Add `--log` to save Playwright execution artifacts:
 
-- `gemini-2.5-computer-use-preview-10-2025`: This is the default model.
+```bash
+uv run python main.py \
+  --env playwright \
+  --log \
+  --query "Summarize this page"
+```
 
-Available options on Gemini Developer API only:
+This creates a timestamped directory under `logs/history/`:
 
-- `gemini-3-flash-preview`: The preview version of Gemini 3 Flash.
-- `gemini-3-pro-preview`: The preview version of Gemini 3 Pro.
+```text
+logs/history/<timestamp>/
+├── history/
+│   ├── step-0001.png
+│   ├── step-0001.html
+│   ├── step-0001.json
+│   └── ...
+└── video/
+    └── <playwright-video-file>
+```
 
-## Agent CLI
+- `history/*.png`: screenshot captured for each agent step
+- `history/*.html`: DOM snapshot for each step
+- `history/*.json`: step metadata including URL and file names
+- `video/`: Playwright session recording
 
-`main.py` is the command-line interface (CLI) for running the browser agent.
+`--log` is only supported with `--env playwright`.
 
-### Command-Line Arguments
+### Browserbase
 
-| Argument | Description | Required | Default | Supported Environment(s) |
-|-|-|-|-|-|
-| `--query` | The natural language query for the browser agent to execute. | Yes | N/A | All |
-| `--env` | The computer use environment to use. Must be one of the following: `playwright`, or `browserbase` | No | N/A | All |
-| `--initial_url` | The initial URL to load when the browser starts. | No | https://www.google.com | All |
-| `--highlight_mouse` | If specified, the agent will attempt to highlight the mouse cursor's position in the screenshots. This is useful for visual debugging. | No | False (not highlighted) | `playwright` |
-| `--log` | Save Playwright video and per-step DOM/screenshot history under `logs/history/`. | No | False | `playwright` |
-| `--model` | The model to use. See the "Available Models" section for more information. | No | `gemini-2.5-computer-use-preview-10-2025` | All |
+Run against Browserbase:
 
-### Environment Variables
+```bash
+uv run python main.py \
+  --env browserbase \
+  --query "Open Example Domain and summarize the page"
+```
 
-| Variable | Description | Required |
-|-|-|-|
-| GEMINI_API_KEY | Your API key for the Gemini model. | Yes |
-| BROWSERBASE_API_KEY | Your API key for Browserbase. | Yes (when using the browserbase environment) |
-| BROWSERBASE_PROJECT_ID | Your Project ID for Browserbase. | Yes (when using the browserbase environment) |
+## CLI Reference
+
+```text
+usage: main.py [-h] --query QUERY [--env {playwright,browserbase}]
+               [--initial_url INITIAL_URL] [--highlight_mouse]
+               [--headless HEADLESS] [--log] [--model MODEL]
+```
+
+| Argument | Description | Default |
+| - | - | - |
+| `--query` | Natural-language instruction for the agent. | Required |
+| `--env` | Browser backend to use: `playwright` or `browserbase`. | `playwright` |
+| `--initial_url` | Initial page opened before the agent starts. | `https://www.google.com` |
+| `--highlight_mouse` | Highlight cursor position in Playwright screenshots. | `False` |
+| `--headless` | Launch Playwright headless. Use `True` or `False`. | `False` |
+| `--log` | Save Playwright video and per-step DOM/screenshot history. | `False` |
+| `--model` | Gemini model name. | `gemini-2.5-computer-use-preview-10-2025` |
+
+## Environment Variables
+
+| Variable | Description |
+| - | - |
+| `GEMINI_API_KEY` | API key for the Gemini Developer API. |
+| `USE_VERTEXAI` | Set to `true` or `1` to use Vertex AI instead of the Gemini Developer API. |
+| `VERTEXAI_PROJECT` | Vertex AI project ID. |
+| `VERTEXAI_LOCATION` | Vertex AI location. |
+| `BROWSERBASE_API_KEY` | Browserbase API key. |
+| `BROWSERBASE_PROJECT_ID` | Browserbase project ID. |
+
+## Development
+
+Run tests:
+
+```bash
+uv run pytest
+```
+
+Inspect CLI options:
+
+```bash
+uv run python main.py --help
+```
+
+Project layout:
+
+- [`src/agent.py`](/Users/junyeong-nero/workspace/computer-use-preview/src/agent.py): agent loop and Gemini interaction
+- [`src/computers/playwright/playwright.py`](/Users/junyeong-nero/workspace/computer-use-preview/src/computers/playwright/playwright.py): local Playwright backend
+- [`src/computers/browserbase/browserbase.py`](/Users/junyeong-nero/workspace/computer-use-preview/src/computers/browserbase/browserbase.py): Browserbase backend
+- [`tests/`](/Users/junyeong-nero/workspace/computer-use-preview/tests): test suite
 
 ## Known Issues
 
-### Playwright Dropdown Menu
+### Native `<select>` elements in Playwright
 
-On certain operating systems, the Playwright browser is unable to capture `<select>` elements because they are rendered by the operating system. As a result, the agent is unable to send the correct screenshot to the model.
+On some operating systems, Playwright cannot capture native dropdown UI because it is rendered outside the DOM. That means the model may not see the visible dropdown state correctly in screenshots.
 
-There are several ways to mitigate this.
+Workarounds:
 
-1. Use the Browserbase option instead of Playwright.
-2. Inject a script like [proxy-select](https://github.com/amitamb/proxy-select) to render a custom `<select>` element. You must inject `proxy-select.css` and `proxy-select.js` into each page that has a non-custom `<select>` element. You can do this in the [`Playwright.__enter__`](https://github.com/google-gemini/computer-use-preview/blob/main/src/computers/playwright/playwright.py#L100) method by adding a few lines of code, like the following (replacing `PROXY_SELECT_JS` and `PROXY_SELECT_CSS` with the appropriate variables):
+1. Use `browserbase` instead of local `playwright`.
+2. Inject a custom dropdown implementation such as `proxy-select` so the UI stays in the DOM.
 
-```python
-self._page.add_init_script(PROXY_SELECT_JS)
-def inject_style(page):
-    try:
-        page.add_style_tag(content=PROXY_SELECT_CSS)
-    except Exception as e:
-        print(f"Error injecting style: {e}")
-
-self._page.on('domcontentloaded', inject_style)
-```
-
-Note, option 2 does not work 100% of the time, but is a temporary workaround for certain websites. The better option is to use Browserbase.
+The Browserbase backend is usually the more reliable option for sites that depend heavily on native OS-rendered controls.
