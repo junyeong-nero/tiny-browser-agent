@@ -13,7 +13,21 @@ git clone https://github.com/google/computer-use-preview.git
 cd computer-use-preview
 ```
 
-**Set up Python Virtual Environment and Install Dependencies**
+**Set up the `uv` Environment and Install Dependencies**
+
+```bash
+uv sync --dev
+```
+
+This project now uses a `src/` layout, with the application code under `src/agent.py` and `src/computers/`.
+
+If you want an interactive shell inside the environment:
+
+```bash
+source .venv/bin/activate
+```
+
+If you prefer the old `venv` + `pip` flow, `requirements.txt` is still available:
 
 ```bash
 python3 -m venv .venv
@@ -24,11 +38,11 @@ pip install -r requirements.txt
 **Install Playwright and Browser Dependencies**
 
 ```bash
-# Install system dependencies required by Playwright for Chrome
-playwright install-deps chrome
+# Install system dependencies required by Playwright for Chromium
+uv run playwright install-deps chromium
 
-# Install the Chrome browser for Playwright
-playwright install chrome
+# Install the Chromium browser used by this project
+uv run playwright install chromium
 ```
 
 ### 2. Configuration
@@ -80,9 +94,15 @@ Replace `YOUR_PROJECT_ID` and `YOUR_LOCATION` with your actual project and locat
 
 ### 3. Running the Tool
 
-The primary way to use the tool is via the `main.py` script.
+The primary way to use the tool is via the top-level `main.py` entry point.
 
 **General Command Structure:**
+
+```bash
+uv run python main.py --query "Go to Google and type 'Hello World' into the search bar"
+```
+
+If you already activated `.venv`, this also works:
 
 ```bash
 python main.py --query "Go to Google and type 'Hello World' into the search bar"
@@ -100,13 +120,13 @@ You can specify a particular environment with the ```--env <environment>``` flag
 Runs the agent using a Chrome browser instance controlled locally by Playwright.
 
 ```bash
-python main.py --query="Go to Google and type 'Hello World' into the search bar" --env="playwright"
+uv run python main.py --query="Go to Google and type 'Hello World' into the search bar" --env="playwright"
 ```
 
 You can also specify an initial URL for the Playwright environment:
 
 ```bash
-python main.py --query="Go to Google and type 'Hello World' into the search bar" --env="playwright" --initial_url="https://www.google.com/search?q=latest+AI+news"
+uv run python main.py --query="Go to Google and type 'Hello World' into the search bar" --env="playwright" --initial_url="https://www.google.com/search?q=latest+AI+news"
 ```
 
 **Browserbase**
@@ -114,7 +134,7 @@ python main.py --query="Go to Google and type 'Hello World' into the search bar"
 Runs the agent using Browserbase as the browser backend. Ensure the proper Browserbase environment variables are set:`BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID`.
 
 ```bash
-python main.py --query="Go to Google and type 'Hello World' into the search bar" --env="browserbase"
+uv run python main.py --query="Go to Google and type 'Hello World' into the search bar" --env="browserbase"
 ```
 
 **Available Models:**
@@ -130,7 +150,7 @@ Available options on Gemini Developer API only:
 
 ## Agent CLI
 
-The `main.py` script is the command-line interface (CLI) for running the browser agent.
+`main.py` is the command-line interface (CLI) for running the browser agent.
 
 ### Command-Line Arguments
 
@@ -159,7 +179,7 @@ On certain operating systems, the Playwright browser is unable to capture `<sele
 There are several ways to mitigate this.
 
 1. Use the Browserbase option instead of Playwright.
-2. Inject a script like [proxy-select](https://github.com/amitamb/proxy-select) to render a custom `<select>` element. You must inject `proxy-select.css` and `proxy-select.js` into each page that has a non-custom `<select>` element. You can do this in the [`Playwright.__enter__`](https://github.com/google-gemini/computer-use-preview/blob/main/computers/playwright/playwright.py#L100) method by adding a few lines of code, like the following (replacing `PROXY_SELECT_JS` and `PROXY_SELECT_CSS` with the appropriate variables):
+2. Inject a script like [proxy-select](https://github.com/amitamb/proxy-select) to render a custom `<select>` element. You must inject `proxy-select.css` and `proxy-select.js` into each page that has a non-custom `<select>` element. You can do this in the [`Playwright.__enter__`](https://github.com/google-gemini/computer-use-preview/blob/main/src/computers/playwright/playwright.py#L100) method by adding a few lines of code, like the following (replacing `PROXY_SELECT_JS` and `PROXY_SELECT_CSS` with the appropriate variables):
 
 ```python
 self._page.add_init_script(PROXY_SELECT_JS)
