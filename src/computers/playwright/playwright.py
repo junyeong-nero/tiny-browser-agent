@@ -24,6 +24,11 @@ import playwright.sync_api
 from playwright.sync_api import sync_playwright
 from typing import Literal
 
+PLAYWRIGHT_INSTALL_HINT = (
+    "Playwright browser binaries are missing. Run "
+    "`uv run playwright install chromium` and retry."
+)
+
 # Define a mapping from the user-friendly key names to Playwright's expected key names.
 # Playwright is generally good with case-insensitivity for these, but it's best to be canonical.
 # See: https://playwright.dev/docs/api/class-keyboard#keyboard-press
@@ -81,11 +86,13 @@ class PlaywrightComputer(Computer):
         initial_url: str = "https://www.google.com",
         search_engine_url: str = "https://www.google.com",
         highlight_mouse: bool = False,
+        headless: bool = False,
     ):
         self._initial_url = initial_url
         self._screen_size = screen_size
         self._search_engine_url = search_engine_url
         self._highlight_mouse = highlight_mouse
+        self._headless = headless
 
     def _handle_new_page(self, new_page: playwright.sync_api.Page):
         """The Computer Use model only supports a single tab at the moment.
@@ -100,19 +107,25 @@ class PlaywrightComputer(Computer):
     def __enter__(self):
         print("Creating session...")
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(
-            args=[
-                "--disable-extensions",
-                "--disable-file-system",
-                "--disable-plugins",
-                "--disable-dev-shm-usage",
-                "--disable-background-networking",
-                "--disable-default-apps",
-                "--disable-sync",
-                # No '--no-sandbox' arg means the sandbox is on.
-            ],
-            headless=bool(os.environ.get("PLAYWRIGHT_HEADLESS", False)),
-        )
+        try:
+            self._browser = self._playwright.chromium.launch(
+                args=[
+                    "--disable-extensions",
+                    "--disable-file-system",
+                    "--disable-plugins",
+                    "--disable-dev-shm-usage",
+                    "--disable-background-networking",
+                    "--disable-default-apps",
+                    "--disable-sync",
+                    # No '--no-sandbox' arg means the sandbox is on.
+                ],
+                headless=self._headless,
+            )
+        except playwright.sync_api.Error as exc:
+            self._playwright.stop()
+            if "Executable doesn't exist" in str(exc):
+                raise RuntimeError(PLAYWRIGHT_INSTALL_HINT) from exc
+            raise
         self._context = self._browser.new_context(
             viewport={
                 "width": self._screen_size[0],

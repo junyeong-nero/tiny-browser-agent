@@ -1,24 +1,25 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 import argparse
-import os
+import sys
+from pathlib import Path
+
+SRC_DIR = Path(__file__).resolve().parent / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
 
 from agent import BrowserAgent
 from computers import BrowserbaseComputer, PlaywrightComputer
 
 
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
+
+
+def parse_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"true", "1", "yes", "y"}:
+        return True
+    if normalized in {"false", "0", "no", "n"}:
+        return False
+    raise argparse.ArgumentTypeError("Expected True or False.")
 
 
 def main() -> int:
@@ -50,8 +51,14 @@ def main() -> int:
         help="If possible, highlight the location of the mouse.",
     )
     parser.add_argument(
+        "--headless",
+        type=parse_bool,
+        default=False,
+        help="Whether to launch Playwright in headless mode. Use True or False.",
+    )
+    parser.add_argument(
         "--model",
-        default='gemini-2.5-computer-use-preview-10-2025',
+        default="gemini-2.5-computer-use-preview-10-2025",
         help="Set which main model to use.",
     )
     args = parser.parse_args()
@@ -61,11 +68,12 @@ def main() -> int:
             screen_size=PLAYWRIGHT_SCREEN_SIZE,
             initial_url=args.initial_url,
             highlight_mouse=args.highlight_mouse,
+            headless=args.headless,
         )
     elif args.env == "browserbase":
         env = BrowserbaseComputer(
             screen_size=PLAYWRIGHT_SCREEN_SIZE,
-            initial_url=args.initial_url
+            initial_url=args.initial_url,
         )
     else:
         raise ValueError("Unknown environment: ", args.env)
@@ -79,6 +87,5 @@ def main() -> int:
         agent.agent_loop()
     return 0
 
-
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

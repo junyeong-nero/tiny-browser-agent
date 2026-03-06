@@ -73,7 +73,7 @@ class TestBrowserAgent(unittest.TestCase):
     def test_denormalize_y(self):
         self.assertEqual(self.agent.denormalize_y(500), 500)
 
-    @patch('agent.BrowserAgent.get_model_response')
+    @patch("agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_no_function_calls(self, mock_get_model_response):
         mock_response = MagicMock()
         mock_candidate = MagicMock()
@@ -87,8 +87,8 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(len(self.agent._contents), 2)
         self.assertEqual(self.agent._contents[1], mock_candidate.content)
 
-    @patch('agent.BrowserAgent.get_model_response')
-    @patch('agent.BrowserAgent.handle_action')
+    @patch("agent.BrowserAgent.get_model_response")
+    @patch("agent.BrowserAgent.handle_action")
     def test_run_one_iteration_with_function_call(self, mock_handle_action, mock_get_model_response):
         mock_response = MagicMock()
         mock_candidate = MagicMock()

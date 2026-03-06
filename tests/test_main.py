@@ -18,14 +18,15 @@ import main
 
 class TestMain(unittest.TestCase):
 
-    @patch('main.argparse.ArgumentParser')
-    @patch('main.PlaywrightComputer')
-    @patch('main.BrowserAgent')
+    @patch("main.argparse.ArgumentParser")
+    @patch("main.PlaywrightComputer")
+    @patch("main.BrowserAgent")
     def test_main_playwright(self, mock_browser_agent, mock_playwright_computer, mock_arg_parser):
         mock_args = MagicMock()
         mock_args.env = 'playwright'
         mock_args.initial_url = 'test_url'
         mock_args.highlight_mouse = True
+        mock_args.headless = True
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.api_server = None
@@ -37,14 +38,15 @@ class TestMain(unittest.TestCase):
         mock_playwright_computer.assert_called_once_with(
             screen_size=main.PLAYWRIGHT_SCREEN_SIZE,
             initial_url='test_url',
-            highlight_mouse=True
+            highlight_mouse=True,
+            headless=True,
         )
         mock_browser_agent.assert_called_once()
         mock_browser_agent.return_value.agent_loop.assert_called_once()
 
-    @patch('main.argparse.ArgumentParser')
-    @patch('main.BrowserbaseComputer')
-    @patch('main.BrowserAgent')
+    @patch("main.argparse.ArgumentParser")
+    @patch("main.BrowserbaseComputer")
+    @patch("main.BrowserAgent")
     def test_main_browserbase(self, mock_browser_agent, mock_browserbase_computer, mock_arg_parser):
         mock_args = MagicMock()
         mock_args.env = 'browserbase'
@@ -54,6 +56,7 @@ class TestMain(unittest.TestCase):
         mock_args.api_server_key = None
         mock_args.initial_url = 'test_url'
         mock_args.highlight_mouse = False
+        mock_args.headless = False
         mock_arg_parser.return_value.parse_args.return_value = mock_args
 
         main.main()
