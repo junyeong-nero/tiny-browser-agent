@@ -1,5 +1,6 @@
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parent / "src"
@@ -11,6 +12,7 @@ from computers import BrowserbaseComputer, PlaywrightComputer
 
 
 PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
+LOGS_DIR = Path(__file__).resolve().parent / "logs" / "history"
 
 
 def parse_bool(value: str) -> bool:
@@ -57,11 +59,25 @@ def main() -> int:
         help="Whether to launch Playwright in headless mode. Use True or False.",
     )
     parser.add_argument(
+        "--log",
+        action="store_true",
+        default=False,
+        help="Save Playwright video and per-step DOM/screenshot history under logs/history/.",
+    )
+    parser.add_argument(
         "--model",
         default="gemini-2.5-computer-use-preview-10-2025",
         help="Set which main model to use.",
     )
     args = parser.parse_args()
+
+    if args.log and args.env != "playwright":
+        raise ValueError("--log is only supported with --env playwright.")
+
+    log_dir = None
+    if args.log:
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        log_dir = str(LOGS_DIR / timestamp)
 
     if args.env == "playwright":
         env = PlaywrightComputer(
@@ -69,6 +85,7 @@ def main() -> int:
             initial_url=args.initial_url,
             highlight_mouse=args.highlight_mouse,
             headless=args.headless,
+            log_dir=log_dir,
         )
     elif args.env == "browserbase":
         env = BrowserbaseComputer(

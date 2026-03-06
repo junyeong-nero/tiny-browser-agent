@@ -11,18 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import logging
-import termcolor
-import time
+import json
 import os
 import sys
+import time
+from pathlib import Path
+import termcolor
 from ..computer import (
     Computer,
     EnvState,
 )
 import playwright.sync_api
 from playwright.sync_api import sync_playwright
-from typing import Literal
+from typing import Literal, Optional
 
 PLAYWRIGHT_INSTALL_HINT = (
     "Playwright browser binaries are missing. Run "
@@ -87,12 +88,17 @@ class PlaywrightComputer(Computer):
         search_engine_url: str = "https://www.google.com",
         highlight_mouse: bool = False,
         headless: bool = False,
+        log_dir: Optional[str] = None,
     ):
         self._initial_url = initial_url
         self._screen_size = screen_size
         self._search_engine_url = search_engine_url
         self._highlight_mouse = highlight_mouse
         self._headless = headless
+        self._log_dir = Path(log_dir) if log_dir else None
+        self._history_dir = self._log_dir / "history" if self._log_dir else None
+        self._video_dir = self._log_dir / "video" if self._log_dir else None
+        self._history_step = 0
 
     def _handle_new_page(self, new_page: playwright.sync_api.Page):
         """The Computer Use model only supports a single tab at the moment.
@@ -106,6 +112,7 @@ class PlaywrightComputer(Computer):
 
     def __enter__(self):
         print("Creating session...")
+        self._prepare_log_dirs()
         self._playwright = sync_playwright().start()
         try:
             self._browser = self._playwright.chromium.launch(
@@ -126,12 +133,19 @@ class PlaywrightComputer(Computer):
             if "Executable doesn't exist" in str(exc):
                 raise RuntimeError(PLAYWRIGHT_INSTALL_HINT) from exc
             raise
-        self._context = self._browser.new_context(
-            viewport={
+        context_kwargs = {
+            "viewport": {
                 "width": self._screen_size[0],
                 "height": self._screen_size[1],
             }
-        )
+        }
+        if self._video_dir:
+            context_kwargs["record_video_dir"] = str(self._video_dir)
+            context_kwargs["record_video_size"] = {
+                "width": self._screen_size[0],
+                "height": self._screen_size[1],
+            }
+        self._context = self._browser.new_context(**context_kwargs)
         self._page = self._context.new_page()
         self._page.goto(self._initial_url)
 
@@ -142,6 +156,8 @@ class PlaywrightComputer(Computer):
             color="green",
             attrs=["bold"],
         )
+        if self._log_dir:
+            print(f"Logging Playwright history to {self._log_dir}")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -318,6 +334,7 @@ class PlaywrightComputer(Computer):
         # Add a manual sleep to make sure the page has finished rendering.
         time.sleep(0.5)
         screenshot_bytes = self._page.screenshot(type="png", full_page=False)
+        self._write_history_snapshot(screenshot_bytes)
         return EnvState(screenshot=screenshot_bytes, url=self._page.url)
 
     def screen_size(self) -> tuple[int, int]:
@@ -358,3 +375,38 @@ class PlaywrightComputer(Computer):
         )
         # Wait a bit for the user to see the cursor.
         time.sleep(1)
+
+    def _prepare_log_dirs(self):
+        if not self._log_dir:
+            return
+        self._log_dir.mkdir(parents=True, exist_ok=True)
+        self._history_dir.mkdir(parents=True, exist_ok=True)
+        self._video_dir.mkdir(parents=True, exist_ok=True)
+
+    def _write_history_snapshot(self, screenshot_bytes: bytes):
+        if not self._history_dir:
+            return
+
+        self._prepare_log_dirs()
+        self._history_step += 1
+        step_name = f"step-{self._history_step:04d}"
+        screenshot_path = self._history_dir / f"{step_name}.png"
+        html_path = self._history_dir / f"{step_name}.html"
+        metadata_path = self._history_dir / f"{step_name}.json"
+
+        screenshot_path.write_bytes(screenshot_bytes)
+        html_path.write_text(self._page.content(), encoding="utf-8")
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "step": self._history_step,
+                    "timestamp": time.time(),
+                    "url": self._page.url,
+                    "html_path": html_path.name,
+                    "screenshot_path": screenshot_path.name,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )

@@ -16,6 +16,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import main
 
+
 class TestMain(unittest.TestCase):
 
     @patch("main.argparse.ArgumentParser")
@@ -29,6 +30,7 @@ class TestMain(unittest.TestCase):
         mock_args.headless = True
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
+        mock_args.log = True
         mock_args.api_server = None
         mock_args.api_server_key = None
         mock_arg_parser.return_value.parse_args.return_value = mock_args
@@ -40,6 +42,7 @@ class TestMain(unittest.TestCase):
             initial_url='test_url',
             highlight_mouse=True,
             headless=True,
+            log_dir=unittest.mock.ANY,
         )
         mock_browser_agent.assert_called_once()
         mock_browser_agent.return_value.agent_loop.assert_called_once()
@@ -57,6 +60,7 @@ class TestMain(unittest.TestCase):
         mock_args.initial_url = 'test_url'
         mock_args.highlight_mouse = False
         mock_args.headless = False
+        mock_args.log = False
         mock_arg_parser.return_value.parse_args.return_value = mock_args
 
         main.main()
@@ -67,6 +71,21 @@ class TestMain(unittest.TestCase):
         )
         mock_browser_agent.assert_called_once()
         mock_browser_agent.return_value.agent_loop.assert_called_once()
+
+    @patch("main.argparse.ArgumentParser")
+    def test_main_browserbase_rejects_log(self, mock_arg_parser):
+        mock_args = MagicMock()
+        mock_args.env = 'browserbase'
+        mock_args.query = 'test_query'
+        mock_args.model = 'test_model'
+        mock_args.initial_url = 'test_url'
+        mock_args.highlight_mouse = False
+        mock_args.headless = False
+        mock_args.log = True
+        mock_arg_parser.return_value.parse_args.return_value = mock_args
+
+        with self.assertRaises(ValueError):
+            main.main()
 
 if __name__ == '__main__':
     unittest.main()

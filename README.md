@@ -129,6 +129,14 @@ You can also specify an initial URL for the Playwright environment:
 uv run python main.py --query="Go to Google and type 'Hello World' into the search bar" --env="playwright" --initial_url="https://www.google.com/search?q=latest+AI+news"
 ```
 
+To save a Playwright session log, add `--log`. This writes per-step screenshots and
+DOM snapshots under `logs/history/<timestamp>/history/` and records browser video
+under `logs/history/<timestamp>/video/`.
+
+```bash
+uv run python main.py --query="summarize this page" --env="playwright" --log
+```
+
 **Browserbase**
 
 Runs the agent using Browserbase as the browser backend. Ensure the proper Browserbase environment variables are set:`BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID`.
@@ -160,6 +168,7 @@ Available options on Gemini Developer API only:
 | `--env` | The computer use environment to use. Must be one of the following: `playwright`, or `browserbase` | No | N/A | All |
 | `--initial_url` | The initial URL to load when the browser starts. | No | https://www.google.com | All |
 | `--highlight_mouse` | If specified, the agent will attempt to highlight the mouse cursor's position in the screenshots. This is useful for visual debugging. | No | False (not highlighted) | `playwright` |
+| `--log` | Save Playwright video and per-step DOM/screenshot history under `logs/history/`. | No | False | `playwright` |
 | `--model` | The model to use. See the "Available Models" section for more information. | No | `gemini-2.5-computer-use-preview-10-2025` | All |
 
 ### Environment Variables
