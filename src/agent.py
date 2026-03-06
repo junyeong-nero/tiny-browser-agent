@@ -113,6 +113,11 @@ class BrowserAgent:
                 ),
                 types.Tool(function_declarations=custom_functions),
             ],
+            # This agent handles function calls manually in `run_one_iteration`,
+            # so SDK-side automatic function calling should stay disabled.
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                disable=True
+            ),
             thinking_config=types.ThinkingConfig(
                 include_thoughts=True
             ),

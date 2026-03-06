@@ -35,6 +35,11 @@ class TestBrowserAgent(unittest.TestCase):
     def test_multiply_numbers(self):
         self.assertEqual(multiply_numbers(2, 3), {"result": 6})
 
+    def test_automatic_function_calling_is_disabled(self):
+        self.assertTrue(
+            self.agent._generate_content_config.automatic_function_calling.disable
+        )
+
     def test_handle_action_open_web_browser(self):
         action = types.FunctionCall(name="open_web_browser", args={})
         self.agent.handle_action(action)
