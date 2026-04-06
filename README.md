@@ -7,6 +7,29 @@ Browser agent example for Gemini Computer Use with two browser backends:
 
 The CLI entry point is `main.py`. Runtime code lives in `src/`.
 
+## Local UI Mode
+
+This project also includes a local FastAPI + React UI for polling session state, screenshots, reasoning, actions, and artifacts.
+
+Backend:
+
+```bash
+uv sync --dev
+uv run playwright install chromium
+export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
+uv run python main.py --ui --headless True
+```
+
+Frontend:
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+The Vite dev server proxies `/api` requests to the FastAPI backend at `http://127.0.0.1:8000`.
+
 ## Requirements
 
 - Python `>=3.12,<3.13`
@@ -142,13 +165,17 @@ uv run python main.py \
 
 ```text
 usage: main.py [-h] --query QUERY [--env {playwright,browserbase}]
+               [--ui] [--ui_host UI_HOST] [--ui_port UI_PORT]
                [--initial_url INITIAL_URL] [--highlight_mouse]
                [--headless HEADLESS] [--log] [--model MODEL]
 ```
 
 | Argument | Description | Default |
 | - | - | - |
-| `--query` | Natural-language instruction for the agent. | Required |
+| `--query` | Natural-language instruction for the agent. Required unless `--ui` is set. | Optional |
+| `--ui` | Run the FastAPI UI backend instead of the CLI agent loop. | `False` |
+| `--ui_host` | Host used by the FastAPI UI backend. | `127.0.0.1` |
+| `--ui_port` | Port used by the FastAPI UI backend. | `8000` |
 | `--env` | Browser backend to use: `playwright` or `browserbase`. | `playwright` |
 | `--initial_url` | Initial page opened before the agent starts. | `https://www.google.com` |
 | `--highlight_mouse` | Highlight cursor position in Playwright screenshots. | `False` |
@@ -265,4 +292,5 @@ uv run python main.py --help
 
 - Do not hardcode secrets; use environment variables instead.
 - `--log` stores screenshots, DOM snapshots, metadata, and Playwright video under `logs/history/<timestamp>/`, which may capture sensitive content and URLs.
+- UI sessions also write screenshots and HTML/JSON artifacts under `logs/history/ui/<session-id>/`, and can capture sensitive page content and URLs while a session is running.
 - The local Playwright backend keeps the browser sandbox enabled.
