@@ -29,8 +29,25 @@ def main() -> int:
     parser.add_argument(
         "--query",
         type=str,
-        required=True,
         help="The query for the browser agent to execute.",
+    )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        default=False,
+        help="Run the FastAPI session UI backend instead of the CLI agent loop.",
+    )
+    parser.add_argument(
+        "--ui_host",
+        type=str,
+        default="127.0.0.1",
+        help="Host used when running the FastAPI UI backend.",
+    )
+    parser.add_argument(
+        "--ui_port",
+        type=int,
+        default=8000,
+        help="Port used when running the FastAPI UI backend.",
     )
 
     parser.add_argument(
@@ -70,6 +87,26 @@ def main() -> int:
         help="Set which main model to use.",
     )
     args = parser.parse_args()
+
+    if not args.ui and not args.query:
+        parser.error("--query is required unless --ui is set.")
+
+    if args.ui:
+        if args.env != "playwright":
+            raise ValueError("--ui is only supported with --env playwright.")
+        from ui.server import run_ui_server
+
+        run_ui_server(
+            host=args.ui_host,
+            port=args.ui_port,
+            model_name=args.model,
+            screen_size=PLAYWRIGHT_SCREEN_SIZE,
+            initial_url=args.initial_url,
+            highlight_mouse=args.highlight_mouse,
+            headless=args.headless,
+            artifacts_root=LOGS_DIR / "ui",
+        )
+        return 0
 
     if args.log and args.env != "playwright":
         raise ValueError("--log is only supported with --env playwright.")
