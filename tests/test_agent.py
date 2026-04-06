@@ -24,6 +24,11 @@ class TestBrowserAgent(unittest.TestCase):
     def setUp(self):
         self.mock_browser_computer = MagicMock()
         self.mock_browser_computer.screen_size.return_value = (1000, 1000)
+        self.mock_browser_computer.latest_artifact_metadata.return_value = {
+            "screenshot_path": "step-0001.png",
+            "html_path": "step-0001.html",
+            "metadata_path": "step-0001.json",
+        }
         self.mock_llm_client = MagicMock(spec=LLMClient)
         self.mock_llm_client.build_function_declaration.return_value = types.FunctionDeclaration(
             name=multiply_numbers.__name__,
@@ -135,6 +140,51 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(result, "CONTINUE")
         mock_handle_action.assert_called_once_with(function_call)
         self.assertEqual(len(self.agent._contents), 3)
+
+    def test_append_user_message(self):
+        self.agent.append_user_message("follow up")
+
+        recent_messages = self.agent.get_recent_messages(limit=2)
+
+        self.assertEqual(
+            recent_messages,
+            [
+                {"role": "user", "text": "test query"},
+                {"role": "user", "text": "follow up"},
+            ],
+        )
+
+    @patch("agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_emits_step_events(self, mock_get_model_response):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+        )
+        mock_response = MagicMock()
+        mock_candidate = MagicMock()
+        mock_candidate.content.parts = [types.Part(text="some reasoning")]
+        mock_candidate.finish_reason = None
+        mock_response.candidates = [mock_candidate]
+        mock_get_model_response.return_value = mock_response
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "COMPLETE")
+        self.assertEqual(
+            [event["type"] for event in events],
+            [
+                "step_started",
+                "model_response",
+                "reasoning_extracted",
+                "function_calls_extracted",
+                "step_complete",
+            ],
+        )
+        self.assertEqual(events[-1]["final_reasoning"], "some reasoning")
 
 
 if __name__ == "__main__":

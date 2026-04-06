@@ -11,7 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Literal, Optional, Union, Any
+import time
+from typing import Callable, Literal, Optional, Union, Any
 from google.genai import types
 import termcolor
 from google.genai.types import (
@@ -66,6 +67,7 @@ class BrowserAgent:
         model_name: str,
         verbose: bool = True,
         llm_client: Optional[LLMClient] = None,
+        event_sink: Optional[Callable[[dict[str, Any]], None]] = None,
     ):
         self._browser_computer = browser_computer
         self._query = query
@@ -73,6 +75,8 @@ class BrowserAgent:
         self._verbose = verbose
         self.final_reasoning = None
         self._llm_client = llm_client or LLMClient.from_env()
+        self._event_sink = event_sink
+        self._step_id = 0
         self._contents: list[Content] = [
             Content(
                 role="user",
@@ -114,43 +118,85 @@ class BrowserAgent:
             ),
         )
 
+    def _emit_event(self, event_type: str, **payload: Any) -> None:
+        if not self._event_sink:
+            return
+        self._event_sink(
+            {
+                "type": event_type,
+                "timestamp": time.time(),
+                **payload,
+            }
+        )
+
+    def append_user_message(self, text: str) -> None:
+        self._contents.append(
+            Content(
+                role="user",
+                parts=[Part(text=text)],
+            )
+        )
+
+    def get_recent_messages(self, limit: int) -> list[dict[str, Optional[str]]]:
+        messages: list[dict[str, Optional[str]]] = []
+        for content in self._contents:
+            if not content.parts:
+                continue
+            text_parts = [part.text for part in content.parts if part.text]
+            if not text_parts:
+                continue
+            messages.append(
+                {
+                    "role": content.role,
+                    "text": " ".join(text_parts),
+                }
+            )
+        if limit <= 0:
+            return []
+        return messages[-limit:]
+
     def handle_action(self, action: types.FunctionCall) -> FunctionResponseT:
         """Handles the action and returns the environment state."""
         if action.name == "open_web_browser":
             return self._browser_computer.open_web_browser()
         elif action.name == "click_at":
-            x = self.denormalize_x(action.args["x"])
-            y = self.denormalize_y(action.args["y"])
+            args = action.args or {}
+            x = self.denormalize_x(args["x"])
+            y = self.denormalize_y(args["y"])
             return self._browser_computer.click_at(
                 x=x,
                 y=y,
             )
         elif action.name == "hover_at":
-            x = self.denormalize_x(action.args["x"])
-            y = self.denormalize_y(action.args["y"])
+            args = action.args or {}
+            x = self.denormalize_x(args["x"])
+            y = self.denormalize_y(args["y"])
             return self._browser_computer.hover_at(
                 x=x,
                 y=y,
             )
         elif action.name == "type_text_at":
-            x = self.denormalize_x(action.args["x"])
-            y = self.denormalize_y(action.args["y"])
-            press_enter = action.args.get("press_enter", False)
-            clear_before_typing = action.args.get("clear_before_typing", True)
+            args = action.args or {}
+            x = self.denormalize_x(args["x"])
+            y = self.denormalize_y(args["y"])
+            press_enter = args.get("press_enter", False)
+            clear_before_typing = args.get("clear_before_typing", True)
             return self._browser_computer.type_text_at(
                 x=x,
                 y=y,
-                text=action.args["text"],
+                text=args["text"],
                 press_enter=press_enter,
                 clear_before_typing=clear_before_typing,
             )
         elif action.name == "scroll_document":
-            return self._browser_computer.scroll_document(action.args["direction"])
+            args = action.args or {}
+            return self._browser_computer.scroll_document(args["direction"])
         elif action.name == "scroll_at":
-            x = self.denormalize_x(action.args["x"])
-            y = self.denormalize_y(action.args["y"])
-            magnitude = action.args.get("magnitude", 800)
-            direction = action.args["direction"]
+            args = action.args or {}
+            x = self.denormalize_x(args["x"])
+            y = self.denormalize_y(args["y"])
+            magnitude = args.get("magnitude", 800)
+            direction = args["direction"]
 
             if direction in ("up", "down"):
                 magnitude = self.denormalize_y(magnitude)
@@ -170,16 +216,19 @@ class BrowserAgent:
         elif action.name == "search":
             return self._browser_computer.search()
         elif action.name == "navigate":
-            return self._browser_computer.navigate(action.args["url"])
+            args = action.args or {}
+            return self._browser_computer.navigate(args["url"])
         elif action.name == "key_combination":
+            args = action.args or {}
             return self._browser_computer.key_combination(
-                action.args["keys"].split("+")
+                args["keys"].split("+")
             )
         elif action.name == "drag_and_drop":
-            x = self.denormalize_x(action.args["x"])
-            y = self.denormalize_y(action.args["y"])
-            destination_x = self.denormalize_x(action.args["destination_x"])
-            destination_y = self.denormalize_y(action.args["destination_y"])
+            args = action.args or {}
+            x = self.denormalize_x(args["x"])
+            y = self.denormalize_y(args["y"])
+            destination_x = self.denormalize_x(args["destination_x"])
+            destination_y = self.denormalize_y(args["destination_y"])
             return self._browser_computer.drag_and_drop(
                 x=x,
                 y=y,
@@ -188,7 +237,8 @@ class BrowserAgent:
             )
         # Handle the custom function declarations here.
         elif action.name == multiply_numbers.__name__:
-            return multiply_numbers(x=action.args["x"], y=action.args["y"])
+            args = action.args or {}
+            return multiply_numbers(x=args["x"], y=args["y"])
         else:
             raise ValueError(f"Unsupported function: {action}")
 
@@ -220,36 +270,72 @@ class BrowserAgent:
         return ret
 
     def run_one_iteration(self) -> Literal["COMPLETE", "CONTINUE"]:
+        self._step_id += 1
+        step_id = self._step_id
+        self._emit_event("step_started", step_id=step_id)
+
         # Generate a response from the model.
         if self._verbose:
             with console.status(
-                "Generating response from Gemini Computer Use...", spinner_style=None
+                "Generating response from Gemini Computer Use..."
             ):
                 try:
                     response = self.get_model_response()
                 except Exception as e:
+                    self._emit_event(
+                        "step_error",
+                        step_id=step_id,
+                        error_message=str(e),
+                    )
                     print(e)
                     return "COMPLETE"
         else:
             try:
                 response = self.get_model_response()
             except Exception as e:
+                self._emit_event(
+                    "step_error",
+                    step_id=step_id,
+                    error_message=str(e),
+                )
                 print(e)
                 return "COMPLETE"
 
         if not response.candidates:
+            self._emit_event(
+                "step_error",
+                step_id=step_id,
+                error_message="Response has no candidates.",
+            )
             print("Response has no candidates!")
             print(response)
             raise ValueError("Empty response")
 
         # Extract the text and function call from the response.
         candidate = response.candidates[0]
+        self._emit_event(
+            "model_response",
+            step_id=step_id,
+            finish_reason=str(candidate.finish_reason) if candidate.finish_reason else None,
+        )
         # Append the model turn to conversation history.
         if candidate.content:
             self._contents.append(candidate.content)
 
         reasoning = self.get_text(candidate)
+        self._emit_event("reasoning_extracted", step_id=step_id, reasoning=reasoning)
         function_calls = self.extract_function_calls(candidate)
+        self._emit_event(
+            "function_calls_extracted",
+            step_id=step_id,
+            function_calls=[
+                {
+                    "name": function_call.name,
+                    "args": dict(function_call.args or {}),
+                }
+                for function_call in function_calls
+            ],
+        )
 
         # Retry the request in case of malformed FCs.
         if (
@@ -257,11 +343,22 @@ class BrowserAgent:
             and not reasoning
             and candidate.finish_reason == FinishReason.MALFORMED_FUNCTION_CALL
         ):
+            self._emit_event(
+                "step_error",
+                step_id=step_id,
+                error_message="Malformed function call.",
+            )
             return "CONTINUE"
 
         if not function_calls:
             print(f"Agent Loop Complete: {reasoning}")
             self.final_reasoning = reasoning
+            self._emit_event(
+                "step_complete",
+                step_id=step_id,
+                status="complete",
+                final_reasoning=reasoning,
+            )
             return "COMPLETE"
 
         function_call_strs = []
@@ -293,17 +390,44 @@ class BrowserAgent:
                 decision = self._get_safety_confirmation(safety)
                 if decision == "TERMINATE":
                     print("Terminating agent loop")
+                    self._emit_event(
+                        "step_complete",
+                        step_id=step_id,
+                        status="complete",
+                        final_reasoning="Terminated after safety confirmation rejection.",
+                    )
                     return "COMPLETE"
                 # Explicitly mark the safety check as acknowledged.
                 extra_fr_fields["safety_acknowledgement"] = "true"
             if self._verbose:
                 with console.status(
-                    "Sending command to Computer...", spinner_style=None
+                    "Sending command to Computer..."
                 ):
                     fc_result = self.handle_action(function_call)
             else:
                 fc_result = self.handle_action(function_call)
             if isinstance(fc_result, EnvState):
+                latest_artifacts = None
+                latest_artifacts_getter = getattr(
+                    self._browser_computer,
+                    "latest_artifact_metadata",
+                    None,
+                )
+                if callable(latest_artifacts_getter):
+                    latest_artifacts = latest_artifacts_getter()
+                self._emit_event(
+                    "action_executed",
+                    step_id=step_id,
+                    action={
+                        "name": function_call.name,
+                        "args": dict(function_call.args or {}),
+                    },
+                    env_state={
+                        "url": fc_result.url,
+                        "screenshot": fc_result.screenshot,
+                    },
+                    artifacts=latest_artifacts,
+                )
                 function_responses.append(
                     FunctionResponse(
                         name=function_call.name,
@@ -321,6 +445,15 @@ class BrowserAgent:
                     )
                 )
             elif isinstance(fc_result, dict):
+                self._emit_event(
+                    "action_executed",
+                    step_id=step_id,
+                    action={
+                        "name": function_call.name,
+                        "args": dict(function_call.args or {}),
+                    },
+                    response=fc_result,
+                )
                 function_responses.append(
                     FunctionResponse(name=function_call.name, response=fc_result)
                 )
@@ -361,6 +494,11 @@ class BrowserAgent:
                             ):
                                 part.function_response.parts = None
 
+        self._emit_event(
+            "step_complete",
+            step_id=step_id,
+            status="complete",
+        )
         return "CONTINUE"
 
     def _get_safety_confirmation(
