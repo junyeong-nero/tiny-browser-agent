@@ -5,13 +5,18 @@ Browser agent example for Gemini Computer Use with two browser backends:
 - `playwright`: local Chromium controlled by Playwright
 - `browserbase`: remote browser session via Browserbase
 
-The CLI entry point is [`main.py`](/Users/junyeong-nero/workspace/computer-use-preview/main.py). Runtime code lives in [`src/`](/Users/junyeong-nero/workspace/computer-use-preview/src).
+The CLI entry point is `main.py`. Runtime code lives in `src/`.
+
+## Requirements
+
+- Python `>=3.12,<3.13`
+- `uv`
+- A Gemini API key or Vertex AI credentials
+- For Browserbase: `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID`
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/junyeong-nero/computer-use-preview.git
-cd computer-use-preview
 uv sync --dev
 uv run playwright install chromium
 export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
@@ -22,35 +27,6 @@ If Playwright needs system packages on your machine, run:
 
 ```bash
 uv run playwright install-deps chromium
-```
-
-## Requirements
-
-- Python `>=3.12,<3.13`
-- `uv`
-- A Gemini API key, or Vertex AI credentials
-- For Browserbase: `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID`
-
-## Installation
-
-Create the environment and install dependencies:
-
-```bash
-uv sync --dev
-```
-
-Optional legacy setup with `venv` and `pip`:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Install Chromium for the Playwright backend:
-
-```bash
-uv run playwright install chromium
 ```
 
 ## Configuration
@@ -82,12 +58,6 @@ Basic command:
 
 ```bash
 uv run python main.py --query "Go to Google and search for Gemini Computer Use"
-```
-
-If `.venv` is already activated, you can also run:
-
-```bash
-python main.py --query "Go to Google and search for Gemini Computer Use"
 ```
 
 ### Playwright
@@ -184,7 +154,7 @@ usage: main.py [-h] --query QUERY [--env {playwright,browserbase}]
 | `--highlight_mouse` | Highlight cursor position in Playwright screenshots. | `False` |
 | `--headless` | Launch Playwright headless. Use `True` or `False`. | `False` |
 | `--log` | Save Playwright video and per-step DOM/screenshot history. | `False` |
-| `--model` | Gemini model name. | `gemini-2.5-computer-use-preview-10-2025` |
+| `--model` | Model name passed to the configured LLM provider. | `gemini-2.5-computer-use-preview-10-2025` |
 
 ## Environment Variables
 
@@ -196,6 +166,86 @@ usage: main.py [-h] --query QUERY [--env {playwright,browserbase}]
 | `VERTEXAI_LOCATION` | Vertex AI location. |
 | `BROWSERBASE_API_KEY` | Browserbase API key. |
 | `BROWSERBASE_PROJECT_ID` | Browserbase project ID. |
+
+## Project Layout
+
+- `main.py`: CLI entry point and backend selection
+- `src/agent.py`: `BrowserAgent`, browser-action orchestration, `agent_loop()`, and `run_one_iteration()`
+- `src/llm/client.py`: app-facing LLM client with provider selection and bounded retry handling
+- `src/llm/provider/`: Gemini API and Vertex AI provider bootstrap implementations
+- `src/computers/computer.py`: shared `Computer` interface and `EnvState`
+- `src/computers/playwright/playwright.py`: local Playwright backend
+- `src/computers/browserbase/browserbase.py`: Browserbase backend
+- `tests/test_main.py`: CLI tests
+- `tests/test_agent.py`: agent behavior tests
+- `tests/test_playwright_logging.py`: Playwright logging tests
+
+## Agent Pipeline
+
+The runtime flow starts in `main.py`, selects a browser backend, initializes `BrowserAgent`, and then loops until the model stops issuing browser actions.
+
+```mermaid
+flowchart TD
+    A[CLI: main.py] --> B[Parse args]
+    B --> C{Select backend}
+    C -->|playwright| D[PlaywrightComputer]
+    C -->|browserbase| E[BrowserbaseComputer]
+    D --> F[Create BrowserAgent]
+    E --> F
+    F --> G[Initialize LLMClient and tool config]
+    G --> H[Seed contents with user query]
+    H --> I[agent_loop]
+    I --> J[run_one_iteration]
+    J --> K[Call Gemini model]
+    K --> L{Function calls returned?}
+    L -->|No| M[Save final_reasoning]
+    M --> N[Complete]
+    L -->|Yes| O[handle_action]
+    O --> P[Execute browser action via backend]
+    P --> Q[Capture EnvState screenshot and url]
+    Q --> R[Append FunctionResponse to contents]
+    R --> S[Trim old screenshot payloads]
+    S --> I
+```
+
+### Per-iteration flow
+
+```mermaid
+sequenceDiagram
+    participant U as User query / contents
+    participant A as BrowserAgent
+    participant M as Gemini model
+    participant C as Computer backend
+    participant P as Browser page
+
+    U->>A: Existing contents + query
+    A->>M: generate_content(model, contents, config)
+    M-->>A: reasoning + function calls
+
+    alt no function calls
+        A-->>A: Store final_reasoning
+        A-->>U: COMPLETE
+    else function calls present
+        loop each function call
+            A->>A: handle_action(function_call)
+            A->>C: click / type / scroll / navigate / ...
+            C->>P: Perform browser operation
+            P-->>C: Updated page state
+            C-->>A: EnvState(screenshot, url)
+        end
+        A-->>A: Append FunctionResponse to contents
+        A-->>A: Remove older screenshot payloads
+        A-->>U: CONTINUE
+    end
+```
+
+Key responsibilities:
+
+- `main.py`: parses CLI arguments, chooses `playwright` or `browserbase`, and starts the outer loop.
+- `src/agent.py`: owns action dispatch, conversation state, and iteration control.
+- `src/llm/client.py`: owns provider bootstrap, model request execution, and bounded retry handling.
+- `src/computers/playwright/playwright.py`: executes local browser actions and captures screenshots/DOM history.
+- `src/computers/browserbase/browserbase.py`: connects the same action model to a remote Browserbase session.
 
 ## Development
 
@@ -211,22 +261,8 @@ Inspect CLI options:
 uv run python main.py --help
 ```
 
-Project layout:
+## Security Notes
 
-- [`src/agent.py`](/Users/junyeong-nero/workspace/computer-use-preview/src/agent.py): agent loop and Gemini interaction
-- [`src/computers/playwright/playwright.py`](/Users/junyeong-nero/workspace/computer-use-preview/src/computers/playwright/playwright.py): local Playwright backend
-- [`src/computers/browserbase/browserbase.py`](/Users/junyeong-nero/workspace/computer-use-preview/src/computers/browserbase/browserbase.py): Browserbase backend
-- [`tests/`](/Users/junyeong-nero/workspace/computer-use-preview/tests): test suite
-
-## Known Issues
-
-### Native `<select>` elements in Playwright
-
-On some operating systems, Playwright cannot capture native dropdown UI because it is rendered outside the DOM. That means the model may not see the visible dropdown state correctly in screenshots.
-
-Workarounds:
-
-1. Use `browserbase` instead of local `playwright`.
-2. Inject a custom dropdown implementation such as `proxy-select` so the UI stays in the DOM.
-
-The Browserbase backend is usually the more reliable option for sites that depend heavily on native OS-rendered controls.
+- Do not hardcode secrets; use environment variables instead.
+- `--log` stores screenshots, DOM snapshots, metadata, and Playwright video under `logs/history/<timestamp>/`, which may capture sensitive content and URLs.
+- The local Playwright backend keeps the browser sandbox enabled.
