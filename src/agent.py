@@ -11,9 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
 from typing import Literal, Optional, Union, Any
-from google import genai
 from google.genai import types
 import termcolor
 from google.genai.types import (
@@ -24,11 +22,11 @@ from google.genai.types import (
     FunctionResponse,
     FinishReason,
 )
-import time
 from rich.console import Console
 from rich.table import Table
 
 from computers import EnvState, Computer
+from llm import LLMClient
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 PREDEFINED_COMPUTER_USE_FUNCTIONS = [
@@ -67,18 +65,14 @@ class BrowserAgent:
         query: str,
         model_name: str,
         verbose: bool = True,
+        llm_client: Optional[LLMClient] = None,
     ):
         self._browser_computer = browser_computer
         self._query = query
         self._model_name = model_name
         self._verbose = verbose
         self.final_reasoning = None
-        self._client = genai.Client(
-            api_key=os.environ.get("GEMINI_API_KEY"),
-            vertexai=os.environ.get("USE_VERTEXAI", "0").lower() in ["true", "1"],
-            project=os.environ.get("VERTEXAI_PROJECT"),
-            location=os.environ.get("VERTEXAI_LOCATION"),
-        )
+        self._llm_client = llm_client or LLMClient.from_env()
         self._contents: list[Content] = [
             Content(
                 role="user",
@@ -93,10 +87,7 @@ class BrowserAgent:
 
         # Add your own custom functions here.
         custom_functions = [
-            # For example:
-            types.FunctionDeclaration.from_callable(
-                client=self._client, callable=multiply_numbers
-            )
+            self._llm_client.build_function_declaration(multiply_numbers)
         ]
 
         self._generate_content_config = GenerateContentConfig(
@@ -201,36 +192,12 @@ class BrowserAgent:
         else:
             raise ValueError(f"Unsupported function: {action}")
 
-    def get_model_response(
-        self, max_retries=5, base_delay_s=1
-    ) -> types.GenerateContentResponse:
-        for attempt in range(max_retries):
-            try:
-                response = self._client.models.generate_content(
-                    model=self._model_name,
-                    contents=self._contents,
-                    config=self._generate_content_config,
-                )
-                return response  # Return response on success
-            except Exception as e:
-                print(e)
-                if attempt < max_retries - 1:
-                    delay = base_delay_s * (2**attempt)
-                    message = (
-                        f"Generating content failed on attempt {attempt + 1}. "
-                        f"Retrying in {delay} seconds...\n"
-                    )
-                    termcolor.cprint(
-                        message,
-                        color="yellow",
-                    )
-                    time.sleep(delay)
-                else:
-                    termcolor.cprint(
-                        f"Generating content failed after {max_retries} attempts.\n",
-                        color="red",
-                    )
-                    raise
+    def get_model_response(self) -> types.GenerateContentResponse:
+        return self._llm_client.generate_content(
+            model=self._model_name,
+            contents=self._contents,
+            config=self._generate_content_config,
+        )
 
     def get_text(self, candidate: Candidate) -> Optional[str]:
         """Extracts the text from the candidate."""
@@ -261,11 +228,13 @@ class BrowserAgent:
                 try:
                     response = self.get_model_response()
                 except Exception as e:
+                    print(e)
                     return "COMPLETE"
         else:
             try:
                 response = self.get_model_response()
             except Exception as e:
+                print(e)
                 return "COMPLETE"
 
         if not response.candidates:

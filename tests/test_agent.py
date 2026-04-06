@@ -12,25 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import unittest
 from unittest.mock import MagicMock, patch
 from google.genai import types
 from agent import BrowserAgent, multiply_numbers
 from computers import EnvState
+from llm.client import LLMClient
+
 
 class TestBrowserAgent(unittest.TestCase):
     def setUp(self):
-        os.environ["GEMINI_API_KEY"] = "test_api_key"
         self.mock_browser_computer = MagicMock()
         self.mock_browser_computer.screen_size.return_value = (1000, 1000)
+        self.mock_llm_client = MagicMock(spec=LLMClient)
+        self.mock_llm_client.build_function_declaration.return_value = types.FunctionDeclaration(
+            name=multiply_numbers.__name__,
+            description=multiply_numbers.__doc__,
+            parameters_json_schema={
+                "type": "object",
+                "properties": {
+                    "x": {"type": "number"},
+                    "y": {"type": "number"},
+                },
+                "required": ["x", "y"],
+            },
+        )
         self.agent = BrowserAgent(
             browser_computer=self.mock_browser_computer,
             query="test query",
-            model_name="test_model"
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
         )
-        # Mock the genai client
-        self.agent._client = MagicMock()
 
     def test_multiply_numbers(self):
         self.assertEqual(multiply_numbers(2, 3), {"result": 6})
@@ -77,6 +89,19 @@ class TestBrowserAgent(unittest.TestCase):
 
     def test_denormalize_y(self):
         self.assertEqual(self.agent.denormalize_y(500), 500)
+
+    def test_get_model_response_calls_llm_client(self):
+        mock_response = MagicMock()
+        self.mock_llm_client.generate_content.return_value = mock_response
+
+        response = self.agent.get_model_response()
+
+        self.assertIs(response, mock_response)
+        self.mock_llm_client.generate_content.assert_called_once_with(
+            model="test_model",
+            contents=self.agent._contents,
+            config=self.agent._generate_content_config,
+        )
 
     @patch("agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_no_function_calls(self, mock_get_model_response):
