@@ -48,6 +48,13 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(metadata["url"], "https://example.com")
             self.assertEqual(metadata["html_path"], "step-0001.html")
             self.assertEqual(metadata["screenshot_path"], "step-0001.png")
+            latest_metadata = computer.latest_artifact_metadata()
+            self.assertIsNotNone(latest_metadata)
+            self.assertEqual(latest_metadata["step"], 1)
+            self.assertEqual(latest_metadata["url"], "https://example.com")
+            self.assertEqual(latest_metadata["html_path"], "step-0001.html")
+            self.assertEqual(latest_metadata["screenshot_path"], "step-0001.png")
+            self.assertEqual(latest_metadata["metadata_path"], "step-0001.json")
 
 
 if __name__ == "__main__":
