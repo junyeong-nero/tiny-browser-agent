@@ -129,6 +129,26 @@ class FakeAgent:
             )
             self.event_sink(
                 {
+                    "type": "review_metadata_extracted",
+                    "step_id": 1,
+                    "timestamp": time.time(),
+                    "phase_id": "phase-search",
+                    "phase_label": "검색",
+                    "phase_summary": "조건에 맞는 결과를 찾는 중입니다.",
+                    "user_visible_label": "검색 페이지 열기",
+                    "verification_items": [
+                        {
+                            "id": "verify-seat-class",
+                            "message": "좌석 등급을 지정하지 않아 이코노미를 선택했습니다.",
+                            "detail": "명시적인 선호가 없어 기본값을 적용했습니다.",
+                            "source_step_id": 1,
+                            "status": "needs_review",
+                        }
+                    ],
+                }
+            )
+            self.event_sink(
+                {
                     "type": "step_complete",
                     "step_id": 1,
                     "timestamp": time.time(),
@@ -154,6 +174,18 @@ class FakeAgent:
                 "step_id": 2,
                 "timestamp": time.time(),
                 "function_calls": [],
+            }
+        )
+        self.event_sink(
+            {
+                "type": "review_metadata_extracted",
+                "step_id": 2,
+                "timestamp": time.time(),
+                "phase_id": "phase-complete",
+                "phase_label": "완료",
+                "phase_summary": "최종 결과를 정리했습니다.",
+                "user_visible_label": "결과 정리",
+                "final_result_summary": "요청한 작업을 마쳤고 검토 항목 1개를 남겼습니다.",
             }
         )
         self.event_sink(
@@ -214,9 +246,19 @@ class TestSessionController(unittest.TestCase):
             self.assertIsNotNone(snapshot.latest_screenshot_b64)
             self.assertEqual(snapshot.latest_step_id, 2)
             self.assertEqual(snapshot.final_reasoning, "All done.")
+            self.assertEqual(snapshot.request_text, "visit example")
+            self.assertEqual(
+                snapshot.final_result_summary,
+                "요청한 작업을 마쳤고 검토 항목 1개를 남겼습니다.",
+            )
+            self.assertEqual(len(snapshot.verification_items), 1)
+            self.assertEqual(snapshot.verification_items[0].source_step_id, 1)
+            self.assertEqual(snapshot.verification_items[0].screenshot_path, "step-0001.png")
             self.assertEqual([message.role for message in snapshot.messages], ["user", "assistant"])
             self.assertEqual(len(steps), 2)
             self.assertEqual(steps[0].screenshot_path, "step-0001.png")
+            self.assertEqual(steps[0].phase_id, "phase-search")
+            self.assertEqual(steps[1].phase_id, "phase-complete")
             self.assertTrue(controller.get_artifact_path("step-0001.png").exists())
 
     def test_session_controller_enqueues_messages_for_agent(self):
@@ -312,10 +354,13 @@ class TestSessionApi(unittest.TestCase):
         snapshot_response = self.client.get(f"/api/sessions/{session_id}")
         self.assertEqual(snapshot_response.status_code, 200)
         self.assertEqual(snapshot_response.json()["final_reasoning"], "All done.")
+        self.assertEqual(snapshot_response.json()["request_text"], "visit example")
+        self.assertEqual(len(snapshot_response.json()["verification_items"]), 1)
 
         steps_response = self.client.get(f"/api/sessions/{session_id}/steps")
         self.assertEqual(steps_response.status_code, 200)
         self.assertEqual(len(steps_response.json()), 2)
+        self.assertEqual(steps_response.json()[0]["phase_id"], "phase-search")
 
         artifact_response = self.client.get(
             f"/api/sessions/{session_id}/artifacts/step-0001.png"

@@ -9,7 +9,7 @@ from typing import Any, Callable, Literal, Optional
 from agent import BrowserAgent
 from computers import Computer, PlaywrightComputer
 
-from .models import ChatMessage, SessionSnapshot, SessionStatus, StepRecord
+from .models import ChatMessage, SessionSnapshot, SessionStatus, StepRecord, VerificationItem
 from .serializers import (
     encode_screenshot_base64,
     make_initial_snapshot,
@@ -52,6 +52,7 @@ class SessionController:
         self._message_queue: Queue[str] = Queue()
         self._stop_requested = False
         self._assistant_message_emitted = False
+        self._pending_verification_items: dict[str, VerificationItem] = {}
 
         artifacts_base_url = f"/api/sessions/{self.session_id}/artifacts"
         self._latest_snapshot = make_initial_snapshot(
@@ -68,6 +69,7 @@ class SessionController:
             self._stop_requested = False
             self._assistant_message_emitted = False
             self._append_message_locked(role="user", text=query)
+            self._latest_snapshot.request_text = query
             self._latest_snapshot.status = SessionStatus.RUNNING
             self._touch_snapshot_locked()
             self._thread = threading.Thread(
@@ -188,6 +190,10 @@ class SessionController:
                     html_path=None,
                     metadata_path=None,
                     error_message=None,
+                    phase_id=None,
+                    phase_label=None,
+                    phase_summary=None,
+                    user_visible_label=None,
                 )
                 self._steps.append(step)
                 self._latest_snapshot.latest_step_id = step.step_id
@@ -196,6 +202,8 @@ class SessionController:
                 if step:
                     step.reasoning = event.get("reasoning")
                 self._latest_snapshot.last_reasoning = event.get("reasoning")
+                if event.get("reasoning"):
+                    self._latest_snapshot.run_summary = event.get("reasoning")
             elif event_type == "function_calls_extracted":
                 step = self._get_step_locked(step_id)
                 serialized_actions = serialize_step_actions(event.get("function_calls", []))
@@ -219,13 +227,20 @@ class SessionController:
                     self._latest_snapshot.latest_screenshot_b64 = encode_screenshot_base64(
                         screenshot
                     )
+                self._resolve_verification_items_locked()
+            elif event_type == "review_metadata_extracted":
+                self._apply_review_metadata_locked(step_id=step_id, payload=event)
             elif event_type == "step_complete":
                 step = self._get_step_locked(step_id)
                 if step:
                     step.status = event.get("status", "complete")
+                self._apply_review_metadata_locked(step_id=step_id, payload=event)
                 final_reasoning = event.get("final_reasoning")
                 if final_reasoning:
                     self._latest_snapshot.final_reasoning = final_reasoning
+                    self._latest_snapshot.run_summary = final_reasoning
+                    if not self._latest_snapshot.final_result_summary:
+                        self._latest_snapshot.final_result_summary = final_reasoning
                     if not self._assistant_message_emitted:
                         self._append_message_locked(role="assistant", text=final_reasoning)
                         self._assistant_message_emitted = True
@@ -252,6 +267,75 @@ class SessionController:
         self._messages.append(message)
         self._latest_snapshot.messages = [
             existing_message.model_copy(deep=True) for existing_message in self._messages
+        ]
+        if role == "user" and not self._latest_snapshot.request_text:
+            self._latest_snapshot.request_text = text
+
+    def _apply_review_metadata_locked(
+        self,
+        step_id: int | None,
+        payload: dict[str, Any],
+    ) -> None:
+        step = self._get_step_locked(step_id)
+        if step:
+            if "phase_id" in payload:
+                step.phase_id = payload.get("phase_id")
+            if "phase_label" in payload:
+                step.phase_label = payload.get("phase_label")
+            if "phase_summary" in payload:
+                step.phase_summary = payload.get("phase_summary")
+            if "user_visible_label" in payload:
+                step.user_visible_label = payload.get("user_visible_label")
+
+        run_summary = payload.get("run_summary")
+        if run_summary:
+            self._latest_snapshot.run_summary = run_summary
+
+        final_result_summary = payload.get("final_result_summary")
+        if final_result_summary:
+            self._latest_snapshot.final_result_summary = final_result_summary
+
+        verification_items = payload.get("verification_items")
+        if verification_items:
+            self._record_verification_items_locked(verification_items)
+        self._resolve_verification_items_locked()
+
+    def _record_verification_items_locked(self, items: list[dict[str, Any]]) -> None:
+        for item_payload in items:
+            source_step_id = item_payload.get("source_step_id")
+            if source_step_id is None:
+                continue
+            item = VerificationItem(
+                id=str(item_payload["id"]),
+                message=str(item_payload["message"]),
+                detail=item_payload.get("detail"),
+                source_step_id=source_step_id,
+                source_url=item_payload.get("source_url"),
+                screenshot_path=item_payload.get("screenshot_path"),
+                html_path=item_payload.get("html_path"),
+                metadata_path=item_payload.get("metadata_path"),
+                status=item_payload.get("status", "needs_review"),
+            )
+            self._pending_verification_items[item.id] = item
+
+    def _resolve_verification_items_locked(self) -> None:
+        resolved_items: list[VerificationItem] = []
+        for item in self._pending_verification_items.values():
+            step = self._get_step_locked(item.source_step_id)
+            if step is None:
+                continue
+            resolved_items.append(
+                item.model_copy(
+                    update={
+                        "source_url": step.url,
+                        "screenshot_path": step.screenshot_path,
+                        "html_path": step.html_path,
+                        "metadata_path": step.metadata_path,
+                    }
+                )
+            )
+        self._latest_snapshot.verification_items = [
+            item.model_copy(deep=True) for item in resolved_items
         ]
 
     def _get_step_locked(self, step_id: int | None) -> StepRecord | None:
