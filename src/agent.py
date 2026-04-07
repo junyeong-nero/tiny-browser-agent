@@ -129,6 +129,24 @@ class BrowserAgent:
             }
         )
 
+    def _emit_review_metadata(
+        self,
+        step_id: int,
+        reasoning: Optional[str],
+        final_result_summary: Optional[str] = None,
+    ) -> None:
+        self._emit_event(
+            "review_metadata_extracted",
+            step_id=step_id,
+            phase_id="all-steps",
+            phase_label="전체 과정 보기",
+            phase_summary=reasoning,
+            user_visible_label=f"Step {step_id}",
+            verification_items=[],
+            run_summary=reasoning,
+            final_result_summary=final_result_summary,
+        )
+
     def append_user_message(self, text: str) -> None:
         self._contents.append(
             Content(
@@ -353,6 +371,11 @@ class BrowserAgent:
         if not function_calls:
             print(f"Agent Loop Complete: {reasoning}")
             self.final_reasoning = reasoning
+            self._emit_review_metadata(
+                step_id=step_id,
+                reasoning=reasoning,
+                final_result_summary=reasoning,
+            )
             self._emit_event(
                 "step_complete",
                 step_id=step_id,
@@ -494,6 +517,7 @@ class BrowserAgent:
                             ):
                                 part.function_response.parts = None
 
+        self._emit_review_metadata(step_id=step_id, reasoning=reasoning)
         self._emit_event(
             "step_complete",
             step_id=step_id,

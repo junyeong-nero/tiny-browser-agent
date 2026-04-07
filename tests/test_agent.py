@@ -181,10 +181,12 @@ class TestBrowserAgent(unittest.TestCase):
                 "model_response",
                 "reasoning_extracted",
                 "function_calls_extracted",
+                "review_metadata_extracted",
                 "step_complete",
             ],
         )
         self.assertEqual(events[-1]["final_reasoning"], "some reasoning")
+        self.assertEqual(events[-2]["phase_id"], "all-steps")
 
 
 if __name__ == "__main__":
