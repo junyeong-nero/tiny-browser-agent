@@ -1,16 +1,21 @@
 import { useCallback, useMemo, useState } from 'react';
 
 import { apiClient } from './api/client';
-import { ArtifactLinks } from './components/ArtifactLinks';
 import { BrowserPane } from './components/BrowserPane';
 import { ChatPanel } from './components/ChatPanel';
 import { Layout } from './components/Layout';
 import { StatusBar } from './components/StatusBar';
-import { StepTimeline } from './components/StepTimeline';
+import { VerificationSidebar } from './components/VerificationSidebar';
 import { useSendMessage } from './hooks/useSendMessage';
 import { useSessionControls } from './hooks/useSessionControls';
 import { useSessionSnapshot } from './hooks/useSessionSnapshot';
 import { useSessionSteps } from './hooks/useSessionSteps';
+import {
+  getFinalResultSummary,
+  getRequestText,
+  getRunSummary,
+  type PreviewMode,
+} from './reviewPanel';
 import type { SessionSnapshot } from './types/api';
 import './styles/app.css';
 
@@ -18,6 +23,7 @@ function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [seedSnapshot, setSeedSnapshot] = useState<SessionSnapshot | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<PreviewMode>({ kind: 'current' });
 
   const { snapshot, error: snapshotError, refreshSnapshot } = useSessionSnapshot(sessionId);
   const displaySnapshot = snapshot ?? seedSnapshot;
@@ -44,12 +50,26 @@ function App() {
     () => sessionError ?? controlsError ?? sendMessageError ?? stepsError ?? snapshotError,
     [controlsError, sendMessageError, sessionError, snapshotError, stepsError],
   );
+  const selectedStep = useMemo(
+    () =>
+      previewMode.kind === 'step'
+        ? steps.find((step) => step.step_id === previewMode.stepId) ?? null
+        : null,
+    [previewMode, steps],
+  );
+  const requestText = useMemo(() => getRequestText(displaySnapshot), [displaySnapshot]);
+  const runSummary = useMemo(() => getRunSummary(displaySnapshot), [displaySnapshot]);
+  const finalResultSummary = useMemo(
+    () => getFinalResultSummary(displaySnapshot),
+    [displaySnapshot],
+  );
 
   const createSession = useCallback(async () => {
     try {
       const response = await apiClient.createSession();
       setSessionId(response.session_id);
       setSeedSnapshot(response.snapshot);
+      setPreviewMode({ kind: 'current' });
       resetSteps();
       setSessionError(null);
     } catch (err) {
@@ -63,6 +83,7 @@ function App() {
         await startSession(query);
         await refreshSnapshot();
         await refreshSteps();
+        setPreviewMode({ kind: 'current' });
         setSessionError(null);
       } catch (err) {
         setSessionError(err instanceof Error ? err.message : 'Failed to start session');
@@ -77,6 +98,7 @@ function App() {
         await sendMessage(text);
         await refreshSnapshot();
         await refreshSteps();
+        setPreviewMode({ kind: 'current' });
         setSessionError(null);
       } catch (err) {
         setSessionError(err instanceof Error ? err.message : 'Failed to send message');
@@ -109,9 +131,11 @@ function App() {
       }
       browserPane={
         <BrowserPane
-          screenshotB64={displaySnapshot?.latest_screenshot_b64}
+          currentScreenshotB64={displaySnapshot?.latest_screenshot_b64}
+          currentUpdatedAt={displaySnapshot?.updated_at}
+          selectedStep={selectedStep}
+          artifactsBaseUrl={displaySnapshot?.artifacts_base_url}
           status={displaySnapshot?.status}
-          updatedAt={displaySnapshot?.updated_at}
         />
       }
       chatPanel={
@@ -128,11 +152,17 @@ function App() {
         />
       }
       sidebar={
-        <div className="sidebar-content">
-          {error && <div className="error-banner">{error}</div>}
-          <StepTimeline steps={steps} />
-          <ArtifactLinks snapshot={displaySnapshot} />
-        </div>
+        <VerificationSidebar
+          snapshot={displaySnapshot}
+          steps={steps}
+          error={error}
+          previewMode={previewMode}
+          requestText={requestText}
+          runSummary={runSummary}
+          finalResultSummary={finalResultSummary}
+          onSelectCurrentPreview={() => setPreviewMode({ kind: 'current' })}
+          onSelectStepPreview={(stepId) => setPreviewMode({ kind: 'step', stepId })}
+        />
       }
     />
   );
