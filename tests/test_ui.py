@@ -4,12 +4,18 @@ import time
 import unittest
 from contextlib import AbstractContextManager
 from pathlib import Path
+from typing import cast
+from unittest.mock import MagicMock
 
+from google.genai import types
 from fastapi.testclient import TestClient
 
-from ui.server import create_app
-from ui.session_controller import SessionController
-from ui.session_store import SessionStore
+from src.agent import BrowserAgent, multiply_numbers
+from src.computers.computer import EnvState
+from src.llm.client import LLMClient
+from src.ui.server import create_app
+from src.ui.session_controller import AgentFactory, SessionController
+from src.ui.session_store import SessionStore
 
 
 def wait_for(predicate, timeout: float = 2.0) -> None:
@@ -233,7 +239,7 @@ class TestSessionController(unittest.TestCase):
                 headless=True,
                 artifacts_root=Path(tmp_dir),
                 computer_factory=FakeComputer,
-                agent_factory=FakeAgent,
+                agent_factory=cast(AgentFactory, FakeAgent),
             )
 
             controller.start("visit example")
@@ -272,7 +278,7 @@ class TestSessionController(unittest.TestCase):
                 headless=True,
                 artifacts_root=Path(tmp_dir),
                 computer_factory=FakeComputer,
-                agent_factory=FakeAgent,
+                agent_factory=cast(AgentFactory, FakeAgent),
             )
 
             controller.start("visit example")
@@ -293,7 +299,7 @@ class TestSessionController(unittest.TestCase):
                 headless=True,
                 artifacts_root=Path(tmp_dir),
                 computer_factory=FakeComputer,
-                agent_factory=BlockingAgent,
+                agent_factory=cast(AgentFactory, BlockingAgent),
             )
 
             controller.start("visit example")
@@ -302,6 +308,83 @@ class TestSessionController(unittest.TestCase):
             wait_for(lambda: controller.get_snapshot().status == "stopped")
 
             self.assertEqual(controller.get_snapshot().status, "stopped")
+
+    def test_session_controller_handles_real_browser_agent_event_payloads(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            controller = SessionController(
+                session_id="ses_test",
+                model_name="test-model",
+                screen_size=(1440, 900),
+                initial_url="https://example.com",
+                highlight_mouse=False,
+                headless=True,
+                artifacts_root=Path(tmp_dir),
+                computer_factory=FakeComputer,
+                agent_factory=cast(AgentFactory, FakeAgent),
+            )
+            mock_browser_computer = MagicMock()
+            mock_browser_computer.screen_size.return_value = (1000, 1000)
+            mock_browser_computer.latest_artifact_metadata.return_value = {
+                "screenshot_path": "step-0001.png",
+                "html_path": "step-0001.html",
+                "metadata_path": "step-0001.json",
+            }
+            mock_browser_computer.navigate.return_value = EnvState(
+                screenshot=b"png-bytes",
+                url="https://example.com/real",
+            )
+            mock_llm_client = MagicMock(spec=LLMClient)
+            mock_llm_client.build_function_declaration.return_value = types.FunctionDeclaration(
+                name=multiply_numbers.__name__,
+                description=multiply_numbers.__doc__,
+                parameters_json_schema={
+                    "type": "object",
+                    "properties": {
+                        "x": {"type": "number"},
+                        "y": {"type": "number"},
+                    },
+                    "required": ["x", "y"],
+                },
+            )
+            mock_llm_client.generate_content.return_value = types.GenerateContentResponse(
+                candidates=[
+                    types.Candidate(
+                        content=types.Content(
+                            role="model",
+                            parts=[
+                                types.Part(text="Navigate first."),
+                                types.Part(
+                                    function_call=types.FunctionCall(
+                                        name="navigate",
+                                        args={"url": "https://example.com/real"},
+                                    )
+                                ),
+                            ],
+                        )
+                    )
+                ]
+            )
+            agent = BrowserAgent(
+                browser_computer=mock_browser_computer,
+                query="visit example",
+                model_name="test-model",
+                llm_client=mock_llm_client,
+                event_sink=controller._handle_agent_event,
+            )
+
+            result = agent.run_one_iteration()
+
+            self.assertEqual(result, "CONTINUE")
+            snapshot = controller.get_snapshot()
+            steps = controller.get_steps()
+            self.assertEqual(snapshot.current_url, "https://example.com/real")
+            self.assertIsNotNone(snapshot.latest_screenshot_b64)
+            self.assertEqual(snapshot.latest_step_id, 1)
+            self.assertEqual(len(snapshot.last_actions), 1)
+            self.assertEqual(snapshot.last_actions[0].name, "navigate")
+            self.assertEqual(steps[0].screenshot_path, "step-0001.png")
+            self.assertEqual(steps[0].html_path, "step-0001.html")
+            self.assertEqual(steps[0].metadata_path, "step-0001.json")
 
 
 class TestSessionApi(unittest.TestCase):
@@ -315,7 +398,7 @@ class TestSessionApi(unittest.TestCase):
             headless=True,
             artifacts_root=Path(self.tmp_dir.name),
             computer_factory=FakeComputer,
-            agent_factory=FakeAgent,
+            agent_factory=cast(AgentFactory, FakeAgent),
         )
         self.app = create_app(
             model_name="test-model",

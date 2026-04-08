@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from ui.models import CreateSessionResponse, SendMessageRequest, StartSessionRequest
-from ui.session_store import SessionStore
+from ..models import CreateSessionResponse, SendMessageRequest, StartSessionRequest
+from ..session_store import SessionStore
 
 
 def build_sessions_router(store: SessionStore) -> APIRouter:
