@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 from google.genai import types
@@ -30,6 +33,7 @@ class TestBrowserAgent(unittest.TestCase):
             "html_path": "step-0001.html",
             "metadata_path": "step-0001.json",
         }
+        self.mock_browser_computer.history_dir.return_value = None
         self.mock_llm_client = MagicMock(spec=LLMClient)
         self.mock_llm_client.build_function_declaration.return_value = types.FunctionDeclaration(
             name=multiply_numbers.__name__,
@@ -92,6 +96,31 @@ class TestBrowserAgent(unittest.TestCase):
         if function_response is None:
             self.fail("Expected function response")
         return function_response
+
+    def write_metadata_file(
+        self,
+        directory: Path,
+        file_name: str,
+        *,
+        step: int,
+        url: str,
+    ) -> Path:
+        metadata_path = directory / file_name
+        metadata_path.write_text(
+            json.dumps(
+                {
+                    "step": step,
+                    "timestamp": 123.45,
+                    "url": url,
+                    "html_path": file_name.replace(".json", ".html"),
+                    "screenshot_path": file_name.replace(".json", ".png"),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return metadata_path
 
     def test_multiply_numbers(self):
         self.assertEqual(multiply_numbers(2, 3), {"result": 6})
@@ -256,6 +285,172 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(function_response.name, multiply_numbers.__name__)
         self.assertEqual(function_response.response, {"result": 6})
         self.assertIsNone(function_response.parts)
+
+    @patch("src.agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_enriches_browser_metadata_with_reasoning(
+        self,
+        mock_get_model_response,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            history_dir = Path(tmp_dir)
+            self.write_metadata_file(
+                history_dir,
+                "step-0001.json",
+                step=1,
+                url="https://example.com",
+            )
+            self.mock_browser_computer.history_dir.return_value = history_dir
+            self.mock_browser_computer.latest_artifact_metadata.return_value = {
+                "step": 1,
+                "timestamp": 123.45,
+                "url": "https://example.com",
+                "html_path": "step-0001.html",
+                "screenshot_path": "step-0001.png",
+                "metadata_path": "step-0001.json",
+            }
+            self.mock_browser_computer.navigate.return_value = EnvState(
+                screenshot=b"screenshot",
+                url="https://example.com",
+            )
+            mock_get_model_response.return_value = self.make_response(
+                [
+                    types.Part(text="I should inspect the page before answering."),
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="navigate",
+                            args={"url": "https://example.com"},
+                        )
+                    ),
+                ]
+            )
+
+            result = self.agent.run_one_iteration()
+
+            self.assertEqual(result, "CONTINUE")
+            metadata = json.loads((history_dir / "step-0001.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["step"], 1)
+            self.assertEqual(metadata["url"], "https://example.com")
+            self.assertEqual(metadata["action"], {"name": "navigate", "args": {"url": "https://example.com"}})
+            self.assertEqual(metadata["action_summary"], "Navigated to https://example.com")
+            self.assertEqual(metadata["reason"], "I should inspect the page before answering.")
+            self.assertEqual(
+                metadata["reasoning_text"],
+                "I should inspect the page before answering.",
+            )
+            self.assertEqual(metadata["summary_source"], "app_derived")
+            self.assertEqual(metadata["model_step_id"], 1)
+            self.assertEqual(metadata["function_call_index_within_step"], 1)
+
+    def test_build_persisted_action_metadata_uses_fallback_reason_when_reasoning_missing(self):
+        metadata = self.agent._build_persisted_action_metadata(
+            step_id=3,
+            function_call_index=1,
+            function_call=types.FunctionCall(
+                name="navigate",
+                args={"url": "https://example.com"},
+            ),
+            reasoning=None,
+        )
+
+        self.assertEqual(metadata["action_summary"], "Navigated to https://example.com")
+        self.assertEqual(metadata["reason"], "Needed to open https://example.com.")
+        self.assertIsNone(metadata["reasoning_text"])
+        self.assertEqual(metadata["model_step_id"], 3)
+        self.assertEqual(metadata["function_call_index_within_step"], 1)
+
+    @patch("src.agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_enriches_each_metadata_file_for_multiple_function_calls(
+        self,
+        mock_get_model_response,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            history_dir = Path(tmp_dir)
+            self.write_metadata_file(
+                history_dir,
+                "step-0001.json",
+                step=1,
+                url="https://example.com/one",
+            )
+            self.write_metadata_file(
+                history_dir,
+                "step-0002.json",
+                step=2,
+                url="https://example.com/two",
+            )
+            self.mock_browser_computer.history_dir.return_value = history_dir
+            self.mock_browser_computer.latest_artifact_metadata.side_effect = [
+                {
+                    "step": 1,
+                    "timestamp": 123.45,
+                    "url": "https://example.com/one",
+                    "html_path": "step-0001.html",
+                    "screenshot_path": "step-0001.png",
+                    "metadata_path": "step-0001.json",
+                },
+                {
+                    "step": 2,
+                    "timestamp": 234.56,
+                    "url": "https://example.com/two",
+                    "html_path": "step-0002.html",
+                    "screenshot_path": "step-0002.png",
+                    "metadata_path": "step-0002.json",
+                },
+            ]
+            self.mock_browser_computer.navigate.side_effect = [
+                EnvState(screenshot=b"first", url="https://example.com/one"),
+                EnvState(screenshot=b"second", url="https://example.com/two"),
+            ]
+            mock_get_model_response.return_value = self.make_response(
+                [
+                    types.Part(text="Inspect both pages."),
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="navigate",
+                            args={"url": "https://example.com/one"},
+                        )
+                    ),
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="navigate",
+                            args={"url": "https://example.com/two"},
+                        )
+                    ),
+                ]
+            )
+
+            result = self.agent.run_one_iteration()
+
+            self.assertEqual(result, "CONTINUE")
+            first_metadata = json.loads((history_dir / "step-0001.json").read_text(encoding="utf-8"))
+            second_metadata = json.loads((history_dir / "step-0002.json").read_text(encoding="utf-8"))
+            self.assertEqual(first_metadata["function_call_index_within_step"], 1)
+            self.assertEqual(second_metadata["function_call_index_within_step"], 2)
+            self.assertEqual(first_metadata["model_step_id"], 1)
+            self.assertEqual(second_metadata["model_step_id"], 1)
+            self.assertEqual(first_metadata["action"]["args"], {"url": "https://example.com/one"})
+            self.assertEqual(second_metadata["action"]["args"], {"url": "https://example.com/two"})
+
+    @patch("src.agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_custom_function_result_skips_metadata_enrichment(
+        self,
+        mock_get_model_response,
+    ):
+        function_call = types.FunctionCall(
+            name=multiply_numbers.__name__,
+            args={"x": 2, "y": 3},
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [
+                types.Part(text="Need the product."),
+                types.Part(function_call=function_call),
+            ]
+        )
+
+        result = self.agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        self.mock_browser_computer.latest_artifact_metadata.assert_not_called()
+        self.mock_browser_computer.history_dir.assert_not_called()
 
     @patch("src.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_prunes_old_screenshots(self, mock_get_model_response):

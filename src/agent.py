@@ -11,7 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import json
 import time
+from pathlib import Path
 from typing import Callable, Literal, Optional, Any
 from google.genai import types
 import termcolor
@@ -320,10 +322,172 @@ class BrowserAgent:
             console.print(table)
             print()
 
+    def _clean_reasoning_text(self, reasoning: Optional[str]) -> Optional[str]:
+        if not reasoning:
+            return None
+        cleaned_reasoning = " ".join(reasoning.split())
+        return cleaned_reasoning or None
+
+    def _build_action_summary(self, function_call: types.FunctionCall) -> str:
+        action_name = function_call.name or "action"
+        action_args = dict(function_call.args or {})
+
+        if action_name == "open_web_browser":
+            return "Opened the web browser"
+        if action_name == "click_at":
+            return f"Clicked at ({action_args.get('x')}, {action_args.get('y')})"
+        if action_name == "hover_at":
+            return f"Hovered at ({action_args.get('x')}, {action_args.get('y')})"
+        if action_name == "type_text_at":
+            return f"Typed text at ({action_args.get('x')}, {action_args.get('y')})"
+        if action_name == "scroll_document":
+            return f"Scrolled the document {action_args.get('direction')}"
+        if action_name == "scroll_at":
+            return (
+                f"Scrolled {action_args.get('direction')} at "
+                f"({action_args.get('x')}, {action_args.get('y')})"
+            )
+        if action_name == "wait_5_seconds":
+            return "Waited for 5 seconds"
+        if action_name == "go_back":
+            return "Went back to the previous page"
+        if action_name == "go_forward":
+            return "Went forward to the next page"
+        if action_name == "search":
+            return "Opened the search page"
+        if action_name == "navigate":
+            return f"Navigated to {action_args.get('url')}"
+        if action_name == "key_combination":
+            return f"Pressed key combination {action_args.get('keys')}"
+        if action_name == "drag_and_drop":
+            return (
+                f"Dragged from ({action_args.get('x')}, {action_args.get('y')}) to "
+                f"({action_args.get('destination_x')}, {action_args.get('destination_y')})"
+            )
+        return f"Executed {action_name}"
+
+    def _build_fallback_reason(self, function_call: types.FunctionCall) -> str:
+        action_name = function_call.name or "action"
+        action_args = dict(function_call.args or {})
+
+        if action_name == "navigate":
+            return f"Needed to open {action_args.get('url')}."
+        if action_name == "click_at":
+            return "Needed to click the selected page location."
+        if action_name == "hover_at":
+            return "Needed to inspect the selected page location."
+        if action_name == "type_text_at":
+            return "Needed to enter text into the page."
+        if action_name in {"scroll_document", "scroll_at"}:
+            return "Needed to move the page view to continue."
+        if action_name == "wait_5_seconds":
+            return "Needed to wait for the page state to settle."
+        if action_name == "go_back":
+            return "Needed to return to the previous page."
+        if action_name == "go_forward":
+            return "Needed to move forward in browser history."
+        if action_name == "search":
+            return "Needed to open the search page."
+        if action_name == "key_combination":
+            return "Needed to trigger a keyboard shortcut."
+        if action_name == "drag_and_drop":
+            return "Needed to move an on-page element."
+        return f"Needed to execute {action_name}."
+
+    def _build_persisted_action_metadata(
+        self,
+        step_id: int,
+        function_call_index: int,
+        function_call: types.FunctionCall,
+        reasoning: Optional[str],
+    ) -> dict[str, Any]:
+        cleaned_reasoning = self._clean_reasoning_text(reasoning)
+        return {
+            "action": {
+                "name": function_call.name,
+                "args": dict(function_call.args or {}),
+            },
+            "action_summary": self._build_action_summary(function_call),
+            "reason": cleaned_reasoning or self._build_fallback_reason(function_call),
+            "reasoning_text": cleaned_reasoning,
+            "summary_source": "app_derived",
+            "model_step_id": step_id,
+            "function_call_index_within_step": function_call_index,
+        }
+
+    def _resolve_metadata_file_path(
+        self,
+        artifacts: Optional[dict[str, Any]],
+    ) -> Optional[Path]:
+        if not artifacts:
+            return None
+
+        metadata_path_value = artifacts.get("metadata_path")
+        if not isinstance(metadata_path_value, str) or not metadata_path_value:
+            return None
+
+        metadata_path = Path(metadata_path_value)
+        if metadata_path.is_absolute():
+            return metadata_path
+
+        history_dir_getter = getattr(self._browser_computer, "history_dir", None)
+        if not callable(history_dir_getter):
+            return None
+
+        history_dir = history_dir_getter()
+        if history_dir is None:
+            return None
+        if not isinstance(history_dir, (str, Path)):
+            return None
+
+        return Path(history_dir) / metadata_path
+
+    def _enrich_persisted_action_metadata(
+        self,
+        step_id: int,
+        function_call_index: int,
+        function_call: types.FunctionCall,
+        reasoning: Optional[str],
+        artifacts: Optional[dict[str, Any]],
+    ) -> None:
+        metadata_file_path = self._resolve_metadata_file_path(artifacts)
+        if metadata_file_path is None or not metadata_file_path.exists():
+            return
+
+        try:
+            existing_metadata = json.loads(metadata_file_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+
+        if not isinstance(existing_metadata, dict):
+            return
+
+        enriched_metadata = {
+            **existing_metadata,
+            **self._build_persisted_action_metadata(
+                step_id=step_id,
+                function_call_index=function_call_index,
+                function_call=function_call,
+                reasoning=reasoning,
+            ),
+        }
+        temp_file_path = metadata_file_path.with_name(f"{metadata_file_path.name}.tmp")
+
+        try:
+            temp_file_path.write_text(
+                json.dumps(enriched_metadata, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temp_file_path.replace(metadata_file_path)
+        except OSError:
+            temp_file_path.unlink(missing_ok=True)
+
     def _execute_single_function_call(
         self,
         step_id: int,
+        function_call_index: int,
         function_call: types.FunctionCall,
+        reasoning: Optional[str],
         extra_fr_fields: dict[str, Any],
     ) -> FunctionResponse:
         if self._verbose:
@@ -337,6 +501,13 @@ class BrowserAgent:
             "name": function_call.name,
             "args": dict(function_call.args or {}),
         }
+        self._enrich_persisted_action_metadata(
+            step_id=step_id,
+            function_call_index=function_call_index,
+            function_call=executed_call.function_call,
+            reasoning=reasoning,
+            artifacts=executed_call.artifacts,
+        )
         if is_env_state_result(fc_result):
             self._emit_event(
                 "action_executed",
@@ -363,10 +534,11 @@ class BrowserAgent:
     def _execute_function_calls(
         self,
         step_id: int,
+        reasoning: Optional[str],
         function_calls: list[types.FunctionCall],
     ) -> ToolBatchResult:
         function_responses = []
-        for function_call in function_calls:
+        for function_call_index, function_call in enumerate(function_calls, start=1):
             extra_fr_fields = {}
             if function_call.args and (
                 safety := function_call.args.get("safety_decision")
@@ -386,7 +558,9 @@ class BrowserAgent:
             function_responses.append(
                 self._execute_single_function_call(
                     step_id,
+                    function_call_index,
                     function_call,
+                    reasoning,
                     extra_fr_fields,
                 )
             )
@@ -448,6 +622,7 @@ class BrowserAgent:
         self._render_function_call_summary(reasoning, function_calls)
         batch_result = self._execute_function_calls(
             step_id,
+            reasoning,
             function_calls,
         )
         if batch_result.status == "COMPLETE":
