@@ -26,6 +26,9 @@ package = false
 [tool.pytest.ini_options]
 pythonpath = ["src", "."]
 
+[tool.pyright]
+extraPaths = ["src", "."]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
