@@ -358,6 +358,45 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(metadata["model_step_id"], 3)
         self.assertEqual(metadata["function_call_index_within_step"], 1)
 
+    def test_record_step_review_metadata_preserves_ambiguity_across_multiple_calls(self):
+        self.agent._record_step_review_metadata(
+            step_id=1,
+            review_metadata={
+                "phase_id": "phase-input",
+                "phase_label": "입력 및 조작",
+                "phase_summary": None,
+                "user_visible_label": "Typed text at (10, 20)",
+                "ambiguity_flag": True,
+                "ambiguity_type": "typed_text_not_in_query",
+                "ambiguity_message": "Entered text was not explicitly present in the original request.",
+                "review_evidence": ["typed_text_not_in_query"],
+                "a11y_path": "step-0001.a11y.yaml",
+                "verification_items": [{"id": "v1"}],
+            },
+        )
+        self.agent._record_step_review_metadata(
+            step_id=1,
+            review_metadata={
+                "phase_id": "phase-navigation",
+                "phase_label": "페이지 이동",
+                "phase_summary": None,
+                "user_visible_label": "Navigated to https://example.com",
+                "ambiguity_flag": False,
+                "ambiguity_type": None,
+                "ambiguity_message": None,
+                "review_evidence": [],
+                "a11y_path": None,
+                "verification_items": [],
+            },
+        )
+
+        review_metadata = self.agent._step_review_metadata[1]
+        self.assertTrue(review_metadata["ambiguity_flag"])
+        self.assertEqual(review_metadata["ambiguity_type"], "typed_text_not_in_query")
+        self.assertEqual(review_metadata["review_evidence"], ["typed_text_not_in_query"])
+        self.assertEqual(review_metadata["verification_items"], [{"id": "v1"}])
+        self.assertEqual(review_metadata["phase_id"], "phase-input")
+
     @patch("src.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_enriches_each_metadata_file_for_multiple_function_calls(
         self,
@@ -594,7 +633,55 @@ class TestBrowserAgent(unittest.TestCase):
             ],
         )
         self.assertEqual(events[-1]["final_reasoning"], "some reasoning")
-        self.assertEqual(events[-2]["phase_id"], "all-steps")
+        self.assertEqual(events[-2]["phase_id"], "phase-complete")
+
+    @patch("src.agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_emits_runtime_phase_metadata_for_action_steps(
+        self,
+        mock_get_model_response,
+    ):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="visit example",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+        )
+        self.mock_browser_computer.latest_artifact_metadata.return_value = {
+            "step": 1,
+            "timestamp": 123.45,
+            "url": "https://example.com",
+            "html_path": "step-0001.html",
+            "screenshot_path": "step-0001.png",
+            "metadata_path": "step-0001.json",
+        }
+        self.mock_browser_computer.navigate.return_value = EnvState(
+            screenshot=b"screenshot",
+            url="https://example.com",
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [
+                types.Part(text="Open the destination page."),
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="navigate",
+                        args={"url": "https://example.com"},
+                    )
+                ),
+            ]
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        review_event = next(
+            event for event in events if event["type"] == "review_metadata_extracted"
+        )
+        self.assertEqual(review_event["phase_id"], "phase-navigation")
+        self.assertEqual(review_event["phase_label"], "페이지 이동")
+        self.assertEqual(review_event["phase_summary"], "Open the destination page.")
+        self.assertEqual(review_event["user_visible_label"], "Navigated to https://example.com")
 
 
 if __name__ == "__main__":
