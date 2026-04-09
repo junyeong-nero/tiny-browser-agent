@@ -4,6 +4,7 @@ import type {
   SessionSnapshot,
   StartSessionRequest,
   StepRecord,
+  VerificationPayload,
 } from '../types/api';
 
 const API_BASE = '/api';
@@ -59,6 +60,12 @@ export const apiClient = {
       : `${API_BASE}/sessions/${sessionId}/steps`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('Failed to get steps');
+    return res.json();
+  },
+
+  async getVerification(sessionId: string): Promise<VerificationPayload> {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/verification`);
+    if (!res.ok) throw new Error('Failed to get verification payload');
     return res.json();
   },
 };

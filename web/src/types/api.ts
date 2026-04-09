@@ -20,6 +20,11 @@ export interface VerificationItem {
   screenshot_path?: string | null;
   html_path?: string | null;
   metadata_path?: string | null;
+  a11y_path?: string | null;
+  ambiguity_flag?: boolean | null;
+  ambiguity_type?: string | null;
+  ambiguity_message?: string | null;
+  review_evidence?: string[];
   status: 'needs_review' | 'resolved';
 }
 
@@ -33,11 +38,38 @@ export interface StepRecord {
   screenshot_path: string | null;
   html_path: string | null;
   metadata_path: string | null;
+  a11y_path?: string | null;
   error_message: string | null;
   phase_id?: string | null;
   phase_label?: string | null;
   phase_summary?: string | null;
   user_visible_label?: string | null;
+  ambiguity_flag?: boolean | null;
+  ambiguity_type?: string | null;
+  ambiguity_message?: string | null;
+  review_evidence?: string[];
+}
+
+export interface VerificationGroup {
+  id: string;
+  label: string;
+  summary?: string | null;
+  step_ids: number[];
+  steps: StepRecord[];
+  screenshot_path?: string | null;
+  html_path?: string | null;
+  metadata_path?: string | null;
+  a11y_path?: string | null;
+}
+
+export interface VerificationPayload {
+  session_id: string;
+  request_text?: string | null;
+  run_summary?: string | null;
+  final_result_summary?: string | null;
+  artifacts_base_url?: string | null;
+  verification_items: VerificationItem[];
+  grouped_steps: VerificationGroup[];
 }
 
 export interface ChatMessage {
