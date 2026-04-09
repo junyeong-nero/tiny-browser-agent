@@ -1,1 +1,3 @@
-uv run python main.py --ui --headless True 
+cd web
+npm install
+npm run dev
