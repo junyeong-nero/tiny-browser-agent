@@ -27,6 +27,11 @@ class VerificationItem(BaseModel):
     screenshot_path: str | None = None
     html_path: str | None = None
     metadata_path: str | None = None
+    a11y_path: str | None = None
+    ambiguity_flag: bool | None = None
+    ambiguity_type: str | None = None
+    ambiguity_message: str | None = None
+    review_evidence: list[str] = Field(default_factory=list)
     status: Literal["needs_review", "resolved"]
 
 
@@ -42,11 +47,16 @@ class StepRecord(BaseModel):
     screenshot_path: str | None = None
     html_path: str | None = None
     metadata_path: str | None = None
+    a11y_path: str | None = None
     error_message: str | None = None
     phase_id: str | None = None
     phase_label: str | None = None
     phase_summary: str | None = None
     user_visible_label: str | None = None
+    ambiguity_flag: bool | None = None
+    ambiguity_type: str | None = None
+    ambiguity_message: str | None = None
+    review_evidence: list[str] = Field(default_factory=list)
 
 
 class ChatMessage(BaseModel):
@@ -75,6 +85,28 @@ class SessionSnapshot(BaseModel):
     error_message: str | None = None
     artifacts_base_url: str | None = None
     updated_at: float
+
+
+class VerificationGroup(BaseModel):
+    id: str
+    label: str
+    summary: str | None = None
+    step_ids: list[int] = Field(default_factory=list)
+    steps: list[StepRecord] = Field(default_factory=list)
+    screenshot_path: str | None = None
+    html_path: str | None = None
+    metadata_path: str | None = None
+    a11y_path: str | None = None
+
+
+class VerificationPayload(BaseModel):
+    session_id: str
+    request_text: str | None = None
+    run_summary: str | None = None
+    final_result_summary: str | None = None
+    artifacts_base_url: str | None = None
+    verification_items: list[VerificationItem] = Field(default_factory=list)
+    grouped_steps: list[VerificationGroup] = Field(default_factory=list)
 
 
 class CreateSessionResponse(BaseModel):

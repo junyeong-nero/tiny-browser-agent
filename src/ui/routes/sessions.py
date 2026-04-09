@@ -54,6 +54,11 @@ def build_sessions_router(store: SessionStore) -> APIRouter:
         session = get_session_or_404(session_id)
         return session.get_steps(after_step_id=after_step_id)
 
+    @router.get("/{session_id}/verification")
+    def get_verification(session_id: str):
+        session = get_session_or_404(session_id)
+        return session.get_verification_payload()
+
     @router.get("/{session_id}/artifacts/{name}")
     def get_artifact(session_id: str, name: str):
         session = get_session_or_404(session_id)

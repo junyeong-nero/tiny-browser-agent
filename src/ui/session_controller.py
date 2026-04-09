@@ -9,16 +9,128 @@ from typing import Any, Callable, Literal, Optional
 from agent import BrowserAgent
 from computers import Computer, PlaywrightComputer
 
-from .models import ChatMessage, SessionSnapshot, SessionStatus, StepRecord, VerificationItem
+from collections import Counter
+
+from .models import (
+    ChatMessage,
+    SessionSnapshot,
+    SessionStatus,
+    StepRecord,
+    VerificationGroup,
+    VerificationItem,
+    VerificationPayload,
+)
 from .serializers import (
     encode_screenshot_base64,
     make_initial_snapshot,
     serialize_step_actions,
 )
-
-
 ComputerFactory = Callable[..., AbstractContextManager[Computer]]
 AgentFactory = Callable[..., BrowserAgent]
+
+
+def build_verification_payload(
+    snapshot: SessionSnapshot,
+    steps: list[StepRecord],
+) -> VerificationPayload:
+    return VerificationPayload(
+        session_id=snapshot.session_id,
+        request_text=snapshot.request_text,
+        run_summary=snapshot.run_summary,
+        final_result_summary=snapshot.final_result_summary,
+        artifacts_base_url=snapshot.artifacts_base_url,
+        verification_items=[item.model_copy(deep=True) for item in snapshot.verification_items],
+        grouped_steps=_group_steps_for_verification(steps),
+    )
+
+
+def _group_steps_for_verification(steps: list[StepRecord]) -> list[VerificationGroup]:
+    if not steps:
+        return []
+
+    groups: list[list[StepRecord]] = []
+    current_group: list[StepRecord] = []
+
+    for step in steps:
+        previous_step = current_group[-1] if current_group else None
+        if not current_group or _should_start_new_group(previous_step, step):
+            if current_group:
+                groups.append(current_group)
+            current_group = [step]
+        else:
+            current_group.append(step)
+
+    if current_group:
+        groups.append(current_group)
+
+    return [_build_verification_group(group_steps) for group_steps in groups]
+
+
+def _should_start_new_group(previous_step: StepRecord | None, step: StepRecord) -> bool:
+    if previous_step is None:
+        return True
+
+    if step.phase_id:
+        return step.phase_id != previous_step.phase_id
+
+    if previous_step.phase_id:
+        return True
+
+    if step.url and previous_step.url and step.url != previous_step.url:
+        return True
+
+    return _action_signature(step) != _action_signature(previous_step)
+
+
+def _action_signature(step: StepRecord) -> str:
+    if not step.function_calls:
+        return ""
+    return ",".join(call.name for call in step.function_calls)
+
+
+def _build_verification_group(group_steps: list[StepRecord]) -> VerificationGroup:
+    first_step = group_steps[0]
+    last_step = group_steps[-1]
+    label = (
+        first_step.phase_label
+        or first_step.user_visible_label
+        or _short_url_label(first_step.url)
+        or f"Step {first_step.step_id}"
+    )
+    return VerificationGroup(
+        id=first_step.phase_id or f"group-{first_step.step_id}",
+        label=label,
+        summary=_build_group_summary(group_steps),
+        step_ids=[step.step_id for step in group_steps],
+        steps=[step.model_copy(deep=True) for step in group_steps],
+        screenshot_path=last_step.screenshot_path,
+        html_path=last_step.html_path,
+        metadata_path=last_step.metadata_path,
+        a11y_path=last_step.a11y_path,
+    )
+
+
+def _build_group_summary(group_steps: list[StepRecord]) -> str | None:
+    base_summary = group_steps[0].phase_summary or group_steps[0].reasoning
+    repeated_count = _repeated_action_count(group_steps)
+    if repeated_count <= 1:
+        return base_summary
+    if base_summary:
+        return f"{base_summary} · {repeated_count}회 반복"
+    return f"{repeated_count}회 반복"
+
+
+def _repeated_action_count(group_steps: list[StepRecord]) -> int:
+    signatures = [signature for signature in (_action_signature(step) for step in group_steps) if signature]
+    if not signatures:
+        return 1
+    return Counter(signatures).most_common(1)[0][1]
+
+
+def _short_url_label(url: str | None) -> str | None:
+    if not url:
+        return None
+    return url.replace("https://", "").replace("http://", "")
 
 
 class SessionController:
@@ -106,6 +218,12 @@ class SessionController:
                 steps = [step for step in self._steps if step.step_id > after_step_id]
             return [step.model_copy(deep=True) for step in steps]
 
+    def get_verification_payload(self):
+        with self._lock:
+            snapshot = self._latest_snapshot.model_copy(deep=True)
+            steps = [step.model_copy(deep=True) for step in self._steps]
+        return build_verification_payload(snapshot=snapshot, steps=steps)
+
     def get_artifact_path(self, name: str) -> Path:
         candidate_name = Path(name).name
         if candidate_name != name:
@@ -189,11 +307,16 @@ class SessionController:
                     screenshot_path=None,
                     html_path=None,
                     metadata_path=None,
+                    a11y_path=None,
                     error_message=None,
                     phase_id=None,
                     phase_label=None,
                     phase_summary=None,
                     user_visible_label=None,
+                    ambiguity_flag=None,
+                    ambiguity_type=None,
+                    ambiguity_message=None,
+                    review_evidence=[],
                 )
                 self._steps.append(step)
                 self._latest_snapshot.latest_step_id = step.step_id
@@ -221,6 +344,7 @@ class SessionController:
                     step.screenshot_path = artifacts.get("screenshot_path")
                     step.html_path = artifacts.get("html_path")
                     step.metadata_path = artifacts.get("metadata_path")
+                    step.a11y_path = artifacts.get("a11y_path")
                 if url:
                     self._latest_snapshot.current_url = url
                 if screenshot is not None:
@@ -286,6 +410,16 @@ class SessionController:
                 step.phase_summary = payload.get("phase_summary")
             if "user_visible_label" in payload:
                 step.user_visible_label = payload.get("user_visible_label")
+            if "ambiguity_flag" in payload:
+                step.ambiguity_flag = payload.get("ambiguity_flag")
+            if "ambiguity_type" in payload:
+                step.ambiguity_type = payload.get("ambiguity_type")
+            if "ambiguity_message" in payload:
+                step.ambiguity_message = payload.get("ambiguity_message")
+            if "review_evidence" in payload:
+                step.review_evidence = list(payload.get("review_evidence") or [])
+            if "a11y_path" in payload:
+                step.a11y_path = payload.get("a11y_path")
 
         run_summary = payload.get("run_summary")
         if run_summary:
@@ -314,6 +448,11 @@ class SessionController:
                 screenshot_path=item_payload.get("screenshot_path"),
                 html_path=item_payload.get("html_path"),
                 metadata_path=item_payload.get("metadata_path"),
+                a11y_path=item_payload.get("a11y_path"),
+                ambiguity_flag=item_payload.get("ambiguity_flag"),
+                ambiguity_type=item_payload.get("ambiguity_type"),
+                ambiguity_message=item_payload.get("ambiguity_message"),
+                review_evidence=list(item_payload.get("review_evidence") or []),
                 status=item_payload.get("status", "needs_review"),
             )
             self._pending_verification_items[item.id] = item
@@ -331,6 +470,17 @@ class SessionController:
                         "screenshot_path": step.screenshot_path,
                         "html_path": step.html_path,
                         "metadata_path": step.metadata_path,
+                        "a11y_path": item.a11y_path or step.a11y_path,
+                        "ambiguity_flag": (
+                            item.ambiguity_flag
+                            if item.ambiguity_flag is not None
+                            else step.ambiguity_flag
+                        ),
+                        "ambiguity_type": item.ambiguity_type or step.ambiguity_type,
+                        "ambiguity_message": (
+                            item.ambiguity_message or step.ambiguity_message
+                        ),
+                        "review_evidence": item.review_evidence or step.review_evidence,
                     }
                 )
             )

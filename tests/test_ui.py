@@ -13,8 +13,9 @@ from fastapi.testclient import TestClient
 from src.agent import BrowserAgent, multiply_numbers
 from src.computers.computer import EnvState
 from src.llm.client import LLMClient
+from src.ui.models import SessionSnapshot, SessionStatus, StepAction, StepRecord
 from src.ui.server import create_app
-from src.ui.session_controller import AgentFactory, SessionController
+from src.ui.session_controller import AgentFactory, SessionController, build_verification_payload
 from src.ui.session_store import SessionStore
 
 
@@ -61,6 +62,7 @@ class FakeComputer(AbstractContextManager):
                     "url": "https://example.com/1",
                     "html_path": "step-0001.html",
                     "screenshot_path": "step-0001.png",
+                    "a11y_path": "step-0001.a11y.yaml",
                     "metadata_path": "step-0001.json",
                 }
             ),
@@ -73,6 +75,7 @@ class FakeComputer(AbstractContextManager):
             "url": "https://example.com/1",
             "html_path": "step-0001.html",
             "screenshot_path": "step-0001.png",
+            "a11y_path": "step-0001.a11y.yaml",
             "metadata_path": "step-0001.json",
         }
         return self
@@ -149,8 +152,17 @@ class FakeAgent:
                             "detail": "명시적인 선호가 없어 기본값을 적용했습니다.",
                             "source_step_id": 1,
                             "status": "needs_review",
+                            "ambiguity_flag": True,
+                            "ambiguity_type": "typed_text_not_in_query",
+                            "ambiguity_message": "좌석 등급 입력이 요청에 없었습니다.",
+                            "review_evidence": ["typed_text_not_in_query"],
                         }
                     ],
+                    "ambiguity_flag": True,
+                    "ambiguity_type": "typed_text_not_in_query",
+                    "ambiguity_message": "좌석 등급 입력이 요청에 없었습니다.",
+                    "review_evidence": ["typed_text_not_in_query"],
+                    "a11y_path": "step-0001.a11y.yaml",
                 }
             )
             self.event_sink(
@@ -260,9 +272,16 @@ class TestSessionController(unittest.TestCase):
             self.assertEqual(len(snapshot.verification_items), 1)
             self.assertEqual(snapshot.verification_items[0].source_step_id, 1)
             self.assertEqual(snapshot.verification_items[0].screenshot_path, "step-0001.png")
+            self.assertEqual(snapshot.verification_items[0].a11y_path, "step-0001.a11y.yaml")
+            self.assertEqual(
+                snapshot.verification_items[0].ambiguity_type,
+                "typed_text_not_in_query",
+            )
             self.assertEqual([message.role for message in snapshot.messages], ["user", "assistant"])
             self.assertEqual(len(steps), 2)
             self.assertEqual(steps[0].screenshot_path, "step-0001.png")
+            self.assertEqual(steps[0].a11y_path, "step-0001.a11y.yaml")
+            self.assertTrue(steps[0].ambiguity_flag)
             self.assertEqual(steps[0].phase_id, "phase-search")
             self.assertEqual(steps[1].phase_id, "phase-complete")
             self.assertTrue(controller.get_artifact_path("step-0001.png").exists())
@@ -386,6 +405,109 @@ class TestSessionController(unittest.TestCase):
             self.assertEqual(steps[0].html_path, "step-0001.html")
             self.assertEqual(steps[0].metadata_path, "step-0001.json")
 
+    def test_session_controller_builds_grouped_verification_payload(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            controller = SessionController(
+                session_id="ses_test",
+                model_name="test-model",
+                screen_size=(1440, 900),
+                initial_url="https://example.com",
+                highlight_mouse=False,
+                headless=True,
+                artifacts_root=Path(tmp_dir),
+                computer_factory=FakeComputer,
+                agent_factory=cast(AgentFactory, FakeAgent),
+            )
+
+            controller.start("visit example")
+            wait_for(lambda: controller.get_snapshot().status == "complete")
+
+            payload = controller.get_verification_payload()
+
+            self.assertEqual(payload.request_text, "visit example")
+            self.assertEqual(len(payload.grouped_steps), 2)
+            self.assertEqual(payload.grouped_steps[0].id, "phase-search")
+            self.assertEqual(payload.grouped_steps[0].step_ids, [1])
+            self.assertEqual(payload.grouped_steps[0].a11y_path, "step-0001.a11y.yaml")
+            self.assertEqual(payload.grouped_steps[1].id, "phase-complete")
+
+
+class TestVerificationService(unittest.TestCase):
+    def test_build_verification_payload_falls_back_to_url_and_action_grouping(self):
+        snapshot = self._build_snapshot()
+        payload = build_verification_payload(
+            snapshot=snapshot,
+            steps=[
+                self._build_step(
+                    step_id=1,
+                    url="https://example.com/search",
+                    action_name="click_at",
+                    reasoning="Opened the search page.",
+                ),
+                self._build_step(
+                    step_id=2,
+                    url="https://example.com/search",
+                    action_name="click_at",
+                    reasoning="Repeated the search action.",
+                ),
+                self._build_step(
+                    step_id=3,
+                    url="https://example.com/results",
+                    action_name="type_text_at",
+                    reasoning="Typed new filters.",
+                ),
+            ],
+        )
+
+        self.assertEqual(len(payload.grouped_steps), 2)
+        self.assertEqual(payload.grouped_steps[0].step_ids, [1, 2])
+        self.assertEqual(payload.grouped_steps[0].summary, "Opened the search page. · 2회 반복")
+        self.assertEqual(payload.grouped_steps[1].step_ids, [3])
+        self.assertEqual(payload.grouped_steps[1].label, "example.com/results")
+
+    def _build_snapshot(self):
+        return SessionSnapshot(
+            session_id="ses_test",
+            status=SessionStatus.COMPLETE,
+            current_url="https://example.com/results",
+            latest_screenshot_b64=None,
+            latest_step_id=3,
+            last_reasoning=None,
+            last_actions=[],
+            messages=[],
+            final_reasoning="final reasoning",
+            request_text="visit example",
+            run_summary="run summary",
+            verification_items=[],
+            final_result_summary="final summary",
+            error_message=None,
+            artifacts_base_url="/api/sessions/ses_test/artifacts",
+            updated_at=1.0,
+        )
+
+    def _build_step(self, step_id: int, url: str, action_name: str, reasoning: str):
+        return StepRecord(
+            step_id=step_id,
+            timestamp=float(step_id),
+            reasoning=reasoning,
+            function_calls=[StepAction(name=action_name, args={})],
+            url=url,
+            status="complete",
+            screenshot_path=f"step-{step_id:04d}.png",
+            html_path=f"step-{step_id:04d}.html",
+            metadata_path=f"step-{step_id:04d}.json",
+            a11y_path=f"step-{step_id:04d}.a11y.yaml",
+            error_message=None,
+            phase_id=None,
+            phase_label=None,
+            phase_summary=None,
+            user_visible_label=None,
+            ambiguity_flag=None,
+            ambiguity_type=None,
+            ambiguity_message=None,
+            review_evidence=[],
+        )
+
 
 class TestSessionApi(unittest.TestCase):
     def setUp(self):
@@ -444,6 +566,10 @@ class TestSessionApi(unittest.TestCase):
         self.assertEqual(steps_response.status_code, 200)
         self.assertEqual(len(steps_response.json()), 2)
         self.assertEqual(steps_response.json()[0]["phase_id"], "phase-search")
+
+        verification_response = self.client.get(f"/api/sessions/{session_id}/verification")
+        self.assertEqual(verification_response.status_code, 200)
+        self.assertEqual(len(verification_response.json()["grouped_steps"]), 2)
 
         artifact_response = self.client.get(
             f"/api/sessions/{session_id}/artifacts/step-0001.png"
