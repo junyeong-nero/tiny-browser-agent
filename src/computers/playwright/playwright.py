@@ -394,6 +394,35 @@ class PlaywrightComputer(Computer):
     def video_dir(self) -> Optional[Path]:
         return self._video_dir
 
+    def _capture_a11y_snapshot(self, step_name: str) -> dict[str, Any]:
+        a11y_source = "body_locator_aria_snapshot"
+        if not self._history_dir:
+            return {
+                "a11y_path": None,
+                "a11y_source": a11y_source,
+                "a11y_capture_status": "disabled",
+                "a11y_capture_error": None,
+            }
+
+        a11y_path = self._history_dir / f"{step_name}.a11y.yaml"
+        try:
+            aria_snapshot = self._page.locator("body").aria_snapshot()
+            a11y_path.write_text(aria_snapshot, encoding="utf-8")
+        except Exception as exc:
+            return {
+                "a11y_path": None,
+                "a11y_source": a11y_source,
+                "a11y_capture_status": "error",
+                "a11y_capture_error": str(exc),
+            }
+
+        return {
+            "a11y_path": a11y_path.name,
+            "a11y_source": a11y_source,
+            "a11y_capture_status": "captured",
+            "a11y_capture_error": None,
+        }
+
     def _write_history_snapshot(self, screenshot_bytes: bytes):
         if not self._history_dir:
             return
@@ -404,6 +433,7 @@ class PlaywrightComputer(Computer):
         screenshot_path = self._history_dir / f"{step_name}.png"
         html_path = self._history_dir / f"{step_name}.html"
         metadata_path = self._history_dir / f"{step_name}.json"
+        a11y_metadata = self._capture_a11y_snapshot(step_name)
 
         screenshot_path.write_bytes(screenshot_bytes)
         html_path.write_text(self._page.content(), encoding="utf-8")
@@ -415,6 +445,7 @@ class PlaywrightComputer(Computer):
                     "url": self._page.url,
                     "html_path": html_path.name,
                     "screenshot_path": screenshot_path.name,
+                    **a11y_metadata,
                 },
                 indent=2,
             )
@@ -428,4 +459,5 @@ class PlaywrightComputer(Computer):
             "html_path": html_path.name,
             "screenshot_path": screenshot_path.name,
             "metadata_path": metadata_path.name,
+            "a11y_path": a11y_metadata["a11y_path"],
         }

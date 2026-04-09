@@ -36,6 +36,7 @@ class TestPlaywrightLogging(unittest.TestCase):
             computer._page.url = "https://example.com"
             computer._page.screenshot.return_value = b"png-bytes"
             computer._page.content.return_value = "<html>example</html>"
+            computer._page.locator.return_value.aria_snapshot.return_value = "- document\n"
 
             state = computer.current_state()
 
@@ -45,12 +46,16 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertTrue((history_dir / "step-0001.png").exists())
             self.assertTrue((history_dir / "step-0001.html").exists())
             self.assertTrue((history_dir / "step-0001.json").exists())
+            self.assertTrue((history_dir / "step-0001.a11y.yaml").exists())
 
             metadata = json.loads((history_dir / "step-0001.json").read_text())
             self.assertEqual(metadata["step"], 1)
             self.assertEqual(metadata["url"], "https://example.com")
             self.assertEqual(metadata["html_path"], "step-0001.html")
             self.assertEqual(metadata["screenshot_path"], "step-0001.png")
+            self.assertEqual(metadata["a11y_path"], "step-0001.a11y.yaml")
+            self.assertEqual(metadata["a11y_source"], "body_locator_aria_snapshot")
+            self.assertEqual(metadata["a11y_capture_status"], "captured")
             latest_metadata = computer.latest_artifact_metadata()
             self.assertIsNotNone(latest_metadata)
             if latest_metadata is None:
@@ -60,6 +65,35 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(latest_metadata["html_path"], "step-0001.html")
             self.assertEqual(latest_metadata["screenshot_path"], "step-0001.png")
             self.assertEqual(latest_metadata["metadata_path"], "step-0001.json")
+            self.assertEqual(latest_metadata["a11y_path"], "step-0001.a11y.yaml")
+
+    @patch("computers.playwright.playwright.time.sleep", return_value=None)
+    def test_current_state_keeps_base_artifacts_when_a11y_capture_fails(self, _mock_sleep):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            computer = PlaywrightComputer(
+                screen_size=(1440, 900),
+                log_dir=tmp_dir,
+            )
+            computer._page = MagicMock()
+            computer._page.url = "https://example.com"
+            computer._page.screenshot.return_value = b"png-bytes"
+            computer._page.content.return_value = "<html>example</html>"
+            computer._page.locator.return_value.aria_snapshot.side_effect = RuntimeError(
+                "aria capture failed"
+            )
+
+            computer.current_state()
+
+            history_dir = Path(tmp_dir) / "history"
+            self.assertTrue((history_dir / "step-0001.png").exists())
+            self.assertTrue((history_dir / "step-0001.html").exists())
+            self.assertTrue((history_dir / "step-0001.json").exists())
+            self.assertFalse((history_dir / "step-0001.a11y.yaml").exists())
+
+            metadata = json.loads((history_dir / "step-0001.json").read_text())
+            self.assertIsNone(metadata["a11y_path"])
+            self.assertEqual(metadata["a11y_capture_status"], "error")
+            self.assertEqual(metadata["a11y_capture_error"], "aria capture failed")
 
     @patch("computers.playwright.playwright.time.sleep", return_value=None)
     def test_agent_enrichment_merges_action_metadata_into_history_json(self, _mock_sleep):
@@ -72,6 +106,7 @@ class TestPlaywrightLogging(unittest.TestCase):
             computer._page.url = "https://example.com"
             computer._page.screenshot.return_value = b"png-bytes"
             computer._page.content.return_value = "<html>example</html>"
+            computer._page.locator.return_value.aria_snapshot.return_value = "- document\n"
             computer.current_state()
 
             mock_llm_client = MagicMock()
@@ -105,6 +140,7 @@ class TestPlaywrightLogging(unittest.TestCase):
                 ),
                 reasoning="Inspect the destination page.",
                 artifacts=computer.latest_artifact_metadata(),
+                ambiguity_candidate=None,
             )
 
             metadata = json.loads((Path(tmp_dir) / "history" / "step-0001.json").read_text())
@@ -119,6 +155,9 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(metadata["summary_source"], "app_derived")
             self.assertEqual(metadata["model_step_id"], 1)
             self.assertEqual(metadata["function_call_index_within_step"], 1)
+            self.assertFalse(metadata["ambiguity_flag"])
+            self.assertEqual(metadata["review_evidence"], [])
+            self.assertEqual(metadata["a11y_path"], "step-0001.a11y.yaml")
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ class TestBrowserToolExecutor(unittest.TestCase):
             "screenshot_path": "step-0001.png",
             "html_path": "step-0001.html",
             "metadata_path": "step-0001.json",
+            "a11y_path": "step-0001.a11y.yaml",
         }
         self.executor = BrowserToolExecutor(
             browser_computer=self.mock_browser_computer,
