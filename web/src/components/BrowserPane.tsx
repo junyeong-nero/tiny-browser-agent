@@ -1,3 +1,5 @@
+import type { Ref } from 'react';
+
 import { buildArtifactUrl } from '../reviewPanel';
 import type { StepRecord } from '../types/api';
 
@@ -7,6 +9,7 @@ interface BrowserPaneProps {
   selectedStep: StepRecord | null | undefined;
   artifactsBaseUrl: string | null | undefined;
   status: string | undefined;
+  paneRef?: Ref<HTMLDivElement>;
 }
 
 export function BrowserPane({
@@ -15,6 +18,7 @@ export function BrowserPane({
   selectedStep,
   artifactsBaseUrl,
   status,
+  paneRef,
 }: BrowserPaneProps) {
   const stepScreenshotUrl = buildArtifactUrl(artifactsBaseUrl, selectedStep?.screenshot_path);
   const stepHtmlUrl = buildArtifactUrl(artifactsBaseUrl, selectedStep?.html_path);
@@ -23,14 +27,14 @@ export function BrowserPane({
 
   if (!isStepPreview && !currentScreenshotB64) {
     return (
-      <div className="browser-pane empty">
+      <div className="browser-pane empty" ref={paneRef} tabIndex={-1}>
         {status === 'running' ? 'Waiting for browser...' : 'No browser preview available'}
       </div>
     );
   }
 
   return (
-    <div className="browser-pane">
+    <div className="browser-pane" ref={paneRef} tabIndex={-1}>
       <div className="browser-pane-content">
         <div className="browser-preview-label">
           {isStepPreview ? `Step ${selectedStep.step_id} preview` : 'Current preview'}

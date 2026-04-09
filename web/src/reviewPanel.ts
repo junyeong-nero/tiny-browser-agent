@@ -1,4 +1,4 @@
-import type { SessionSnapshot, StepRecord, VerificationItem } from './types/api';
+import type { SessionSnapshot, StepRecord, VerificationGroup, VerificationItem } from './types/api';
 
 export type PreviewMode = { kind: 'current' } | { kind: 'step'; stepId: number };
 
@@ -94,4 +94,14 @@ export function groupStepsForDisplay(steps: StepRecord[]): StepGroup[] {
   }
 
   return groups;
+}
+
+export function getProcessGroups(
+  groupedSteps: VerificationGroup[] | null | undefined,
+  steps: StepRecord[],
+): Array<StepGroup | VerificationGroup> {
+  if (groupedSteps && groupedSteps.length > 0) {
+    return groupedSteps;
+  }
+  return groupStepsForDisplay(steps);
 }

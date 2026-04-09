@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { apiClient } from './api/client';
 import { BrowserPane } from './components/BrowserPane';
@@ -10,6 +10,7 @@ import { useSendMessage } from './hooks/useSendMessage';
 import { useSessionControls } from './hooks/useSessionControls';
 import { useSessionSnapshot } from './hooks/useSessionSnapshot';
 import { useSessionSteps } from './hooks/useSessionSteps';
+import { useSessionVerification } from './hooks/useSessionVerification';
 import {
   getFinalResultSummary,
   getRequestText,
@@ -24,6 +25,8 @@ function App() {
   const [seedSnapshot, setSeedSnapshot] = useState<SessionSnapshot | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>({ kind: 'current' });
+  const browserPaneRef = useRef<HTMLDivElement | null>(null);
+  const verificationPanelRef = useRef<HTMLDivElement | null>(null);
 
   const { snapshot, error: snapshotError, refreshSnapshot } = useSessionSnapshot(sessionId);
   const displaySnapshot = snapshot ?? seedSnapshot;
@@ -45,10 +48,15 @@ function App() {
     isStarting,
     isStopping,
   } = useSessionControls(sessionId);
+  const {
+    verification,
+    error: verificationError,
+    refreshVerification,
+  } = useSessionVerification(sessionId, displaySnapshot?.status ?? null);
 
   const error = useMemo(
-    () => sessionError ?? controlsError ?? sendMessageError ?? stepsError ?? snapshotError,
-    [controlsError, sendMessageError, sessionError, snapshotError, stepsError],
+    () => sessionError ?? controlsError ?? sendMessageError ?? stepsError ?? snapshotError ?? verificationError,
+    [controlsError, sendMessageError, sessionError, snapshotError, stepsError, verificationError],
   );
   const selectedStep = useMemo(
     () =>
@@ -83,13 +91,14 @@ function App() {
         await startSession(query);
         await refreshSnapshot();
         await refreshSteps();
+        await refreshVerification();
         setPreviewMode({ kind: 'current' });
         setSessionError(null);
       } catch (err) {
         setSessionError(err instanceof Error ? err.message : 'Failed to start session');
       }
     },
-    [refreshSnapshot, refreshSteps, startSession],
+    [refreshSnapshot, refreshSteps, refreshVerification, startSession],
   );
 
   const handleSendMessage = useCallback(
@@ -98,13 +107,14 @@ function App() {
         await sendMessage(text);
         await refreshSnapshot();
         await refreshSteps();
+        await refreshVerification();
         setPreviewMode({ kind: 'current' });
         setSessionError(null);
       } catch (err) {
         setSessionError(err instanceof Error ? err.message : 'Failed to send message');
       }
     },
-    [refreshSnapshot, refreshSteps, sendMessage],
+    [refreshSnapshot, refreshSteps, refreshVerification, sendMessage],
   );
 
   const handleStopSession = useCallback(async () => {
@@ -131,6 +141,7 @@ function App() {
       }
       browserPane={
         <BrowserPane
+          paneRef={browserPaneRef}
           currentScreenshotB64={displaySnapshot?.latest_screenshot_b64}
           currentUpdatedAt={displaySnapshot?.updated_at}
           selectedStep={selectedStep}
@@ -153,6 +164,7 @@ function App() {
       }
       sidebar={
         <VerificationSidebar
+          sidebarRef={verificationPanelRef}
           snapshot={displaySnapshot}
           steps={steps}
           error={error}
@@ -160,8 +172,11 @@ function App() {
           requestText={requestText}
           runSummary={runSummary}
           finalResultSummary={finalResultSummary}
+          verificationPayload={verification}
           onSelectCurrentPreview={() => setPreviewMode({ kind: 'current' })}
           onSelectStepPreview={(stepId) => setPreviewMode({ kind: 'step', stepId })}
+          onFocusBrowserPane={() => browserPaneRef.current?.focus()}
+          onFocusVerificationPanel={() => verificationPanelRef.current?.focus()}
         />
       }
     />

@@ -1,9 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ProcessHistorySection } from './ProcessHistorySection';
 
 describe('ProcessHistorySection', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('renders a single disclosure without phase metadata', () => {
     render(
       <ProcessHistorySection
@@ -31,7 +35,11 @@ describe('ProcessHistorySection', () => {
     expect(screen.getByText('Opened the site')).toBeInTheDocument();
   });
 
-  it('preserves backend phase order and handles step preview actions', () => {
+  it('preserves backend phase order and handles step preview actions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, text: async () => '- link "Result"' }),
+    );
     const onSelectStepPreview = vi.fn();
 
     render(
@@ -47,6 +55,9 @@ describe('ProcessHistorySection', () => {
             screenshot_path: 'step-0002.png',
             html_path: 'step-0002.html',
             metadata_path: 'step-0002.json',
+            a11y_path: 'step-0002.a11y.yaml',
+            ambiguity_message: '검토가 필요한 선택입니다.',
+            review_evidence: ['repeated_click_pattern'],
             error_message: null,
             phase_id: 'phase-search',
             phase_label: '항공편 탐색',
@@ -79,8 +90,11 @@ describe('ProcessHistorySection', () => {
     const summaries = screen.getAllByText(/항공편 탐색|요금 검토/);
     expect(summaries[0]).toHaveTextContent('항공편 탐색');
     expect(summaries[1]).toHaveTextContent('요금 검토');
-
+    
     fireEvent.click(screen.getAllByRole('button', { name: '이 시점 보기' })[0]);
     expect(onSelectStepPreview).toHaveBeenCalledWith(2);
+    fireEvent.click(screen.getByRole('button', { name: 'A11y 보기' }));
+    expect(screen.getByText('검토가 필요한 선택입니다.')).toBeInTheDocument();
+    expect(await screen.findByText('- link "Result"')).toBeInTheDocument();
   });
 });

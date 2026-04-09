@@ -1,14 +1,17 @@
-import { getValidVerificationItems } from '../reviewPanel';
+import { buildArtifactUrl, getValidVerificationItems } from '../reviewPanel';
 import type { VerificationItem } from '../types/api';
+import { AccessibilityTreeView } from './AccessibilityTreeView';
 
 interface ConfirmationNeededSectionProps {
   items: VerificationItem[] | null | undefined;
   onSelectStepPreview: (stepId: number) => void;
+  artifactsBaseUrl: string | null | undefined;
 }
 
 export function ConfirmationNeededSection({
   items,
   onSelectStepPreview,
+  artifactsBaseUrl,
 }: ConfirmationNeededSectionProps) {
   const validItems = getValidVerificationItems(items);
   if (validItems.length === 0) {
@@ -23,6 +26,12 @@ export function ConfirmationNeededSection({
           <article key={item.id} className={`verification-item status-${item.status}`}>
             <div className="verification-item-message">{item.message}</div>
             {item.detail && <div className="verification-item-detail">{item.detail}</div>}
+            {item.ambiguity_type && (
+              <div className="verification-item-meta">Ambiguity: {item.ambiguity_type}</div>
+            )}
+            {item.review_evidence && item.review_evidence.length > 0 && (
+              <div className="verification-item-meta">Evidence: {item.review_evidence.join(', ')}</div>
+            )}
             <button
               type="button"
               className="btn-secondary preview-button"
@@ -30,6 +39,19 @@ export function ConfirmationNeededSection({
             >
               이 시점 보기
             </button>
+            {item.html_path && (
+              <a
+                href={buildArtifactUrl(artifactsBaseUrl, item.html_path) ?? undefined}
+                target="_blank"
+                rel="noreferrer"
+              >
+                HTML
+              </a>
+            )}
+            <AccessibilityTreeView
+              artifactUrl={buildArtifactUrl(artifactsBaseUrl, item.a11y_path)}
+              label={`Verification item ${item.id}`}
+            />
           </article>
         ))}
       </div>

@@ -1,10 +1,18 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ConfirmationNeededSection } from './ConfirmationNeededSection';
 
 describe('ConfirmationNeededSection', () => {
-  it('renders only valid verification items and triggers preview selection', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('renders only valid verification items and triggers preview selection', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, text: async () => '- button "Submit"' }),
+    );
     const onSelectStepPreview = vi.fn();
 
     render(
@@ -19,6 +27,9 @@ describe('ConfirmationNeededSection', () => {
             screenshot_path: 'step-0004.png',
             html_path: 'step-0004.html',
             metadata_path: 'step-0004.json',
+            a11y_path: 'step-0004.a11y.yaml',
+            ambiguity_type: 'typed_text_not_in_query',
+            review_evidence: ['typed_text_not_in_query'],
             status: 'needs_review',
           },
           {
@@ -30,6 +41,7 @@ describe('ConfirmationNeededSection', () => {
           },
         ]}
         onSelectStepPreview={onSelectStepPreview}
+        artifactsBaseUrl="/api/sessions/ses_test/artifacts"
       />,
     );
 
@@ -38,5 +50,7 @@ describe('ConfirmationNeededSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '이 시점 보기' }));
     expect(onSelectStepPreview).toHaveBeenCalledWith(4);
+    fireEvent.click(screen.getByRole('button', { name: 'A11y 보기' }));
+    expect(await screen.findByText('- button "Submit"')).toBeInTheDocument();
   });
 });

@@ -46,6 +46,9 @@ describe('VerificationSidebar', () => {
         ]}
         error={null}
         previewMode={{ kind: 'current' }}
+        verificationPayload={null}
+        onFocusBrowserPane={vi.fn()}
+        onFocusVerificationPanel={vi.fn()}
         onSelectCurrentPreview={onSelectCurrentPreview}
         onSelectStepPreview={onSelectStepPreview}
       />,

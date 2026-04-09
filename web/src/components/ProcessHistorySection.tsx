@@ -1,8 +1,10 @@
-import { buildArtifactUrl, groupStepsForDisplay, type PreviewMode } from '../reviewPanel';
-import type { StepRecord } from '../types/api';
+import { buildArtifactUrl, getProcessGroups, type PreviewMode } from '../reviewPanel';
+import type { StepRecord, VerificationGroup } from '../types/api';
+import { AccessibilityTreeView } from './AccessibilityTreeView';
 
 interface ProcessHistorySectionProps {
   steps: StepRecord[];
+  groupedSteps?: VerificationGroup[] | null;
   previewMode: PreviewMode;
   onSelectStepPreview: (stepId: number) => void;
   artifactsBaseUrl: string | null | undefined;
@@ -10,11 +12,12 @@ interface ProcessHistorySectionProps {
 
 export function ProcessHistorySection({
   steps,
+  groupedSteps,
   previewMode,
   onSelectStepPreview,
   artifactsBaseUrl,
 }: ProcessHistorySectionProps) {
-  const groups = groupStepsForDisplay(steps);
+  const groups = getProcessGroups(groupedSteps, steps);
 
   return (
     <section className="verification-section process-history-section">
@@ -48,6 +51,12 @@ export function ProcessHistorySection({
                         <span className="step-status">{step.status}</span>
                       </div>
                       {step.reasoning && <div className="step-reasoning">{step.reasoning}</div>}
+                      {step.ambiguity_message && (
+                        <div className="step-ambiguity">{step.ambiguity_message}</div>
+                      )}
+                      {step.review_evidence && step.review_evidence.length > 0 && (
+                        <div className="step-evidence">Evidence: {step.review_evidence.join(', ')}</div>
+                      )}
                       {step.function_calls.length > 0 && (
                         <div className="step-actions">
                           {step.function_calls.map((call, index) => (
@@ -78,6 +87,10 @@ export function ProcessHistorySection({
                             Metadata
                           </a>
                         )}
+                        <AccessibilityTreeView
+                          artifactUrl={buildArtifactUrl(artifactsBaseUrl, step.a11y_path)}
+                          label={`Step ${step.step_id}`}
+                        />
                       </div>
                     </article>
                   );

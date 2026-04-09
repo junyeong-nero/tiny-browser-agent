@@ -17,5 +17,5 @@ export function CompletionBanner({ status, verificationCount }: CompletionBanner
           ? '[알림] 사용자 확인이 필요합니다.'
           : '[알림] 태스크를 진행 중입니다.';
 
-  return <div className={`completion-banner status-${status}`}>{message}</div>;
+  return <div className={`completion-banner status-${status}`} aria-live="polite">{message}</div>;
 }
