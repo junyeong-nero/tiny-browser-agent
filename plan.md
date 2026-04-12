@@ -1,309 +1,381 @@
+# Method 2 + BrowserPane 역할 재정의 체크리스트
 
-# Refactoring Plan — Repo-Aligned Verification Panel
+## 전체 목표
 
-기반 레포: [junyeong-nero/computer-use-preview](https://github.com/junyeong-nero/computer-use-preview)
+- [ ] `web -> /api -> FastAPI` 구조를 `web -> desktop bridge(IPC) -> Python app service` 구조로 전환한다.
+- [ ] `src/ui/session_controller.py` 중심의 런타임 코어를 유지한다.
+- [ ] `BrowserPane`를 스크린샷 뷰어가 아니라 **live browser surface host/controller**로 재정의한다.
+- [ ] side panel / chat / browser surface 사이 포커스를 단축키와 명시적 focus manager로 이동할 수 있게 한다.
+- [ ] artifact 접근을 `/api/...` URL 조합에서 bridge API 기반 접근으로 전환한다.
 
-이 문서는 **현재 레포 상태에 맞춰** verification panel 개선 계획을 다시 정리한 것이다.
+## 비목표
 
-## 현재 레포 기준으로 바로 반영한 전제
+- [ ] `BrowserAgent`의 추론 로직을 대규모로 재작성하지 않는다.
+- [ ] 1차 단계에서 polling을 push/event streaming으로 완전히 교체하지 않는다.
+- [ ] OS 전체(native accessibility tree)까지 바로 일반화하지 않는다.
+- [ ] 모든 desktop shell(Electron/Tauri/기타)을 동시에 지원하지 않는다.
 
-- 이 레포는 이미 **FastAPI + React UI** 를 갖고 있다.
-  - 백엔드: `src/ui/server.py`, `src/ui/routes/sessions.py`
-  - 프론트엔드: `web/src/`
-- verification UI는 신규가 아니라 이미 존재한다.
-  - `web/src/components/VerificationSidebar.tsx`
-  - `web/src/components/ConfirmationNeededSection.tsx`
-  - `web/src/components/ProcessHistorySection.tsx`
-  - `web/src/reviewPanel.ts`
-- step review metadata 흐름도 이미 존재한다.
-  - `src/agent.py` 에서 `phase_id`, `phase_label`, `phase_summary`, `user_visible_label`, `verification_items` emit
-  - `src/ui/session_controller.py` 에서 이를 `StepRecord`, `SessionSnapshot` 에 반영
-- Playwright 로그 구조는 두 가지다.
-  - CLI: `logs/history/<timestamp>/...`
-  - UI session: `logs/history/ui/<session-id>/...`
-- 현재 `pyproject.toml` 의 Playwright 버전은 `1.55.0` 이다.
-  - 따라서 Phase 2는 `page.accessibility.snapshot()` 이 아니라 **`page.locator("body").ariaSnapshot()`** 기준으로 설계한다.
-  - `page.ariaSnapshot()` 은 현재 pinned version 기준으로 사용할 수 없다.
+## 현재 구조 요약
 
----
+### 유지할 핵심 코어
 
-## 목표 재정의
+- [ ] `src/ui/session_controller.py`
+- [ ] `src/ui/session_store.py`
+- [ ] `src/ui/models.py`의 상태 모델 (`SessionSnapshot`, `StepRecord`, `VerificationPayload` 등)
+- [ ] `src/agent.py`
+- [ ] `src/tool_calling.py`
+- [ ] `src/computers/computer.py`
 
-기존 verification sidebar를 확장해서 아래를 제공한다.
+### 교체/삭제 대상
 
-1. step별 ambiguity / review 근거를 더 명확히 표시
-2. step별 접근성 스냅샷 artifact를 함께 저장하고 재생성 없이 조회
-3. 기존 `phase_*` metadata를 우선 활용하면서, 필요 시 추가 grouping payload를 제공
-4. screen-reader 친화적인 verification panel UX로 점진 개선
+- [ ] `src/ui/server.py`
+- [ ] `src/ui/routes/sessions.py`
+- [ ] `web/src/api/client.ts`의 `fetch('/api/...')` 중심 구현
+- [ ] `artifacts_base_url` + `buildArtifactUrl()` 중심 artifact 접근 흐름
 
----
+### 새로 도입할 요소
 
-## Phase 1. Existing metadata pipeline 확장
+- [ ] transport-neutral Python service 계층
+- [ ] desktop IPC bridge
+- [ ] browser surface host abstraction
+- [ ] 앱 전역 focus manager
+- [ ] artifact bridge API
 
-**목표**: 지금 있는 `review_metadata_extracted` / `VerificationItem` / `StepRecord` 흐름을 유지하면서 ambiguity 관련 정보와 a11y artifact 경로를 실을 수 있게 만든다.
-
-**핵심 원칙**
-
-- 새 구조를 따로 만드는 대신 기존 `src/agent.py` → `src/ui/session_controller.py` 흐름을 확장한다.
-- ambiguity는 “확정 판정”이 아니라 **review candidate / heuristic flag** 로 다룬다.
-- 첫 단계에서는 LLM 기반 판정보다 **rule-based evidence 수집** 을 우선한다.
-
-**구현 위치**
-
-- `src/agent.py`
-- `src/ui/models.py`
-- `src/ui/session_controller.py`
-- 필요 시 신규: `src/ambiguity_detector.py`
-
-**체크리스트**
-
-- [x] `src/ui/models.py` 의 `StepRecord` 에 아래 후보 필드 추가 여부 결정 및 반영
-  - `ambiguity_flag: bool | None`
-  - `ambiguity_type: str | None`
-  - `ambiguity_message: str | None`
-  - `a11y_path: str | None`
-- [x] `src/ui/models.py` 의 `VerificationItem` 에도 `a11y_path: str | None` 추가 여부 검토 후 반영
-- [x] `src/agent.py::_enrich_persisted_action_metadata()` 가 step metadata JSON에 ambiguity / a11y 관련 필드를 병합할 수 있게 확장
-- [x] `src/agent.py::_emit_review_metadata()` payload 확장 방안 정리
-  - ambiguity candidate 정보
-  - run summary와 별개인 review evidence
-- [x] 신규 `src/ambiguity_detector.py` 생성 여부 결정
-  - 생성 시: pure function 위주로 구성
-  - 미생성 시: `src/agent.py` 내부 helper로 시작
-- [x] 첫 버전 ambiguity rule을 아래 수준으로 제한
-  - query에 없는 구체값 입력 시 candidate 생성
-  - 동일 맥락에서 반복 click/type 발생 시 candidate 생성
-  - 명시적 `navigate` 없이 URL 변화 시 candidate 생성
-- [x] 각 rule은 반드시 **evidence string** 을 남기도록 설계
-  - 예: `typed_text_not_in_query`
-  - 예: `url_changed_without_navigate`
-  - 예: `repeated_click_pattern`
-- [x] false positive를 줄이기 위해 아래는 Phase 1에서 제외
-  - “모호성 확정 판정”
-  - LLM 자동 해석
-  - 복잡한 intent inference
-
-**테스트 체크리스트**
-
-- [x] `tests/test_playwright_logging.py` 에 metadata enrichment 확장 케이스 추가
-- [x] `tests/test_ui.py` 에 `review_metadata_extracted` payload 확장 반영 테스트 추가
-- [x] ambiguity detector를 별도 파일로 만들면 전용 unit test 추가
-
----
-
-## Phase 2. A11y artifact 저장을 현재 Playwright/로그 구조에 맞게 추가
-
-**목표**: step snapshot이 저장될 때 screenshot / html / metadata와 함께 **ARIA snapshot artifact** 도 같이 저장한다.
-
-**중요한 기술 제약**
-
-- 현재 레포는 `playwright==1.55.0`
-- 따라서 사용 API는 `page.locator("body").ariaSnapshot()`
-- `page.accessibility.snapshot()` 전제는 제거
-- snapshot 원본은 JSON object가 아니라 **YAML string** 이므로 raw payload 보존이 우선
-
-**구현 위치**
-
-- `src/computers/playwright/playwright.py`
-- `src/tool_calling.py`
-- `src/ui/session_controller.py`
-- `src/ui/models.py`
-
-**저장 구조 제안**
+## 목표 아키텍처
 
 ```text
-logs/history/<timestamp>/history/
-├── step-0006.png
-├── step-0006.html
-├── step-0006.json
-└── step-0006.a11y.yaml
+React UI
+  ├─ SessionClient interface
+  ├─ FocusManager
+  ├─ BrowserPane (live browser surface host/controller)
+  ├─ ChatPanel
+  └─ VerificationSidebar
+           │
+           │ desktop bridge / IPC
+           ▼
+Desktop Shell
+  ├─ BrowserSurfaceHost
+  └─ Python bridge
+           │
+           ▼
+Python SessionService
+  └─ SessionStore
+      └─ SessionController
+          └─ BrowserAgent
+              └─ Computer
 ```
 
-UI session도 동일한 파일 구조를 유지하되 루트만 `logs/history/ui/<session-id>/history/` 로 둔다.
+## Phase 0. Feasibility Spike: live browser surface 전략 확정
 
-**체크리스트**
+### 목표
 
-- [x] `src/computers/playwright/playwright.py::_write_history_snapshot()` 에 a11y snapshot 저장 추가
-- [x] `page.locator("body").ariaSnapshot()` 호출 실패 시 graceful fallback 정의
-  - 실패해도 기존 screenshot/html/json 저장은 유지
-  - metadata에는 `a11y_capture_error` 또는 null path 기록
-- [x] a11y artifact 파일명 규칙 확정
-  - 권장: `step-XXXX.a11y.yaml`
-- [x] 기존 metadata JSON(`step-XXXX.json`) 에 `a11y_path` 필드 추가
-- [x] `PlaywrightComputer._latest_artifact_metadata` 에 `a11y_path` 포함
-- [x] `src/tool_calling.py` 의 artifact 전달 흐름이 `a11y_path` 를 포함하도록 유지 확인
-- [x] `src/ui/session_controller.py` 에서 `StepRecord` / `VerificationItem` resolve 시 `a11y_path` 반영
-- [x] artifact 조회는 **기존** `GET /api/sessions/{session_id}/artifacts/{name}` 를 재사용
-- [x] 별도 `/steps/{step_id}/a11y` endpoint는 **초기 구현 범위에서 제외**
+- [ ] 앱 안에서 실제 interactive browser surface를 어떻게 호스팅할지 결정한다.
 
-**a11y artifact 내용 원칙**
+### 체크리스트
 
-- [x] raw YAML string을 우선 저장
-- [x] 필요 metadata는 기존 `step-XXXX.json` 에 저장
-  - `a11y_path`
-  - `a11y_source` (`body_locator_aria_snapshot`)
-  - `a11y_capture_status`
-- [x] Phase 2에서는 YAML → custom JSON tree 변환까지 한 번에 하지 않음
+- [ ] shell이 소유한 browser surface를 `Computer` backend가 제어할 수 있는지 확인한다.
+- [ ] 기존 `PlaywrightComputer` 확장 vs 새 `DesktopBrowserComputer` 도입 중 하나를 선택한다.
+- [ ] shell-owned browser를 CDP 등으로 attach 가능한지 검증한다.
+- [ ] 실패 시 fallback UX를 정의한다.
+- [ ] BrowserPane이 DOM에 직접 embed되는지, shell이 native surface를 overlay하는지 결정한다.
 
-**테스트 체크리스트**
+### 참고 파일
 
-- [x] `tests/test_playwright_logging.py` 에 `step-XXXX.a11y.yaml` 생성 테스트 추가
-- [x] a11y capture 실패 시에도 기존 history artifact가 남는지 테스트 추가
-- [x] `tests/test_ui.py` 에 `a11y_path` 가 session snapshot / step resolution으로 전달되는지 확인
+- [ ] `src/computers/playwright/playwright.py`
+- [ ] `src/computers/browserbase/browserbase.py`
 
----
+### 산출물 / 완료 기준
 
-## Phase 3. Existing phase metadata를 우선 활용하는 verification payload 구성
+- [ ] 브라우저 surface 호스팅 방식이 1개로 확정된다.
+- [ ] 새 `Computer` backend 필요 여부가 명확해진다.
+- [ ] BrowserPane의 live surface 전략이 문서화된다.
 
-**목표**: 기존 `phase_id`, `phase_label`, `phase_summary`, `user_visible_label` 흐름을 버리지 않고, verification panel 전용 payload를 만들어 UI에서 더 읽기 좋게 만든다.
+## Phase 1. Python app service 추출
 
-**핵심 원칙**
+### 목표
 
-- 별도 structurer는 만들 수 있지만, **기존 phase metadata를 1차 source of truth** 로 사용한다.
-- URL/action 기반 grouping은 fallback이다.
-- 첫 버전은 rule-based only로 시작하고, LLM 보조는 미결 사항으로 남긴다.
+- [ ] FastAPI route가 하던 일을 transport-neutral service 계층으로 이동한다.
 
-**구현 위치**
+### 신규 후보 파일
 
-- 신규 권장: `src/ui/verification_service.py`
-- 또는 기존 `src/ui/session_controller.py` 내부 helper
-- `src/ui/routes/sessions.py`
+- [ ] `src/ui/session_service.py`
 
-**payload 방향**
+### 체크리스트
 
-- raw step list는 계속 `GET /api/sessions/{id}/steps` 로 제공
-- grouped verification payload가 필요하면 `GET /api/sessions/{id}/verification` 추가
-- a11y 실제 파일은 artifact route로 fetch
+- [ ] `create_session()`를 service에 정의한다.
+- [ ] `start_session(session_id, query)`를 service에 정의한다.
+- [ ] `send_message(session_id, text)`를 service에 정의한다.
+- [ ] `stop_session(session_id)`를 service에 정의한다.
+- [ ] `get_snapshot(session_id)`를 service에 정의한다.
+- [ ] `get_steps(session_id, after_step_id=None)`를 service에 정의한다.
+- [ ] `get_verification(session_id)`를 service에 정의한다.
+- [ ] `resolve_artifact(...)` / `read_artifact_text(...)` / `read_artifact_bytes(...)` 중 최종 API를 정한다.
+- [ ] `src/ui/routes/sessions.py`가 controller 직접 호출 대신 service만 호출하도록 바꾼다.
+- [ ] `src/ui/session_store.py`를 service에서 쓰기 쉬운 얇은 manager로 유지한다.
+- [ ] `src/ui/models.py`에서 상태 모델과 HTTP DTO 분리 방향을 정리한다.
 
-**체크리스트**
+### 주의사항
 
-- [x] verification payload 생성 위치 확정
-  - 권장: `src/ui/verification_service.py`
-- [x] 입력 source 확정
-  - `SessionController.get_steps()` 결과
-  - `SessionSnapshot.verification_items`
-- [x] group 생성 우선순위 정의
-  1. 기존 `phase_id`
-  2. 없으면 URL 변화
-  3. 없으면 action sequence 변화
-- [x] loop compression은 바로 자동 적용하지 말고, first version은 아래 수준으로 제한
-  - 반복 step count 표시
-  - summary 문구에 “N회 반복” 포함
-  - 원본 step list는 항상 보존
-- [x] group summary는 first version에서 rule-based template 사용
-- [x] LLM summary generation은 미결 사항으로 남기고 기본 구현 범위에서 제외
-- [x] verification payload 안에 아래 항목 포함
-  - request text
-  - run summary
-  - final result summary
-  - grouped steps
-  - verification items
-  - 각 step/group의 artifact path
-- [x] `src/ui/routes/sessions.py` 에 `GET /api/sessions/{id}/verification` 추가 여부 결정 후 구현
-- [x] endpoint를 추가하지 않는 경우, 기존 snapshot + steps 조합만으로 UI 렌더 가능한지 먼저 검증
+- [ ] 이 단계에서는 기존 HTTP 동작을 깨지 않는다.
+- [ ] 기존 테스트가 계속 통과하도록 route -> service -> controller 구조만 정리한다.
 
-**테스트 체크리스트**
+### 완료 기준
 
-- [x] `tests/test_ui.py` 에 grouped verification payload 테스트 추가
-- [x] 기존 `phase_id` 가 있을 때 group이 안정적으로 유지되는지 테스트 추가
-- [x] phase metadata가 없을 때 URL/action fallback group 생성 테스트 추가
+- [ ] HTTP layer가 service를 통하도록 바뀐다.
+- [ ] service가 desktop bridge에서 직접 쓸 수 있는 형태가 된다.
 
----
+## Phase 2. Frontend transport abstraction 도입
 
-## Phase 4. Existing React verification sidebar를 SR-friendly panel로 확장
+### 목표
 
-**목표**: 새 UI를 처음부터 만드는 대신, 현재 `VerificationSidebar` 를 확장해서 screen-reader 친화적인 verification panel 경험을 만든다.
+- [ ] React 앱이 `fetch('/api/...')`에 직접 묶이지 않게 한다.
 
-**구현 위치**
+### 신규 후보 파일
 
-- `web/src/App.tsx`
-- `web/src/components/VerificationSidebar.tsx`
-- `web/src/components/ConfirmationNeededSection.tsx`
-- `web/src/components/ProcessHistorySection.tsx`
-- 신규 권장: `web/src/components/AccessibilityTreeView.tsx`
-- 신규 권장: `web/src/hooks/useKeyboardFocusSwitch.ts`
-- `web/src/types/api.ts`
-- `web/src/reviewPanel.ts`
+- [ ] `web/src/api/sessionClient.ts`
+- [ ] `web/src/api/httpSessionClient.ts`
+- [ ] `web/src/api/desktopSessionClient.ts`
+- [ ] `web/src/api/SessionClientContext.tsx` 또는 유사 provider
 
-**UI 방향**
+### 체크리스트
 
-- 왼쪽: 기존 브라우저 프리뷰 유지
-- 오른쪽: 기존 verification sidebar를 panel 모드로 개선
-- “확인 필요 항목” 에서 해당 step screenshot + html + a11y artifact 접근 제공
-- “과정 기록” 은 기존 `details/summary` 구조를 유지하되 정보 밀도와 SR 텍스트를 개선
+- [ ] 현재 `apiClient` 메서드 표면을 interface로 추출한다.
+- [ ] 기존 HTTP 구현을 `httpSessionClient`로 옮긴다.
+- [ ] desktop shell용 `desktopSessionClient` 계약을 정의한다.
+- [ ] 앱이 provider/context를 통해 `SessionClient`를 주입받도록 바꾼다.
+- [ ] `web/src/hooks/useSessionSnapshot.ts`가 transport-agnostic client를 사용하게 한다.
+- [ ] `web/src/hooks/useSessionSteps.ts`가 transport-agnostic client를 사용하게 한다.
+- [ ] `web/src/hooks/useSessionVerification.ts`가 transport-agnostic client를 사용하게 한다.
+- [ ] `web/src/hooks/useSessionControls.ts`가 transport-agnostic client를 사용하게 한다.
+- [ ] `web/src/hooks/useSendMessage.ts`가 transport-agnostic client를 사용하게 한다.
+- [ ] `web/src/App.tsx`에서 `apiClient.createSession()` 직접 호출을 추상화된 client로 바꾼다.
 
-**체크리스트**
+### 원칙
 
-- [x] `web/src/types/api.ts` 에 backend model 확장 반영
-  - `a11y_path`
-  - ambiguity 관련 필드
-- [x] `VerificationSidebar` 를 신규 생성 대신 기존 컴포넌트 확장으로 진행
-- [x] `CompletionBanner` 에 SR-friendly 상태 문구 재검토
-  - 필요 시 live region role/attribute 추가
-- [x] `ConfirmationNeededSection` 에 review evidence / ambiguity type / a11y artifact 진입점 추가
-- [x] `ProcessHistorySection` 에 step별 a11y artifact 링크 또는 inline viewer 진입점 추가
-- [x] 신규 `AccessibilityTreeView` 컴포넌트 추가
-  - 입력은 raw YAML string 또는 서버 가공 텍스트
-  - first version은 read-only viewer 우선
-- [x] artifact fetch 방식 확정
-  - 권장: 기존 `artifacts_base_url` + `a11y_path`
-- [x] 포커스 전환은 `Alt+Tab` 대신 커스텀 shortcut 또는 명시적 버튼 사용
-  - 예: `Alt+Shift+V` / `Alt+Shift+B`
-  - shortcut 없이도 버튼만으로 동일 기능 가능해야 함
-- [x] 모든 토글/펼치기 UI는 `aria-expanded`, `aria-controls` 유지 또는 보강
-- [x] 완료 시점 안내 문구는 live region으로 제공하되 과도한 assertive 남용은 피함
+- [ ] 1차 단계에서는 polling을 유지한다.
+- [ ] 훅의 책임은 유지하고 transport만 교체한다.
 
-**테스트 체크리스트**
+### 완료 기준
 
-- [x] `web/src/components/VerificationSidebar.test.tsx` 확장
-- [x] `web/src/components/ConfirmationNeededSection.test.tsx` 에 a11y artifact 진입 테스트 추가
-- [x] `web/src/components/ProcessHistorySection.test.tsx` 에 group/preview/a11y 링크 테스트 추가
-- [x] 신규 `AccessibilityTreeView` 테스트 추가
+- [ ] React 앱이 HTTP client/desktop client를 교체 가능하게 된다.
+- [ ] UI 훅 로직은 유지되고 transport 결합만 줄어든다.
 
----
+## Phase 3. BrowserPane 역할 재정의
 
-## 구현 순서 / 의존성
+### 목표
 
-```text
-Phase 1. metadata pipeline 확장
-    ↓
-Phase 2. a11y artifact 저장
-    ↓
-Phase 3. verification payload 구성
-    ↓
-Phase 4. existing sidebar 확장
-```
+- [ ] `BrowserPane`를 스크린샷 렌더러에서 live browser surface host/controller로 바꾼다.
 
-### 의존성 메모
+### 현재 문제
 
-- Phase 2는 Phase 1의 model field 결정이 선행되면 깔끔하다.
-- Phase 3는 기존 phase metadata를 활용하므로 Phase 1이 선행될수록 구현이 단순해진다.
-- Phase 4는 Phase 2의 `a11y_path` 와 Phase 3의 payload 방향이 정리된 뒤 진행한다.
+- [ ] `web/src/components/BrowserPane.tsx`가 `img` 기반 preview만 제공한다.
+- [ ] wrapper `focus()`만 가능하고 실제 browser focus handoff가 불가능하다.
 
----
+### 새 역할 체크리스트
 
-## 범위 밖으로 명시하는 항목
+- [ ] BrowserPane이 live browser surface가 배치될 container를 선언한다.
+- [ ] BrowserPane이 shell에 container bounds를 전달할 수 있게 한다.
+- [ ] BrowserPane이 browser focus 상태를 시각적으로 표시한다.
+- [ ] BrowserPane이 live mode / inspection mode를 구분한다.
+- [ ] live surface unavailable 시에만 screenshot fallback을 노출한다.
+- [ ] live browser surface와 historical step preview를 분리한다.
+- [ ] `Step preview`를 BrowserPane primary mode가 아닌 별도 inspector/drawer/modal/sidebar detail로 옮길지 결정한다.
 
-- [ ] LLM 기반 ambiguity 확정 판정
-- [ ] full accessibility audit (axe-core 통합)
-- [ ] 자동 root-cause explanation 생성
-- [ ] multi-tab / multi-page verification model 확장
+### 수정 대상
 
----
+- [ ] `web/src/components/BrowserPane.tsx`
+- [ ] `web/src/App.tsx`
+- [ ] `web/src/reviewPanel.ts`
+- [ ] 필요 시 `web/src/components/StepInspector.tsx` 추가
 
-## 미결 사항
+### 완료 기준
 
-- [x] `a11y_path` 는 `StepRecord` 와 `VerificationItem` 양쪽에 반영
-- [x] `GET /api/sessions/{id}/verification` endpoint 추가
-- [x] ambiguity rule은 별도 파일로 분리하지 않고 `src/agent.py` helper로 유지
-- [x] a11y YAML은 서버 변환 없이 프론트 read-only viewer로 노출
-- [x] keyboard shortcut 기본값 없이 버튼 기반 포커스 이동만 제공
+- [ ] BrowserPane이 더 이상 단순 screenshot viewer가 아니게 된다.
+- [ ] live browser surface UX와 historical preview UX가 서로 충돌하지 않게 된다.
 
----
+## Phase 4. FocusManager 및 단축키 설계
 
-## 완료 기준
+### 목표
 
-- [x] step artifact에 screenshot / html / metadata / a11y가 함께 저장된다
-- [x] UI session과 CLI logging 경로 모두에서 artifact naming이 일관된다
-- [x] 기존 verification sidebar가 새 payload/fields를 읽어 SR-friendly panel로 동작한다
-- [x] 기존 tests + 신규 tests가 모두 통과한다
+- [ ] side panel / browser surface / chat input 사이를 앱 레벨에서 일관되게 이동한다.
+
+### 신규 후보 파일
+
+- [ ] `web/src/focus/focusManager.ts`
+- [ ] `web/src/focus/FocusProvider.tsx`
+- [ ] 또는 shell 측 focus bridge 모듈
+
+### 정의할 focus region
+
+- [ ] `browser-surface`
+- [ ] `verification-sidebar`
+- [ ] `chat-input`
+
+### 체크리스트
+
+- [ ] `focusBrowserSurface()`를 정의한다.
+- [ ] `focusVerificationSidebar()`를 정의한다.
+- [ ] `focusChatInput()`를 정의한다.
+- [ ] 마지막 두 영역 간 토글 동작을 정의한다.
+- [ ] 포커스 변경 이벤트를 UI state에 반영한다.
+- [ ] global shortcut 후보를 정한다.
+- [ ] browser focus가 DOM wrapper가 아니라 shell/native surface로 전달되도록 한다.
+- [ ] sidebar/chat은 React DOM focus로 처리한다.
+- [ ] `VerificationSidebar`의 기존 버튼 기반 포커스 이동을 FocusManager 기반으로 바꾼다.
+- [ ] `ChatPanel`이 chat input ref 또는 focus target을 노출하게 한다.
+
+### 영향 파일
+
+- [ ] `web/src/App.tsx`
+- [ ] `web/src/components/VerificationSidebar.tsx`
+- [ ] `web/src/components/ChatPanel.tsx`
+- [ ] `web/src/components/BrowserPane.tsx`
+
+### 완료 기준
+
+- [ ] 사용자 단축키로 browser/sidebar/chat 사이 이동할 수 있다.
+- [ ] browser surface focus가 실제 interactive surface에 적용된다.
+
+## Phase 5. Artifact 접근 방식 재설계
+
+### 목표
+
+- [ ] artifact를 `/api/sessions/.../artifacts/...` URL이 아니라 bridge API로 다룬다.
+
+### 새 bridge API 후보
+
+- [ ] `readArtifactText(sessionId, name)`
+- [ ] `readArtifactBinary(sessionId, name)`
+- [ ] `openArtifact(sessionId, name)`
+- [ ] `resolveArtifactHandle(sessionId, name)`
+
+### 체크리스트
+
+- [ ] `artifacts_base_url` 제거 또는 축소 방향을 확정한다.
+- [ ] `buildArtifactUrl()` 중심 흐름을 제거한다.
+- [ ] `web/src/components/ArtifactLinks.tsx`를 bridge 기반 open/read 방식으로 바꾼다.
+- [ ] `web/src/components/ProcessHistorySection.tsx`를 bridge 기반 artifact 접근으로 바꾼다.
+- [ ] `web/src/components/ConfirmationNeededSection.tsx`를 bridge 기반 artifact 접근으로 바꾼다.
+- [ ] `web/src/components/AccessibilityTreeView.tsx`의 `fetch(artifactUrl)`를 제거한다.
+- [ ] `src/ui/session_controller.py`에서 HTTP URL 기반 artifact 모델을 정리한다.
+- [ ] `src/ui/models.py`에서 artifact field 구조를 desktop bridge 친화적으로 정리한다.
+
+### 영향 파일
+
+- [ ] `web/src/reviewPanel.ts`
+- [ ] `web/src/components/BrowserPane.tsx`
+- [ ] `web/src/components/ArtifactLinks.tsx`
+- [ ] `web/src/components/ProcessHistorySection.tsx`
+- [ ] `web/src/components/ConfirmationNeededSection.tsx`
+- [ ] `web/src/components/AccessibilityTreeView.tsx`
+- [ ] `src/ui/session_controller.py`
+- [ ] `src/ui/models.py`
+
+### 완료 기준
+
+- [ ] 프론트엔드가 artifact URL 문자열 조합 없이 동작한다.
+- [ ] live screenshot과 historical artifact 접근 경로가 분리된다.
+
+## Phase 6. Desktop bridge 연결
+
+### 목표
+
+- [ ] React 앱과 Python runtime 사이를 desktop IPC로 연결한다.
+
+### 체크리스트
+
+- [ ] shell에서 `SessionClient` contract를 구현한다.
+- [ ] shell에서 browser surface host를 관리한다.
+- [ ] BrowserPane가 shell에 자신의 bounds/focus intent를 전달한다.
+- [ ] Python service 호출 결과를 기존 TS 상태 모델과 최대한 동일한 shape로 유지한다.
+- [ ] polling 기반 snapshot/steps/verification 흐름이 desktop bridge에서도 동작하도록 만든다.
+- [ ] bridge 오류를 UI에서 구조적으로 표시할 수 있게 한다.
+
+### 주의사항
+
+- [ ] 1차는 polling 유지
+- [ ] 성능 문제가 드러날 때만 push/subscription으로 확장
+
+### 완료 기준
+
+- [ ] HTTP 없이 desktop bridge만으로 세션 생성/실행/중지/메시지 전송이 가능하다.
+- [ ] BrowserPane live surface와 Python 코어가 bridge를 통해 연결된다.
+
+## Phase 7. HTTP 제거
+
+### 목표
+
+- [ ] desktop bridge가 안정화되면 FastAPI layer를 제거한다.
+
+### 체크리스트
+
+- [ ] `src/ui/server.py` 제거
+- [ ] `src/ui/routes/sessions.py` 제거
+- [ ] `src/ui/models.py` 하단 HTTP DTO (`CreateSessionResponse`, `StartSessionRequest`, `SendMessageRequest`) 정리
+- [ ] desktop 전용 bootstrap 경로 정리
+- [ ] `main.py --ui`와 desktop launcher 관계 재정리
+
+### 완료 기준
+
+- [ ] desktop app 경로에서 FastAPI/uvicorn/CORS 없이 동일 기능이 동작한다.
+
+## 테스트 / 검증 체크리스트
+
+### Python
+
+- [ ] `SessionService` 단위 테스트 추가
+- [ ] `SessionController` 기존 테스트 유지 또는 보강
+- [ ] artifact bridge 관련 테스트 추가
+- [ ] 기존 HTTP parity 단계에서는 기존 UI 테스트가 깨지지 않도록 유지
+
+### Frontend
+
+- [ ] `SessionClient` abstraction 테스트 추가
+- [ ] BrowserPane live/fallback 모드 테스트 추가
+- [ ] FocusManager 단위 테스트 추가
+- [ ] keyboard shortcut 동작 테스트 추가
+- [ ] artifact bridge consumer 컴포넌트 테스트 갱신
+
+### Integration
+
+- [ ] desktop bridge <-> Python service 연동 테스트 추가
+- [ ] browser surface focus handoff 검증
+- [ ] sidebar <-> chat <-> browser 포커스 전환 검증
+
+## 리스크 체크리스트
+
+### 리스크 1. interactive browser surface 호스팅 난이도
+
+- [ ] `PlaywrightComputer` 유지로 충분한지 검증한다.
+- [ ] 필요하면 새 backend (`DesktopBrowserComputer`) 도입을 허용한다.
+
+### 리스크 2. BrowserPane와 step preview 역할 충돌
+
+- [ ] live surface와 historical preview를 분리하는 UX를 우선 적용한다.
+
+### 리스크 3. polling over IPC 비용
+
+- [ ] 1차는 유지하되 병목 측정을 준비한다.
+
+### 리스크 4. stop 동작의 비즉시성
+
+- [ ] stop pending 상태를 UX에서 명확히 표시한다.
+- [ ] 추후 stronger cancellation 필요성을 평가한다.
+
+## 최종 완료 기준
+
+- [ ] React 앱이 HTTP 없이 desktop bridge를 통해 세션을 생성/시작/정지/메시지 전송할 수 있다.
+- [ ] BrowserPane이 live browser surface의 실제 host/controller 역할을 한다.
+- [ ] sidebar / chat / browser surface 사이 포커스를 단축키와 명시적 focus action으로 이동할 수 있다.
+- [ ] artifact 접근이 `artifacts_base_url` 없이 동작한다.
+- [ ] `SessionController` 중심의 런타임 코어가 유지된다.
+- [ ] FastAPI layer를 제거해도 동일한 세션 기능이 동작한다.
+
+## 권장 구현 순서
+
+- [ ] Commit A: service 추출 + HTTP parity 유지
+- [ ] Commit B: frontend client abstraction
+- [ ] Commit C: BrowserPane/live surface 구조 변경
+- [ ] Commit D: focus manager + shortcut
+- [ ] Commit E: artifact bridge
+- [ ] Commit F: desktop bridge cutover + FastAPI 제거
