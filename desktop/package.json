@@ -1,0 +1,19 @@
+{
+  "name": "computer-use-preview-desktop",
+  "private": true,
+  "version": "0.0.0",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/**/*.test.js",
+    "start": "electron dist/main.js",
+    "dev": "npm run build && ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron dist/main.js",
+    "renderer:dev": "npm --prefix ../web run dev",
+    "renderer:build": "npm --prefix ../web run build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "electron": "^38.3.0",
+    "typescript": "^5.9.3"
+  }
+}
