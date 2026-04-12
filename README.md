@@ -30,6 +30,70 @@ npm run dev
 
 The Vite dev server proxies `/api` requests to the FastAPI backend at `http://127.0.0.1:8000`.
 
+## Electron Desktop Shell
+
+An Electron shell scaffold now lives under `desktop/`.
+
+Structure:
+
+```text
+desktop/
+├── package.json
+├── tsconfig.json
+└── src/
+    ├── main.ts
+    ├── preload.ts
+    ├── python.ts
+    ├── config.ts
+    ├── backendClient.ts
+    └── bridge/
+        └── channels.ts
+```
+
+The current scaffold uses this flow:
+
+- Electron `main` starts the existing Python UI backend via `uv run python main.py --ui --headless True`
+- Electron `preload` installs `window.__COMPUTER_USE_DESKTOP_BRIDGE__`
+- The React renderer in `web/` consumes that bridge through the desktop bridge abstractions already added in `web/src/api/`
+
+Current browser surface behavior:
+
+- Electron now creates a hosted `WebContentsView` for the browser surface region
+- renderer bounds/focus events are forwarded to the Electron shell through `browserSurface.setBounds()` and `browserSurface.focus()`
+- renderer URL changes are forwarded through `browserSurface.loadUrl()`
+
+Current limitation:
+
+- the hosted Electron browser surface is currently a **shadow browser surface** that mirrors the current URL
+- it is **not yet the same Chromium instance** controlled by the Python + Playwright backend
+- full unification still requires replacing the current backend/browser ownership model
+
+Renderer loading:
+
+- Development: `ELECTRON_RENDERER_URL=http://127.0.0.1:5173`
+- Production: `web/dist/index.html`
+
+Desktop shell commands:
+
+```bash
+cd desktop
+npm install
+npm run build
+npm run start
+```
+
+For local renderer development, run the web dev server separately:
+
+```bash
+cd web
+npm install
+npm run dev
+
+cd ../desktop
+npm install
+npm run dev
+```
+
 ## Requirements
 
 - Python `>=3.12,<3.13`
