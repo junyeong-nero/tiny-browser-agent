@@ -5,7 +5,7 @@ import unittest
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from google.genai import types
 from fastapi.testclient import TestClient
@@ -14,8 +14,9 @@ from src.agent import BrowserAgent, multiply_numbers
 from src.computers.computer import EnvState
 from src.llm.client import LLMClient
 from src.ui.models import SessionSnapshot, SessionStatus, StepAction, StepRecord
-from src.ui.server import create_app
+from src.ui.server import create_app, resolve_default_computer_factory
 from src.ui.session_controller import AgentFactory, SessionController, build_verification_payload
+from src.ui.session_service import SessionService
 from src.ui.session_store import SessionStore
 
 
@@ -68,7 +69,6 @@ class FakeComputer(AbstractContextManager):
             ),
             encoding="utf-8",
         )
-        (self.video_dir / "session.webm").write_bytes(b"webm-bytes")
         self._latest_artifacts = {
             "step": 1,
             "timestamp": 123.0,
@@ -82,6 +82,9 @@ class FakeComputer(AbstractContextManager):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         return False
+
+    def finalize_video_artifact(self):
+        (self.video_dir / "session.webm").write_bytes(b"webm-bytes")
 
     def latest_artifact_metadata(self):
         return dict(self._latest_artifacts or {})
@@ -576,6 +579,72 @@ class TestSessionApi(unittest.TestCase):
         )
         self.assertEqual(artifact_response.status_code, 200)
         self.assertEqual(artifact_response.content, b"png-bytes")
+
+        video_response = self.client.get(
+            f"/api/sessions/{session_id}/artifacts/session.webm"
+        )
+        self.assertEqual(video_response.status_code, 200)
+        self.assertEqual(video_response.content, b"webm-bytes")
+
+
+class TestUiServerFactoryResolution(unittest.TestCase):
+    def test_resolve_default_computer_factory_returns_none_without_env(self):
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertIsNone(resolve_default_computer_factory())
+
+    def test_resolve_default_computer_factory_uses_electron_surface_when_env_present(self):
+        with patch.dict(
+            "os.environ",
+            {"COMPUTER_USE_ELECTRON_COMMAND_URL": "http://127.0.0.1:4545"},
+            clear=True,
+        ):
+            computer_factory = resolve_default_computer_factory()
+
+        self.assertIsNotNone(computer_factory)
+
+
+class TestSessionService(unittest.TestCase):
+    def setUp(self):
+        FakeAgent.instances = []
+        FakeComputer.instances = []
+        self.tmp_dir = tempfile.TemporaryDirectory()
+        self.store = SessionStore(
+            model_name="test-model",
+            screen_size=(1440, 900),
+            initial_url="https://example.com",
+            highlight_mouse=False,
+            headless=True,
+            artifacts_root=Path(self.tmp_dir.name),
+            computer_factory=FakeComputer,
+            agent_factory=cast(AgentFactory, FakeAgent),
+        )
+        self.service = SessionService(self.store)
+
+    def tearDown(self):
+        self.tmp_dir.cleanup()
+
+    def test_service_creates_and_runs_session(self):
+        created = self.service.create_session()
+        session_id = created.session_id
+
+        start_snapshot = self.service.start_session(session_id, "visit example")
+        self.assertEqual(start_snapshot.session_id, session_id)
+
+        wait_for(lambda: self.service.get_snapshot(session_id).status == "complete")
+
+        snapshot = self.service.get_snapshot(session_id)
+        steps = self.service.get_steps(session_id)
+        verification = self.service.get_verification(session_id)
+        artifact_path = self.service.get_artifact_path(session_id, "step-0001.png")
+
+        self.assertEqual(snapshot.final_reasoning, "All done.")
+        self.assertEqual(len(steps), 2)
+        self.assertEqual(len(verification.grouped_steps), 2)
+        self.assertTrue(artifact_path.exists())
+
+    def test_service_raises_lookup_error_for_missing_session(self):
+        with self.assertRaises(LookupError):
+            self.service.get_snapshot("ses_missing")
 
 
 if __name__ == "__main__":

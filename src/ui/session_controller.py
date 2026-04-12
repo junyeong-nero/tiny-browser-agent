@@ -272,7 +272,7 @@ class SessionController:
                             )
                             self._assistant_message_emitted = True
                     self._touch_snapshot_locked()
-            self._finalize_video_artifact()
+            self._finalize_video_artifact(browser_computer)
         except Exception as exc:
             with self._lock:
                 self._latest_snapshot.status = SessionStatus.ERROR
@@ -499,7 +499,14 @@ class SessionController:
     def _touch_snapshot_locked(self) -> None:
         self._latest_snapshot.updated_at = time.time()
 
-    def _finalize_video_artifact(self) -> None:
+    def _finalize_video_artifact(self, browser_computer: Computer | None = None) -> None:
+        finalize_video = getattr(browser_computer, "finalize_video_artifact", None)
+        if callable(finalize_video):
+            try:
+                finalize_video()
+            except Exception:
+                pass
+
         video_dir = self._log_dir / "video"
         if not video_dir.exists():
             return

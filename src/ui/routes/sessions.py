@@ -2,68 +2,68 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from ..models import CreateSessionResponse, SendMessageRequest, StartSessionRequest
-from ..session_store import SessionStore
+from ..session_service import SessionService
 
 
-def build_sessions_router(store: SessionStore) -> APIRouter:
+def build_sessions_router(service: SessionService) -> APIRouter:
     router = APIRouter(prefix="/api/sessions", tags=["sessions"])
-
-    def get_session_or_404(session_id: str):
-        session = store.get_session(session_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail="Session not found.")
-        return session
 
     @router.post("", response_model=CreateSessionResponse)
     def create_session() -> CreateSessionResponse:
-        session = store.create_session()
-        snapshot = session.get_snapshot()
-        return CreateSessionResponse(session_id=session.session_id, snapshot=snapshot)
+        return service.create_session()
 
     @router.post("/{session_id}/start")
     def start_session(session_id: str, request: StartSessionRequest):
-        session = get_session_or_404(session_id)
         try:
-            session.start(request.query)
+            return service.start_session(session_id, request.query)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return session.get_snapshot()
 
     @router.post("/{session_id}/messages")
     def enqueue_message(session_id: str, request: SendMessageRequest):
-        session = get_session_or_404(session_id)
         try:
-            session.enqueue_message(request.text)
+            return service.send_message(session_id, request.text)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return session.get_snapshot()
 
     @router.post("/{session_id}/stop")
     def stop_session(session_id: str):
-        session = get_session_or_404(session_id)
-        session.stop()
-        return session.get_snapshot()
+        try:
+            return service.stop_session(session_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.get("/{session_id}")
     def get_snapshot(session_id: str):
-        session = get_session_or_404(session_id)
-        return session.get_snapshot()
+        try:
+            return service.get_snapshot(session_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.get("/{session_id}/steps")
     def get_steps(session_id: str, after_step_id: int | None = Query(default=None)):
-        session = get_session_or_404(session_id)
-        return session.get_steps(after_step_id=after_step_id)
+        try:
+            return service.get_steps(session_id, after_step_id=after_step_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.get("/{session_id}/verification")
     def get_verification(session_id: str):
-        session = get_session_or_404(session_id)
-        return session.get_verification_payload()
+        try:
+            return service.get_verification(session_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @router.get("/{session_id}/artifacts/{name}")
     def get_artifact(session_id: str, name: str):
-        session = get_session_or_404(session_id)
         try:
-            artifact_path = session.get_artifact_path(name)
+            artifact_path = service.get_artifact_path(session_id, name)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except FileNotFoundError as exc:
