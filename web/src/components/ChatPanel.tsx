@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type Ref, useState } from 'react';
 
 import type { ChatMessage } from '../types/api';
 
@@ -9,6 +9,7 @@ interface ChatPanelProps {
   isSessionActive: boolean;
   hasSession: boolean;
   isBusy: boolean;
+  inputRef?: Ref<HTMLInputElement>;
 }
 
 export function ChatPanel({
@@ -18,6 +19,7 @@ export function ChatPanel({
   isSessionActive,
   hasSession,
   isBusy,
+  inputRef,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
 
@@ -45,6 +47,7 @@ export function ChatPanel({
       </div>
       <form className="chat-input-form" onSubmit={handleSubmit}>
         <input
+          ref={inputRef}
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}

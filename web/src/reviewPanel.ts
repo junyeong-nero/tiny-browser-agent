@@ -9,17 +9,6 @@ export interface StepGroup {
   steps: StepRecord[];
 }
 
-export function buildArtifactUrl(
-  artifactsBaseUrl: string | null | undefined,
-  artifactPath: string | null | undefined,
-): string | null {
-  if (!artifactsBaseUrl || !artifactPath) {
-    return null;
-  }
-
-  return `${artifactsBaseUrl}/${artifactPath}`;
-}
-
 export function getRequestText(snapshot: SessionSnapshot | null | undefined): string | null {
   if (!snapshot) {
     return null;

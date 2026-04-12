@@ -1,12 +1,13 @@
 import { useCallback, useState } from 'react';
 
-import { apiClient } from '../api/client';
+import { useSessionClient } from '../api/SessionClientContext';
 
 function getErrorMessage(error: unknown, fallbackMessage: string): string {
   return error instanceof Error ? error.message : fallbackMessage;
 }
 
 export function useSessionControls(sessionId: string | null) {
+  const sessionClient = useSessionClient();
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
@@ -18,7 +19,7 @@ export function useSessionControls(sessionId: string | null) {
       }
       setIsStarting(true);
       try {
-        await apiClient.startSession(sessionId, { query });
+        await sessionClient.startSession(sessionId, { query });
         setError(null);
       } catch (startError) {
         const message = getErrorMessage(startError, 'Failed to start session');
@@ -28,7 +29,7 @@ export function useSessionControls(sessionId: string | null) {
         setIsStarting(false);
       }
     },
-    [sessionId],
+    [sessionClient, sessionId],
   );
 
   const stopSession = useCallback(async () => {
@@ -37,7 +38,7 @@ export function useSessionControls(sessionId: string | null) {
     }
     setIsStopping(true);
     try {
-      await apiClient.stopSession(sessionId);
+      await sessionClient.stopSession(sessionId);
       setError(null);
     } catch (stopError) {
       const message = getErrorMessage(stopError, 'Failed to stop session');
@@ -46,7 +47,7 @@ export function useSessionControls(sessionId: string | null) {
     } finally {
       setIsStopping(false);
     }
-  }, [sessionId]);
+  }, [sessionClient, sessionId]);
 
   return { startSession, stopSession, error, isStarting, isStopping };
 }

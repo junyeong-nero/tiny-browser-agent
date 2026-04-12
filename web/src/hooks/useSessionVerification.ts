@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { apiClient } from '../api/client';
+import { useSessionClient } from '../api/SessionClientContext';
 import type { SessionStatus, VerificationPayload } from '../types/api';
 
 const ACTIVE_POLL_INTERVAL_MS = 500;
@@ -11,6 +11,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function useSessionVerification(sessionId: string | null, status?: SessionStatus | null) {
+  const sessionClient = useSessionClient();
   const [verification, setVerification] = useState<VerificationPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -19,11 +20,11 @@ export function useSessionVerification(sessionId: string | null, status?: Sessio
     if (!sessionId) {
       return null;
     }
-    const nextVerification = await apiClient.getVerification(sessionId);
+    const nextVerification = await sessionClient.getVerification(sessionId);
     setVerification(nextVerification);
     setError(null);
     return nextVerification;
-  }, [sessionId]);
+  }, [sessionClient, sessionId]);
 
   useEffect(() => {
     setVerification(null);
@@ -41,7 +42,7 @@ export function useSessionVerification(sessionId: string | null, status?: Sessio
 
     const runPoll = async () => {
       try {
-        const nextVerification = await apiClient.getVerification(sessionId);
+        const nextVerification = await sessionClient.getVerification(sessionId);
         if (cancelled) {
           return;
         }
@@ -69,7 +70,7 @@ export function useSessionVerification(sessionId: string | null, status?: Sessio
         window.clearTimeout(timeoutRef.current);
       }
     };
-  }, [sessionId, status]);
+  }, [sessionClient, sessionId, status]);
 
   return { verification, error, refreshVerification };
 }

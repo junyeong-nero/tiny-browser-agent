@@ -11,6 +11,7 @@ describe('ProcessHistorySection', () => {
   it('renders a single disclosure without phase metadata', () => {
     render(
       <ProcessHistorySection
+        sessionId="ses_test"
         steps={[
           {
             step_id: 1,
@@ -27,7 +28,6 @@ describe('ProcessHistorySection', () => {
         ]}
         previewMode={{ kind: 'current' }}
         onSelectStepPreview={vi.fn()}
-        artifactsBaseUrl="/api/sessions/ses_test/artifacts"
       />,
     );
 
@@ -44,6 +44,7 @@ describe('ProcessHistorySection', () => {
 
     render(
       <ProcessHistorySection
+        sessionId="ses_test"
         steps={[
           {
             step_id: 2,
@@ -83,7 +84,6 @@ describe('ProcessHistorySection', () => {
         ]}
         previewMode={{ kind: 'step', stepId: 2 }}
         onSelectStepPreview={onSelectStepPreview}
-        artifactsBaseUrl="/api/sessions/ses_test/artifacts"
       />,
     );
 

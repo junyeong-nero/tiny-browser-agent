@@ -1,11 +1,15 @@
 import { useId, useState } from 'react';
 
+import { useArtifactClient } from '../api/ArtifactClientContext';
+
 interface AccessibilityTreeViewProps {
-  artifactUrl: string | null;
+  sessionId: string | null | undefined;
+  artifactName: string | null | undefined;
   label: string;
 }
 
-export function AccessibilityTreeView({ artifactUrl, label }: AccessibilityTreeViewProps) {
+export function AccessibilityTreeView({ sessionId, artifactName, label }: AccessibilityTreeViewProps) {
+  const artifactClient = useArtifactClient();
   const [isOpen, setIsOpen] = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -13,17 +17,13 @@ export function AccessibilityTreeView({ artifactUrl, label }: AccessibilityTreeV
   const contentId = useId();
 
   const loadArtifact = async () => {
-    if (!artifactUrl || content != null || isLoading) {
+    if (!sessionId || !artifactName || content != null || isLoading) {
       return;
     }
 
     setIsLoading(true);
     try {
-      const response = await fetch(artifactUrl);
-      if (!response.ok) {
-        throw new Error('Failed to load accessibility tree');
-      }
-      const text = await response.text();
+      const text = await artifactClient.readArtifactText(sessionId, artifactName);
       setContent(text);
       setError(null);
     } catch (loadError) {
@@ -41,7 +41,7 @@ export function AccessibilityTreeView({ artifactUrl, label }: AccessibilityTreeV
     }
   };
 
-  if (!artifactUrl) {
+  if (!sessionId || !artifactName) {
     return null;
   }
 

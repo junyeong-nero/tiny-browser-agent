@@ -1,12 +1,13 @@
 import { useCallback, useState } from 'react';
 
-import { apiClient } from '../api/client';
+import { useSessionClient } from '../api/SessionClientContext';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to send message';
 }
 
 export function useSendMessage(sessionId: string | null) {
+  const sessionClient = useSessionClient();
   const [error, setError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
 
@@ -17,7 +18,7 @@ export function useSendMessage(sessionId: string | null) {
       }
       setIsSending(true);
       try {
-        await apiClient.sendMessage(sessionId, { text });
+        await sessionClient.sendMessage(sessionId, { text });
         setError(null);
       } catch (sendError) {
         const message = getErrorMessage(sendError);
@@ -27,7 +28,7 @@ export function useSendMessage(sessionId: string | null) {
         setIsSending(false);
       }
     },
-    [sessionId],
+    [sessionClient, sessionId],
   );
 
   return { sendMessage, error, isSending };

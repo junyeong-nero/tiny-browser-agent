@@ -48,6 +48,7 @@ describe('VerificationSidebar', () => {
         previewMode={{ kind: 'current' }}
         verificationPayload={null}
         onFocusBrowserPane={vi.fn()}
+        onFocusChatInput={vi.fn()}
         onFocusVerificationPanel={vi.fn()}
         onSelectCurrentPreview={onSelectCurrentPreview}
         onSelectStepPreview={onSelectStepPreview}

@@ -16,7 +16,8 @@ describe('AccessibilityTreeView', () => {
 
     render(
       <AccessibilityTreeView
-        artifactUrl="/api/sessions/ses_test/artifacts/step-0001.a11y.yaml"
+        sessionId="ses_test"
+        artifactName="step-0001.a11y.yaml"
         label="Step 1"
       />,
     );

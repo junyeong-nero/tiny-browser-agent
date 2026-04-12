@@ -17,6 +17,7 @@ describe('ConfirmationNeededSection', () => {
 
     render(
       <ConfirmationNeededSection
+        sessionId="ses_test"
         items={[
           {
             id: 'item-1',
@@ -41,7 +42,6 @@ describe('ConfirmationNeededSection', () => {
           },
         ]}
         onSelectStepPreview={onSelectStepPreview}
-        artifactsBaseUrl="/api/sessions/ses_test/artifacts"
       />,
     );
 

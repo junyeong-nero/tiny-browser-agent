@@ -1,45 +1,58 @@
-import { SessionSnapshot } from '../types/api';
+import { useArtifactClient } from '../api/ArtifactClientContext';
+import type { SessionSnapshot } from '../types/api';
 
 interface ArtifactLinksProps {
   snapshot: SessionSnapshot | null;
 }
 
 export function ArtifactLinks({ snapshot }: ArtifactLinksProps) {
-  if (!snapshot || !snapshot.artifacts_base_url) {
+  const artifactClient = useArtifactClient();
+
+  if (!snapshot) {
     return null;
   }
 
-  const baseUrl = snapshot.artifacts_base_url;
   const isComplete = snapshot.status === 'complete' || snapshot.status === 'stopped' || snapshot.status === 'error';
+  const latestStepPrefix =
+    snapshot.latest_step_id != null ? `step-${String(snapshot.latest_step_id).padStart(4, '0')}` : null;
+
+  const renderArtifactAction = (label: string, name: string) => {
+    const artifactHref = artifactClient.getArtifactHref(snapshot.session_id, name);
+    if (artifactHref) {
+      return (
+        <a href={artifactHref} target="_blank" rel="noreferrer">
+          {label}
+        </a>
+      );
+    }
+
+    return (
+      <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(snapshot.session_id, name)}>
+        {label}
+      </button>
+    );
+  };
 
   return (
     <div className="artifact-links">
       <h3>Artifacts</h3>
       <ul>
-        {snapshot.latest_step_id != null && (
+        {latestStepPrefix && (
           <>
             <li>
-              <a href={`${baseUrl}/step-${String(snapshot.latest_step_id).padStart(4, '0')}.png`} target="_blank" rel="noreferrer">
-                Latest Screenshot
-              </a>
+              {renderArtifactAction('Latest Screenshot', `${latestStepPrefix}.png`)}
             </li>
             <li>
-              <a href={`${baseUrl}/step-${String(snapshot.latest_step_id).padStart(4, '0')}.html`} target="_blank" rel="noreferrer">
-                Latest HTML
-              </a>
+              {renderArtifactAction('Latest HTML', `${latestStepPrefix}.html`)}
             </li>
             <li>
-              <a href={`${baseUrl}/step-${String(snapshot.latest_step_id).padStart(4, '0')}.json`} target="_blank" rel="noreferrer">
-                Latest Metadata
-              </a>
+              {renderArtifactAction('Latest Metadata', `${latestStepPrefix}.json`)}
             </li>
           </>
         )}
         {isComplete && (
           <li>
-            <a href={`${baseUrl}/session.webm`} target="_blank" rel="noreferrer">
-              Session Video
-            </a>
+            {renderArtifactAction('Session Video', 'session.webm')}
           </li>
         )}
       </ul>

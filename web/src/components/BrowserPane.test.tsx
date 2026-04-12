@@ -10,12 +10,16 @@ describe('BrowserPane', () => {
         currentScreenshotB64="Zm9v"
         currentUpdatedAt={1700000000}
         selectedStep={null}
-        artifactsBaseUrl="/api/sessions/ses_test/artifacts"
+        sessionId="ses_test"
         status="complete"
       />,
     );
 
     expect(screen.getByText('Current preview')).toBeInTheDocument();
+    expect(screen.getByLabelText('Browser surface')).toHaveAttribute(
+      'data-browser-surface-connected',
+      'false',
+    );
     expect(screen.getByAltText('Current browser preview')).toHaveAttribute(
       'src',
       'data:image/png;base64,Zm9v',
@@ -27,6 +31,7 @@ describe('BrowserPane', () => {
       <BrowserPane
         currentScreenshotB64="Zm9v"
         currentUpdatedAt={1700000000}
+        sessionId="ses_test"
         selectedStep={{
           step_id: 12,
           timestamp: 1700000001,
@@ -43,12 +48,16 @@ describe('BrowserPane', () => {
           phase_summary: '페이지를 탐색했습니다.',
           user_visible_label: '좌석 선택',
         }}
-        artifactsBaseUrl="/api/sessions/ses_test/artifacts"
         status="complete"
+        hasBrowserSurfaceBridge
       />,
     );
 
     expect(screen.getByText('Step 12 preview')).toBeInTheDocument();
+    expect(screen.getByLabelText('Browser surface')).toHaveAttribute(
+      'data-browser-surface-connected',
+      'true',
+    );
     expect(screen.getByAltText('Step 12 browser preview')).toHaveAttribute(
       'src',
       '/api/sessions/ses_test/artifacts/step-0012.png',

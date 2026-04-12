@@ -24,6 +24,7 @@ interface VerificationSidebarProps {
   onSelectStepPreview: (stepId: number) => void;
   onFocusBrowserPane: () => void;
   onFocusVerificationPanel: () => void;
+  onFocusChatInput: () => void;
 }
 
 export function VerificationSidebar({
@@ -40,6 +41,7 @@ export function VerificationSidebar({
   onSelectStepPreview,
   onFocusBrowserPane,
   onFocusVerificationPanel,
+  onFocusChatInput,
 }: VerificationSidebarProps) {
   if (!snapshot && steps.length === 0 && !error) {
     return <div className="sidebar-content empty-state">세션을 시작하면 검증 패널이 표시됩니다.</div>;
@@ -71,6 +73,9 @@ export function VerificationSidebar({
           <button type="button" className="btn-secondary preview-button" onClick={onFocusVerificationPanel}>
             검증 패널 상단으로 이동
           </button>
+          <button type="button" className="btn-secondary preview-button" onClick={onFocusChatInput}>
+            채팅 입력으로 이동
+          </button>
         </div>
       </section>
       <RequestSummaryHeader requestText={resolvedRequestText} />
@@ -78,14 +83,14 @@ export function VerificationSidebar({
       <ConfirmationNeededSection
         items={verificationPayload?.verification_items ?? snapshot?.verification_items}
         onSelectStepPreview={onSelectStepPreview}
-        artifactsBaseUrl={verificationPayload?.artifacts_base_url ?? snapshot?.artifacts_base_url}
+        sessionId={verificationPayload?.session_id ?? snapshot?.session_id}
       />
       <ProcessHistorySection
         steps={steps}
         groupedSteps={verificationPayload?.grouped_steps}
         previewMode={previewMode}
         onSelectStepPreview={onSelectStepPreview}
-        artifactsBaseUrl={verificationPayload?.artifacts_base_url ?? snapshot?.artifacts_base_url}
+        sessionId={verificationPayload?.session_id ?? snapshot?.session_id}
       />
       <FinalResultSection summary={finalSummary} onSelectCurrentPreview={onSelectCurrentPreview} />
       <section className="verification-section debug-artifacts-section">

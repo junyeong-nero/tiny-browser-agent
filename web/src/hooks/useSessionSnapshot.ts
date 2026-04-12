@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { apiClient } from '../api/client';
+import { useSessionClient } from '../api/SessionClientContext';
 import type { SessionSnapshot } from '../types/api';
 
 const ACTIVE_POLL_INTERVAL_MS = 500;
@@ -11,6 +11,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function useSessionSnapshot(sessionId: string | null) {
+  const sessionClient = useSessionClient();
   const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -19,11 +20,11 @@ export function useSessionSnapshot(sessionId: string | null) {
     if (!sessionId) {
       return null;
     }
-    const nextSnapshot = await apiClient.getSession(sessionId);
+    const nextSnapshot = await sessionClient.getSession(sessionId);
     setSnapshot(nextSnapshot);
     setError(null);
     return nextSnapshot;
-  }, [sessionId]);
+  }, [sessionId, sessionClient]);
 
   useEffect(() => {
     setSnapshot(null);
@@ -41,7 +42,7 @@ export function useSessionSnapshot(sessionId: string | null) {
 
     const runPoll = async () => {
       try {
-        const nextSnapshot = await apiClient.getSession(sessionId);
+        const nextSnapshot = await sessionClient.getSession(sessionId);
         if (cancelled) {
           return;
         }
@@ -69,7 +70,7 @@ export function useSessionSnapshot(sessionId: string | null) {
         window.clearTimeout(timeoutRef.current);
       }
     };
-  }, [sessionId]);
+  }, [sessionClient, sessionId]);
 
   return { snapshot, error, refreshSnapshot };
 }

@@ -1,4 +1,5 @@
-import { buildArtifactUrl, getProcessGroups, type PreviewMode } from '../reviewPanel';
+import { useArtifactClient } from '../api/ArtifactClientContext';
+import { getProcessGroups, type PreviewMode } from '../reviewPanel';
 import type { StepRecord, VerificationGroup } from '../types/api';
 import { AccessibilityTreeView } from './AccessibilityTreeView';
 
@@ -7,7 +8,7 @@ interface ProcessHistorySectionProps {
   groupedSteps?: VerificationGroup[] | null;
   previewMode: PreviewMode;
   onSelectStepPreview: (stepId: number) => void;
-  artifactsBaseUrl: string | null | undefined;
+  sessionId: string | null | undefined;
 }
 
 export function ProcessHistorySection({
@@ -15,8 +16,9 @@ export function ProcessHistorySection({
   groupedSteps,
   previewMode,
   onSelectStepPreview,
-  artifactsBaseUrl,
+  sessionId,
 }: ProcessHistorySectionProps) {
+  const artifactClient = useArtifactClient();
   const groups = getProcessGroups(groupedSteps, steps);
 
   return (
@@ -32,12 +34,18 @@ export function ProcessHistorySection({
                 <span>{group.label}</span>
                 {group.summary && <span className="process-group-summary">{group.summary}</span>}
               </summary>
-              <div className="steps-list">
-                {group.steps.map((step) => {
-                  const stepHtmlUrl = buildArtifactUrl(artifactsBaseUrl, step.html_path);
-                  const stepMetadataUrl = buildArtifactUrl(artifactsBaseUrl, step.metadata_path);
-                  const isSelected =
-                    previewMode.kind === 'step' && previewMode.stepId === step.step_id;
+                <div className="steps-list">
+                  {group.steps.map((step) => {
+                   const stepHtmlPath = step.html_path ?? null;
+                   const stepMetadataPath = step.metadata_path ?? null;
+                   const stepHtmlUrl = sessionId && stepHtmlPath
+                     ? artifactClient.getArtifactHref(sessionId, stepHtmlPath)
+                     : null;
+                   const stepMetadataUrl = sessionId && stepMetadataPath
+                     ? artifactClient.getArtifactHref(sessionId, stepMetadataPath)
+                     : null;
+                   const isSelected =
+                     previewMode.kind === 'step' && previewMode.stepId === step.step_id;
 
                   return (
                     <article
@@ -77,18 +85,29 @@ export function ProcessHistorySection({
                             이 시점 보기
                           </button>
                         )}
-                        {stepHtmlUrl && (
+                        {stepHtmlPath && stepHtmlUrl && (
                           <a href={stepHtmlUrl} target="_blank" rel="noreferrer">
                             HTML
                           </a>
                         )}
-                        {stepMetadataUrl && (
+                        {stepHtmlPath && !stepHtmlUrl && sessionId && (
+                          <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(sessionId, stepHtmlPath)}>
+                            HTML
+                          </button>
+                        )}
+                        {stepMetadataPath && stepMetadataUrl && (
                           <a href={stepMetadataUrl} target="_blank" rel="noreferrer">
                             Metadata
                           </a>
                         )}
+                        {stepMetadataPath && !stepMetadataUrl && sessionId && (
+                          <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(sessionId, stepMetadataPath)}>
+                            Metadata
+                          </button>
+                        )}
                         <AccessibilityTreeView
-                          artifactUrl={buildArtifactUrl(artifactsBaseUrl, step.a11y_path)}
+                          sessionId={sessionId}
+                          artifactName={step.a11y_path}
                           label={`Step ${step.step_id}`}
                         />
                       </div>

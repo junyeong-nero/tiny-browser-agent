@@ -1,11 +1,13 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { apiClient } from './api/client';
+import { useSessionClient } from './api/SessionClientContext';
+import { useBrowserSurfaceHost } from './api/browserSurfaceBridge';
 import { BrowserPane } from './components/BrowserPane';
 import { ChatPanel } from './components/ChatPanel';
 import { Layout } from './components/Layout';
 import { StatusBar } from './components/StatusBar';
 import { VerificationSidebar } from './components/VerificationSidebar';
+import { getFocusShortcutRegion } from './focus/focusManager';
 import { useSendMessage } from './hooks/useSendMessage';
 import { useSessionControls } from './hooks/useSessionControls';
 import { useSessionSnapshot } from './hooks/useSessionSnapshot';
@@ -21,15 +23,23 @@ import type { SessionSnapshot } from './types/api';
 import './styles/app.css';
 
 function App() {
+  const sessionClient = useSessionClient();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [seedSnapshot, setSeedSnapshot] = useState<SessionSnapshot | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>({ kind: 'current' });
-  const browserPaneRef = useRef<HTMLDivElement | null>(null);
+  const browserPaneRef = useRef<HTMLElement | null>(null);
   const verificationPanelRef = useRef<HTMLDivElement | null>(null);
-
+  const chatInputRef = useRef<HTMLInputElement | null>(null);
   const { snapshot, error: snapshotError, refreshSnapshot } = useSessionSnapshot(sessionId);
   const displaySnapshot = snapshot ?? seedSnapshot;
+  const isLiveBrowserSurfaceVisible = previewMode.kind === 'current';
+  const {
+    focusBrowserSurface,
+    hasBrowserSurfaceBridge,
+  } = useBrowserSurfaceHost(browserPaneRef, {
+    isVisible: isLiveBrowserSurfaceVisible,
+  });
   const {
     steps,
     error: stepsError,
@@ -74,7 +84,7 @@ function App() {
 
   const createSession = useCallback(async () => {
     try {
-      const response = await apiClient.createSession();
+      const response = await sessionClient.createSession();
       setSessionId(response.session_id);
       setSeedSnapshot(response.snapshot);
       setPreviewMode({ kind: 'current' });
@@ -83,7 +93,7 @@ function App() {
     } catch (err) {
       setSessionError(err instanceof Error ? err.message : 'Failed to create session');
     }
-  }, [resetSteps]);
+  }, [resetSteps, sessionClient]);
 
   const handleStartSession = useCallback(
     async (query: string) => {
@@ -127,6 +137,41 @@ function App() {
     }
   }, [refreshSnapshot, stopSession]);
 
+  const focusBrowserPane = useCallback(() => {
+    void focusBrowserSurface();
+  }, [focusBrowserSurface]);
+
+  const focusVerificationPanel = useCallback(() => {
+    verificationPanelRef.current?.focus();
+  }, []);
+
+  const focusChatInput = useCallback(() => {
+    chatInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const region = getFocusShortcutRegion(event);
+      if (!region) {
+        return;
+      }
+
+      event.preventDefault();
+      if (region === 'browser') {
+        focusBrowserPane();
+        return;
+      }
+      if (region === 'verification') {
+        focusVerificationPanel();
+        return;
+      }
+      focusChatInput();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [focusBrowserPane, focusChatInput, focusVerificationPanel]);
+
   return (
     <Layout
       statusBar={
@@ -145,8 +190,9 @@ function App() {
           currentScreenshotB64={displaySnapshot?.latest_screenshot_b64}
           currentUpdatedAt={displaySnapshot?.updated_at}
           selectedStep={selectedStep}
-          artifactsBaseUrl={displaySnapshot?.artifacts_base_url}
+          sessionId={displaySnapshot?.session_id}
           status={displaySnapshot?.status}
+          hasBrowserSurfaceBridge={hasBrowserSurfaceBridge}
         />
       }
       chatPanel={
@@ -160,6 +206,7 @@ function App() {
           }
           hasSession={!!sessionId}
           isBusy={isSending || isStarting || isStopping}
+          inputRef={chatInputRef}
         />
       }
       sidebar={
@@ -175,8 +222,9 @@ function App() {
           verificationPayload={verification}
           onSelectCurrentPreview={() => setPreviewMode({ kind: 'current' })}
           onSelectStepPreview={(stepId) => setPreviewMode({ kind: 'step', stepId })}
-          onFocusBrowserPane={() => browserPaneRef.current?.focus()}
-          onFocusVerificationPanel={() => verificationPanelRef.current?.focus()}
+          onFocusBrowserPane={focusBrowserPane}
+          onFocusVerificationPanel={focusVerificationPanel}
+          onFocusChatInput={focusChatInput}
         />
       }
     />

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { apiClient } from '../api/client';
+import { useSessionClient } from '../api/SessionClientContext';
 import type { SessionStatus, StepRecord } from '../types/api';
 
 const ACTIVE_POLL_INTERVAL_MS = 500;
@@ -11,6 +11,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export function useSessionSteps(sessionId: string | null, status?: SessionStatus | null) {
+  const sessionClient = useSessionClient();
   const [steps, setSteps] = useState<StepRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const timeoutRef = useRef<number | null>(null);
@@ -26,14 +27,14 @@ export function useSessionSteps(sessionId: string | null, status?: SessionStatus
     if (!sessionId) {
       return [];
     }
-    const nextSteps = await apiClient.getSteps(sessionId, lastStepIdRef.current ?? undefined);
+    const nextSteps = await sessionClient.getSteps(sessionId, lastStepIdRef.current ?? undefined);
     if (nextSteps.length > 0) {
       lastStepIdRef.current = nextSteps[nextSteps.length - 1].step_id;
       setSteps((currentSteps) => [...currentSteps, ...nextSteps]);
     }
     setError(null);
     return nextSteps;
-  }, [sessionId]);
+  }, [sessionClient, sessionId]);
 
   useEffect(() => {
     resetSteps();
@@ -50,7 +51,7 @@ export function useSessionSteps(sessionId: string | null, status?: SessionStatus
 
     const runPoll = async () => {
       try {
-        const nextSteps = await apiClient.getSteps(sessionId, lastStepIdRef.current ?? undefined);
+        const nextSteps = await sessionClient.getSteps(sessionId, lastStepIdRef.current ?? undefined);
         if (cancelled) {
           return;
         }
@@ -81,7 +82,7 @@ export function useSessionSteps(sessionId: string | null, status?: SessionStatus
         window.clearTimeout(timeoutRef.current);
       }
     };
-  }, [resetSteps, sessionId, status]);
+  }, [resetSteps, sessionClient, sessionId, status]);
 
   return { steps, error, refreshSteps, resetSteps };
 }
