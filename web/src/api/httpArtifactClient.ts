@@ -10,13 +10,24 @@ function buildHttpArtifactUrl(sessionId: string, name: string): string {
 
 
 export const httpArtifactClient: ArtifactClient = {
-  getArtifactHref(sessionId, name) {
-    return buildHttpArtifactUrl(sessionId, name);
-  },
-
   async openArtifact(sessionId, name) {
     const artifactHref = buildHttpArtifactUrl(sessionId, name);
     window.open(artifactHref, '_blank', 'noreferrer');
+  },
+
+  async readArtifactBinary(sessionId, name) {
+    const artifactHref = buildHttpArtifactUrl(sessionId, name);
+    const response = await fetch(artifactHref);
+    if (!response.ok) {
+      throw new Error('Failed to load artifact');
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let binary = '';
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+    return btoa(binary);
   },
 
   async readArtifactText(sessionId, name) {

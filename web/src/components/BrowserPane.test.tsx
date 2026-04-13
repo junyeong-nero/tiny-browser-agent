@@ -1,21 +1,30 @@
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ArtifactClientProvider } from '../api/ArtifactClientContext';
+import { httpArtifactClient } from '../api/httpArtifactClient';
 import { BrowserPane } from './BrowserPane';
 
 describe('BrowserPane', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it('renders the current preview when no step is selected', () => {
     render(
-      <BrowserPane
-        currentScreenshotB64="Zm9v"
-        currentUpdatedAt={1700000000}
-        selectedStep={null}
-        sessionId="ses_test"
-        status="complete"
-      />,
+      <ArtifactClientProvider client={httpArtifactClient}>
+        <BrowserPane
+          currentScreenshotB64="Zm9v"
+          currentUpdatedAt={1700000000}
+          selectedStep={null}
+          sessionId="ses_test"
+          status="complete"
+        />
+      </ArtifactClientProvider>,
     );
 
-    expect(screen.getByText('Current preview')).toBeInTheDocument();
+    expect(screen.getByText('Live browser surface')).toBeInTheDocument();
     expect(screen.getByLabelText('Browser surface')).toHaveAttribute(
       'data-browser-surface-connected',
       'false',
@@ -24,51 +33,57 @@ describe('BrowserPane', () => {
       'src',
       'data:image/png;base64,Zm9v',
     );
+    expect(screen.getByText('Live surface unavailable. Showing screenshot fallback.')).toBeInTheDocument();
   });
 
-  it('renders the selected step preview and artifact links', () => {
-    render(
-      <BrowserPane
-        currentScreenshotB64="Zm9v"
-        currentUpdatedAt={1700000000}
-        sessionId="ses_test"
-        selectedStep={{
-          step_id: 12,
-          timestamp: 1700000001,
-          reasoning: 'Clicked the button',
-          function_calls: [],
-          url: 'https://example.com/seat',
-          status: 'complete',
-          screenshot_path: 'step-0012.png',
-          html_path: 'step-0012.html',
-          metadata_path: 'step-0012.json',
-          error_message: null,
-          phase_id: 'phase-1',
-          phase_label: '탐색',
-          phase_summary: '페이지를 탐색했습니다.',
-          user_visible_label: '좌석 선택',
-        }}
-        status="complete"
-        hasBrowserSurfaceBridge
-      />,
+  it('renders the selected step preview from artifact bytes and open actions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new Uint8Array([65, 66]).buffer }),
     );
 
-    expect(screen.getByText('Step 12 preview')).toBeInTheDocument();
+    render(
+      <ArtifactClientProvider client={httpArtifactClient}>
+        <BrowserPane
+          currentScreenshotB64="Zm9v"
+          currentUpdatedAt={1700000000}
+          sessionId="ses_test"
+          selectedStep={{
+            step_id: 12,
+            timestamp: 1700000001,
+            reasoning: 'Clicked the button',
+            function_calls: [],
+            url: 'https://example.com/seat',
+            status: 'complete',
+            screenshot_path: 'step-0012.png',
+            html_path: 'step-0012.html',
+            metadata_path: 'step-0012.json',
+            error_message: null,
+            phase_id: 'phase-1',
+            phase_label: '탐색',
+            phase_summary: '페이지를 탐색했습니다.',
+            user_visible_label: '좌석 선택',
+          }}
+          status="complete"
+          hasBrowserSurfaceBridge
+        />
+      </ArtifactClientProvider>,
+    );
+
+    expect(screen.getByText('Inspection mode · Step 12')).toBeInTheDocument();
     expect(screen.getByLabelText('Browser surface')).toHaveAttribute(
       'data-browser-surface-connected',
       'true',
     );
-    expect(screen.getByAltText('Step 12 browser preview')).toHaveAttribute(
-      'src',
-      '/api/sessions/ses_test/artifacts/step-0012.png',
-    );
-    expect(screen.getByRole('link', { name: 'HTML' })).toHaveAttribute(
-      'href',
-      '/api/sessions/ses_test/artifacts/step-0012.html',
-    );
-    expect(screen.getByRole('link', { name: 'Metadata' })).toHaveAttribute(
-      'href',
-      '/api/sessions/ses_test/artifacts/step-0012.json',
-    );
+
+    await waitFor(() => {
+      expect(screen.getByAltText('Step 12 browser preview')).toHaveAttribute(
+        'src',
+        'data:image/png;base64,QUI=',
+      );
+    });
+
+    expect(screen.getByRole('button', { name: 'HTML' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Metadata' })).toBeInTheDocument();
   });
 });

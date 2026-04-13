@@ -27,9 +27,6 @@ export function ConfirmationNeededSection({
         {validItems.map((item) => (
           (() => {
             const htmlPath = item.html_path ?? null;
-            const htmlHref = sessionId && htmlPath
-              ? artifactClient.getArtifactHref(sessionId, htmlPath)
-              : null;
 
             return (
               <article key={item.id} className={`verification-item status-${item.status}`}>
@@ -48,12 +45,7 @@ export function ConfirmationNeededSection({
                 >
                   이 시점 보기
                 </button>
-                {htmlHref && (
-                  <a href={htmlHref} target="_blank" rel="noreferrer">
-                    HTML
-                  </a>
-                )}
-                {htmlPath && sessionId && !htmlHref && (
+                {htmlPath && sessionId && (
                   <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(sessionId, htmlPath)}>
                     HTML
                   </button>

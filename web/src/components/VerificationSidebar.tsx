@@ -25,6 +25,9 @@ interface VerificationSidebarProps {
   onFocusBrowserPane: () => void;
   onFocusVerificationPanel: () => void;
   onFocusChatInput: () => void;
+  isFocused?: boolean;
+  bridgeError?: string | null;
+  stopPending?: boolean;
 }
 
 export function VerificationSidebar({
@@ -42,6 +45,9 @@ export function VerificationSidebar({
   onFocusBrowserPane,
   onFocusVerificationPanel,
   onFocusChatInput,
+  isFocused = false,
+  bridgeError = null,
+  stopPending = false,
 }: VerificationSidebarProps) {
   if (!snapshot && steps.length === 0 && !error) {
     return <div className="sidebar-content empty-state">세션을 시작하면 검증 패널이 표시됩니다.</div>;
@@ -59,10 +65,13 @@ export function VerificationSidebar({
     <div
       className="sidebar-content verification-sidebar"
       data-preview-mode={previewMode.kind}
+      data-focus-active={isFocused ? 'true' : 'false'}
       ref={sidebarRef}
       tabIndex={-1}
     >
       {error && <div className="error-banner">{error}</div>}
+      {bridgeError && <div className="error-banner bridge-error-banner">Bridge error: {bridgeError}</div>}
+      {stopPending && <div className="error-banner stop-pending-banner">Stopping session...</div>}
       <CompletionBanner status={snapshot?.status} verificationCount={verificationItems.length} />
       <section className="verification-section focus-controls-section">
         <h2>패널 이동</h2>

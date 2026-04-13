@@ -7,7 +7,6 @@ import type {
 
 
 export interface DesktopArtifactBridge {
-  resolveUrl?(sessionId: string, name: string): string | null;
   readText(sessionId: string, name: string): Promise<string>;
   readBinary(sessionId: string, name: string): Promise<string>;
   open(sessionId: string, name: string): Promise<void>;

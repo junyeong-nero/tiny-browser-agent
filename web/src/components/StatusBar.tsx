@@ -7,6 +7,7 @@ interface StatusBarProps {
   latestStepId: number | null | undefined;
   onCreateSession: () => void;
   onStopSession: () => void;
+  stopPending?: boolean;
 }
 
 export function StatusBar({
@@ -16,12 +17,13 @@ export function StatusBar({
   latestStepId,
   onCreateSession,
   onStopSession,
+  stopPending = false,
 }: StatusBarProps) {
   return (
     <div className="status-bar">
       <div className="status-info">
-        <span className="status-badge" data-status={status || 'none'}>
-          {status || 'No Session'}
+        <span className="status-badge" data-status={stopPending ? 'stopping' : status || 'none'}>
+          {stopPending ? 'Stopping' : status || 'No Session'}
         </span>
         {sessionId && <span className="session-id">ID: {sessionId}</span>}
         {latestStepId != null && <span className="step-id">Step: {latestStepId}</span>}
@@ -33,7 +35,7 @@ export function StatusBar({
             New Session
           </button>
         )}
-        {sessionId && status === 'running' && (
+        {sessionId && status === 'running' && !stopPending && (
           <button type="button" onClick={onStopSession} className="btn-danger">
             Stop
           </button>

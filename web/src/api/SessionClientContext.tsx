@@ -1,11 +1,11 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
 
 import { getDesktopSessionClient } from './desktopSessionClient';
-import { apiClient } from './client';
 import type { SessionClient } from './sessionClient';
+import { unsupportedSessionClient } from './unsupportedSessionClient';
 
 
-const SessionClientContext = createContext<SessionClient>(apiClient);
+const SessionClientContext = createContext<SessionClient>(unsupportedSessionClient);
 
 
 export function resolveSessionClient(client?: SessionClient): SessionClient {
@@ -18,7 +18,7 @@ export function resolveSessionClient(client?: SessionClient): SessionClient {
     return desktopClient;
   }
 
-  return apiClient;
+  return unsupportedSessionClient;
 }
 
 

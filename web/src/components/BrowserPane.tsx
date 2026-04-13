@@ -1,4 +1,4 @@
-import type { Ref } from 'react';
+import { useEffect, useState, type Ref } from 'react';
 
 import { useArtifactClient } from '../api/ArtifactClientContext';
 import type { StepRecord } from '../types/api';
@@ -10,6 +10,7 @@ interface BrowserPaneProps {
   sessionId: string | null | undefined;
   status: string | undefined;
   hasBrowserSurfaceBridge?: boolean;
+  isFocused?: boolean;
   paneRef?: Ref<HTMLElement>;
 }
 
@@ -20,34 +21,70 @@ export function BrowserPane({
   sessionId,
   status,
   hasBrowserSurfaceBridge = false,
+  isFocused = false,
   paneRef,
 }: BrowserPaneProps) {
   const artifactClient = useArtifactClient();
-  const stepScreenshotUrl =
-    sessionId && selectedStep?.screenshot_path
-      ? artifactClient.getArtifactHref(sessionId, selectedStep.screenshot_path)
-      : null;
-  const stepHtmlUrl =
-    sessionId && selectedStep?.html_path
-      ? artifactClient.getArtifactHref(sessionId, selectedStep.html_path)
-      : null;
-  const stepMetadataUrl =
-    sessionId && selectedStep?.metadata_path
-      ? artifactClient.getArtifactHref(sessionId, selectedStep.metadata_path)
-      : null;
-  const isStepPreview = !!selectedStep && !!stepScreenshotUrl;
+  const [stepScreenshotB64, setStepScreenshotB64] = useState<string | null>(null);
+  const [stepScreenshotError, setStepScreenshotError] = useState<string | null>(null);
+  const [isLoadingStepScreenshot, setIsLoadingStepScreenshot] = useState(false);
+  const isStepPreview = !!selectedStep;
   const selectedStepHtmlPath = selectedStep?.html_path ?? null;
   const selectedStepMetadataPath = selectedStep?.metadata_path ?? null;
+  const currentPreviewSrc = currentScreenshotB64 ? `data:image/png;base64,${currentScreenshotB64}` : null;
+  const stepPreviewSrc = stepScreenshotB64 ? `data:image/png;base64,${stepScreenshotB64}` : null;
 
-  if (!isStepPreview && !currentScreenshotB64) {
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!sessionId || !selectedStep?.screenshot_path) {
+      setStepScreenshotB64(null);
+      setStepScreenshotError(null);
+      setIsLoadingStepScreenshot(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setStepScreenshotB64(null);
+    setStepScreenshotError(null);
+    setIsLoadingStepScreenshot(true);
+
+    void artifactClient
+      .readArtifactBinary(sessionId, selectedStep.screenshot_path)
+      .then((artifactPayload) => {
+        if (cancelled) {
+          return;
+        }
+        setStepScreenshotB64(artifactPayload);
+        setStepScreenshotError(null);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setStepScreenshotError(error instanceof Error ? error.message : 'Failed to load preview');
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingStepScreenshot(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [artifactClient, selectedStep?.screenshot_path, sessionId]);
+
+  if (!isStepPreview && !currentPreviewSrc && !hasBrowserSurfaceBridge) {
     return (
       <section
         className="browser-pane empty"
-        ref={paneRef}
         tabIndex={-1}
         aria-label="Browser surface"
         data-browser-surface-host="true"
         data-browser-surface-connected={hasBrowserSurfaceBridge ? 'true' : 'false'}
+        data-focus-active={isFocused ? 'true' : 'false'}
       >
         {status === 'running' ? 'Waiting for browser...' : 'No browser preview available'}
       </section>
@@ -57,59 +94,72 @@ export function BrowserPane({
   return (
     <section
       className="browser-pane"
-      ref={paneRef}
       tabIndex={-1}
       aria-label="Browser surface"
       data-browser-surface-host="true"
       data-browser-surface-connected={hasBrowserSurfaceBridge ? 'true' : 'false'}
+      data-focus-active={isFocused ? 'true' : 'false'}
     >
       <div className="browser-pane-content">
         <div className="browser-preview-label">
-          {isStepPreview ? `Step ${selectedStep.step_id} preview` : 'Current preview'}
+          {isStepPreview ? `Inspection mode · Step ${selectedStep?.step_id}` : 'Live browser surface'}
         </div>
-        <img
-          src={
-            isStepPreview
-              ? stepScreenshotUrl
-              : `data:image/png;base64,${currentScreenshotB64}`
-          }
-          alt={isStepPreview ? `Step ${selectedStep.step_id} browser preview` : 'Current browser preview'}
-          className="browser-screenshot"
-        />
+        {!isStepPreview && (
+          <>
+            <div ref={paneRef} className="browser-surface-host" data-browser-surface-live={hasBrowserSurfaceBridge ? 'true' : 'false'} />
+            {hasBrowserSurfaceBridge ? (
+              <div className="browser-step-meta">Live surface connected through the desktop bridge.</div>
+            ) : currentPreviewSrc ? (
+              <>
+                <img
+                  src={currentPreviewSrc}
+                  alt="Current browser preview"
+                  className="browser-screenshot"
+                />
+                <div className="browser-step-meta">Live surface unavailable. Showing screenshot fallback.</div>
+              </>
+            ) : (
+              <div className="browser-step-meta">
+                {status === 'running' ? 'Waiting for browser...' : 'No browser preview available'}
+              </div>
+            )}
+            {currentUpdatedAt != null && currentPreviewSrc && (
+              <div className="browser-updated-at">
+                Updated {new Date(currentUpdatedAt * 1000).toLocaleTimeString()}
+              </div>
+            )}
+          </>
+        )}
         {isStepPreview && selectedStep && (
-          <div className="browser-step-meta">
-            Captured for step {selectedStep.step_id}
-            {selectedStep.url ? ` · ${selectedStep.url}` : ''}
-          </div>
-        )}
-        {!isStepPreview && currentUpdatedAt != null && (
-          <div className="browser-updated-at">
-            Updated {new Date(currentUpdatedAt * 1000).toLocaleTimeString()}
-          </div>
-        )}
-        {isStepPreview && (stepHtmlUrl || stepMetadataUrl) && (
-          <div className="browser-preview-links">
-            {selectedStepHtmlPath && stepHtmlUrl && (
-              <a href={stepHtmlUrl} target="_blank" rel="noreferrer">
-                HTML
-              </a>
+          <>
+            {stepPreviewSrc && (
+              <img
+                src={stepPreviewSrc}
+                alt={`Step ${selectedStep.step_id} browser preview`}
+                className="browser-screenshot"
+              />
             )}
-            {selectedStepHtmlPath && !stepHtmlUrl && sessionId && (
-              <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(sessionId, selectedStepHtmlPath)}>
-                HTML
-              </button>
+            {isLoadingStepScreenshot && <div className="browser-step-meta">Loading historical preview...</div>}
+            {stepScreenshotError && <div className="browser-step-meta">{stepScreenshotError}</div>}
+            <div className="browser-step-meta">
+              Captured for step {selectedStep.step_id}
+              {selectedStep.url ? ` · ${selectedStep.url}` : ''}
+            </div>
+            {(selectedStepHtmlPath || selectedStepMetadataPath) && sessionId && (
+              <div className="browser-preview-links">
+                {selectedStepHtmlPath && (
+                  <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(sessionId, selectedStepHtmlPath)}>
+                    HTML
+                  </button>
+                )}
+                {selectedStepMetadataPath && (
+                  <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(sessionId, selectedStepMetadataPath)}>
+                    Metadata
+                  </button>
+                )}
+              </div>
             )}
-            {selectedStepMetadataPath && stepMetadataUrl && (
-              <a href={stepMetadataUrl} target="_blank" rel="noreferrer">
-                Metadata
-              </a>
-            )}
-            {selectedStepMetadataPath && !stepMetadataUrl && sessionId && (
-              <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(sessionId, selectedStepMetadataPath)}>
-                Metadata
-              </button>
-            )}
-          </div>
+          </>
         )}
       </div>
     </section>

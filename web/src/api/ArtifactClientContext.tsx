@@ -2,10 +2,10 @@ import { createContext, useContext, useMemo, type ReactNode } from 'react';
 
 import type { ArtifactClient } from './artifactClient';
 import { getDesktopArtifactClient } from './desktopArtifactClient';
-import { httpArtifactClient } from './httpArtifactClient';
+import { unsupportedArtifactClient } from './unsupportedArtifactClient';
 
 
-const ArtifactClientContext = createContext<ArtifactClient>(httpArtifactClient);
+const ArtifactClientContext = createContext<ArtifactClient>(unsupportedArtifactClient);
 
 
 interface ArtifactClientProviderProps {
@@ -24,7 +24,7 @@ export function resolveArtifactClient(client?: ArtifactClient): ArtifactClient {
     return desktopClient;
   }
 
-  return httpArtifactClient;
+  return unsupportedArtifactClient;
 }
 
 

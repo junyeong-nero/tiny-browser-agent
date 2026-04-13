@@ -36,16 +36,10 @@ export function ProcessHistorySection({
               </summary>
                 <div className="steps-list">
                   {group.steps.map((step) => {
-                   const stepHtmlPath = step.html_path ?? null;
-                   const stepMetadataPath = step.metadata_path ?? null;
-                   const stepHtmlUrl = sessionId && stepHtmlPath
-                     ? artifactClient.getArtifactHref(sessionId, stepHtmlPath)
-                     : null;
-                   const stepMetadataUrl = sessionId && stepMetadataPath
-                     ? artifactClient.getArtifactHref(sessionId, stepMetadataPath)
-                     : null;
-                   const isSelected =
-                     previewMode.kind === 'step' && previewMode.stepId === step.step_id;
+                    const stepHtmlPath = step.html_path ?? null;
+                    const stepMetadataPath = step.metadata_path ?? null;
+                    const isSelected =
+                      previewMode.kind === 'step' && previewMode.stepId === step.step_id;
 
                   return (
                     <article
@@ -85,22 +79,12 @@ export function ProcessHistorySection({
                             이 시점 보기
                           </button>
                         )}
-                        {stepHtmlPath && stepHtmlUrl && (
-                          <a href={stepHtmlUrl} target="_blank" rel="noreferrer">
-                            HTML
-                          </a>
-                        )}
-                        {stepHtmlPath && !stepHtmlUrl && sessionId && (
+                        {stepHtmlPath && sessionId && (
                           <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(sessionId, stepHtmlPath)}>
                             HTML
                           </button>
                         )}
-                        {stepMetadataPath && stepMetadataUrl && (
-                          <a href={stepMetadataUrl} target="_blank" rel="noreferrer">
-                            Metadata
-                          </a>
-                        )}
-                        {stepMetadataPath && !stepMetadataUrl && sessionId && (
+                        {stepMetadataPath && sessionId && (
                           <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(sessionId, stepMetadataPath)}>
                             Metadata
                           </button>

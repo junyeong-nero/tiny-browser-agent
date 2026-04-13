@@ -1,2 +1,2 @@
-export { httpSessionClient as apiClient } from './httpSessionClient';
+export { unsupportedSessionClient as apiClient } from './unsupportedSessionClient';
 export type { SessionClient } from './sessionClient';

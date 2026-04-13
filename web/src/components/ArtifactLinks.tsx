@@ -17,15 +17,6 @@ export function ArtifactLinks({ snapshot }: ArtifactLinksProps) {
     snapshot.latest_step_id != null ? `step-${String(snapshot.latest_step_id).padStart(4, '0')}` : null;
 
   const renderArtifactAction = (label: string, name: string) => {
-    const artifactHref = artifactClient.getArtifactHref(snapshot.session_id, name);
-    if (artifactHref) {
-      return (
-        <a href={artifactHref} target="_blank" rel="noreferrer">
-          {label}
-        </a>
-      );
-    }
-
     return (
       <button type="button" className="btn-secondary preview-button" onClick={() => void artifactClient.openArtifact(snapshot.session_id, name)}>
         {label}

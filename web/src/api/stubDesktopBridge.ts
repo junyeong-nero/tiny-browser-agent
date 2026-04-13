@@ -1,52 +1,35 @@
-import { httpSessionClient } from './httpSessionClient';
-import { httpArtifactClient } from './httpArtifactClient';
 import type { BrowserSurfaceBounds, DesktopBridge } from './desktopBridge';
+import type { ArtifactClient } from './artifactClient';
+import type { SessionClient } from './sessionClient';
+import { unsupportedArtifactClient } from './unsupportedArtifactClient';
+import { unsupportedSessionClient } from './unsupportedSessionClient';
 
 
 export interface StubDesktopBridgeOptions {
   onBrowserSurfaceFocus?: () => void;
   onBrowserSurfaceBounds?: (bounds: BrowserSurfaceBounds) => void;
+  sessionClient?: SessionClient;
+  artifactClient?: ArtifactClient;
 }
-
-
-function encodeBase64(data: ArrayBuffer): string {
-  let binary = '';
-  const bytes = new Uint8Array(data);
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
-}
-
 
 export function createStubDesktopBridge(options: StubDesktopBridgeOptions = {}): DesktopBridge {
+  const sessionClient = options.sessionClient ?? unsupportedSessionClient;
+  const artifactClient = options.artifactClient ?? unsupportedArtifactClient;
+
   return {
     sessions: {
-      createSession: () => httpSessionClient.createSession(),
-      startSession: (sessionId, query) => httpSessionClient.startSession(sessionId, { query }),
-      stopSession: (sessionId) => httpSessionClient.stopSession(sessionId),
-      sendMessage: (sessionId, text) => httpSessionClient.sendMessage(sessionId, { text }),
-      getSession: (sessionId) => httpSessionClient.getSession(sessionId),
-      getSteps: (sessionId, afterStepId) => httpSessionClient.getSteps(sessionId, afterStepId),
-      getVerification: (sessionId) => httpSessionClient.getVerification(sessionId),
+      createSession: () => sessionClient.createSession(),
+      startSession: (sessionId, query) => sessionClient.startSession(sessionId, { query }),
+      stopSession: (sessionId) => sessionClient.stopSession(sessionId),
+      sendMessage: (sessionId, text) => sessionClient.sendMessage(sessionId, { text }),
+      getSession: (sessionId) => sessionClient.getSession(sessionId),
+      getSteps: (sessionId, afterStepId) => sessionClient.getSteps(sessionId, afterStepId),
+      getVerification: (sessionId) => sessionClient.getVerification(sessionId),
     },
     artifacts: {
-      resolveUrl: (sessionId, name) => httpArtifactClient.getArtifactHref(sessionId, name),
-      readText: (sessionId, name) => httpArtifactClient.readArtifactText(sessionId, name),
-      async readBinary(sessionId, name) {
-        const artifactHref = httpArtifactClient.getArtifactHref(sessionId, name);
-        if (!artifactHref) {
-          throw new Error('Failed to resolve artifact');
-        }
-
-        const response = await fetch(artifactHref);
-        if (!response.ok) {
-          throw new Error('Failed to load artifact');
-        }
-
-        return encodeBase64(await response.arrayBuffer());
-      },
-      open: (sessionId, name) => httpArtifactClient.openArtifact(sessionId, name),
+      readText: (sessionId, name) => artifactClient.readArtifactText(sessionId, name),
+      readBinary: (sessionId, name) => artifactClient.readArtifactBinary(sessionId, name),
+      open: (sessionId, name) => artifactClient.openArtifact(sessionId, name),
     },
     browserSurface: {
       focus() {

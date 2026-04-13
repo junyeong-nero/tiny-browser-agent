@@ -67,7 +67,6 @@ export interface VerificationPayload {
   request_text?: string | null;
   run_summary?: string | null;
   final_result_summary?: string | null;
-  artifacts_base_url?: string | null;
   verification_items: VerificationItem[];
   grouped_steps: VerificationGroup[];
 }
@@ -94,7 +93,6 @@ export interface SessionSnapshot {
   verification_items?: VerificationItem[];
   final_result_summary?: string | null;
   error_message: string | null;
-  artifacts_base_url: string | null;
   updated_at: number;
 }
 

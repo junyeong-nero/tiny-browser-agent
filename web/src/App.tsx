@@ -27,7 +27,10 @@ function App() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [seedSnapshot, setSeedSnapshot] = useState<SessionSnapshot | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [bridgeError, setBridgeError] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState<PreviewMode>({ kind: 'current' });
+  const [focusedRegion, setFocusedRegion] = useState<'browser' | 'verification' | 'chat' | null>(null);
+  const [stopRequested, setStopRequested] = useState(false);
   const browserPaneRef = useRef<HTMLElement | null>(null);
   const verificationPanelRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLInputElement | null>(null);
@@ -91,13 +94,16 @@ function App() {
       resetSteps();
       setSessionError(null);
     } catch (err) {
-      setSessionError(err instanceof Error ? err.message : 'Failed to create session');
+      const message = err instanceof Error ? err.message : 'Failed to create session';
+      setSessionError(message);
+      setBridgeError(message);
     }
   }, [resetSteps, sessionClient]);
 
   const handleStartSession = useCallback(
     async (query: string) => {
       try {
+        setBridgeError(null);
         await startSession(query);
         await refreshSnapshot();
         await refreshSteps();
@@ -105,7 +111,9 @@ function App() {
         setPreviewMode({ kind: 'current' });
         setSessionError(null);
       } catch (err) {
-        setSessionError(err instanceof Error ? err.message : 'Failed to start session');
+        const message = err instanceof Error ? err.message : 'Failed to start session';
+        setSessionError(message);
+        setBridgeError(message);
       }
     },
     [refreshSnapshot, refreshSteps, refreshVerification, startSession],
@@ -114,6 +122,7 @@ function App() {
   const handleSendMessage = useCallback(
     async (text: string) => {
       try {
+        setBridgeError(null);
         await sendMessage(text);
         await refreshSnapshot();
         await refreshSteps();
@@ -121,7 +130,9 @@ function App() {
         setPreviewMode({ kind: 'current' });
         setSessionError(null);
       } catch (err) {
-        setSessionError(err instanceof Error ? err.message : 'Failed to send message');
+        const message = err instanceof Error ? err.message : 'Failed to send message';
+        setSessionError(message);
+        setBridgeError(message);
       }
     },
     [refreshSnapshot, refreshSteps, refreshVerification, sendMessage],
@@ -129,24 +140,63 @@ function App() {
 
   const handleStopSession = useCallback(async () => {
     try {
+      setBridgeError(null);
+      setStopRequested(true);
       await stopSession();
       await refreshSnapshot();
       setSessionError(null);
     } catch (err) {
-      setSessionError(err instanceof Error ? err.message : 'Failed to stop session');
+      const message = err instanceof Error ? err.message : 'Failed to stop session';
+      setSessionError(message);
+      setBridgeError(message);
+      setStopRequested(false);
     }
   }, [refreshSnapshot, stopSession]);
 
+  useEffect(() => {
+    if (!stopRequested) {
+      return;
+    }
+
+    const status = displaySnapshot?.status;
+    if (status === 'stopped' || status === 'error' || status === 'complete') {
+      setStopRequested(false);
+    }
+  }, [displaySnapshot?.status, stopRequested]);
+
   const focusBrowserPane = useCallback(() => {
+    setFocusedRegion('browser');
     void focusBrowserSurface();
   }, [focusBrowserSurface]);
 
   const focusVerificationPanel = useCallback(() => {
+    setFocusedRegion('verification');
     verificationPanelRef.current?.focus();
   }, []);
 
   const focusChatInput = useCallback(() => {
+    setFocusedRegion('chat');
     chatInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const browserElement = browserPaneRef.current;
+    const verificationElement = verificationPanelRef.current;
+    const chatElement = chatInputRef.current;
+
+    const handleBrowserFocus = () => setFocusedRegion('browser');
+    const handleVerificationFocus = () => setFocusedRegion('verification');
+    const handleChatFocus = () => setFocusedRegion('chat');
+
+    browserElement?.addEventListener('focusin', handleBrowserFocus);
+    verificationElement?.addEventListener('focusin', handleVerificationFocus);
+    chatElement?.addEventListener('focus', handleChatFocus);
+
+    return () => {
+      browserElement?.removeEventListener('focusin', handleBrowserFocus);
+      verificationElement?.removeEventListener('focusin', handleVerificationFocus);
+      chatElement?.removeEventListener('focus', handleChatFocus);
+    };
   }, []);
 
   useEffect(() => {
@@ -182,6 +232,7 @@ function App() {
           latestStepId={displaySnapshot?.latest_step_id}
           onCreateSession={createSession}
           onStopSession={handleStopSession}
+          stopPending={stopRequested}
         />
       }
       browserPane={
@@ -193,6 +244,7 @@ function App() {
           sessionId={displaySnapshot?.session_id}
           status={displaySnapshot?.status}
           hasBrowserSurfaceBridge={hasBrowserSurfaceBridge}
+          isFocused={focusedRegion === 'browser'}
         />
       }
       chatPanel={
@@ -207,6 +259,7 @@ function App() {
           hasSession={!!sessionId}
           isBusy={isSending || isStarting || isStopping}
           inputRef={chatInputRef}
+          isFocused={focusedRegion === 'chat'}
         />
       }
       sidebar={
@@ -225,6 +278,9 @@ function App() {
           onFocusBrowserPane={focusBrowserPane}
           onFocusVerificationPanel={focusVerificationPanel}
           onFocusChatInput={focusChatInput}
+          isFocused={focusedRegion === 'verification'}
+          bridgeError={bridgeError}
+          stopPending={stopRequested}
         />
       }
     />

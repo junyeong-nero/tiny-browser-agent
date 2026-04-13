@@ -33,7 +33,6 @@ describe('useSessionSnapshot', () => {
       messages: [],
       final_reasoning: null,
       error_message: null,
-      artifacts_base_url: '/api/sessions/ses_test/artifacts',
       updated_at: 1,
     });
 

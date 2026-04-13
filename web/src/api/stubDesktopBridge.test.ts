@@ -25,22 +25,19 @@ describe('createStubDesktopBridge', () => {
         messages: [],
         final_reasoning: null,
         error_message: null,
-        artifacts_base_url: null,
         updated_at: 1,
       },
     });
     vi.spyOn(httpSessionClient, 'startSession').mockResolvedValue(undefined);
     vi.spyOn(httpArtifactClient, 'readArtifactText').mockResolvedValue('artifact-text');
     vi.spyOn(httpArtifactClient, 'openArtifact').mockResolvedValue(undefined);
-    vi.spyOn(httpArtifactClient, 'getArtifactHref').mockReturnValue('/api/sessions/ses_test/artifacts/step-0001.png');
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new Uint8Array([65, 66]).buffer }),
-    );
+    vi.spyOn(httpArtifactClient, 'readArtifactBinary').mockResolvedValue('QUI=');
 
     const onBrowserSurfaceFocus = vi.fn();
     const onBrowserSurfaceBounds = vi.fn();
     const bridge = createStubDesktopBridge({
+      sessionClient: httpSessionClient,
+      artifactClient: httpArtifactClient,
       onBrowserSurfaceFocus,
       onBrowserSurfaceBounds,
     });
@@ -57,6 +54,7 @@ describe('createStubDesktopBridge', () => {
     expect(httpSessionClient.startSession).toHaveBeenCalledWith('ses_test', { query: 'visit example' });
     expect(httpArtifactClient.readArtifactText).toHaveBeenCalledWith('ses_test', 'step-0001.a11y.yaml');
     expect(httpArtifactClient.openArtifact).toHaveBeenCalledWith('ses_test', 'step-0001.html');
+    expect(httpArtifactClient.readArtifactBinary).toHaveBeenCalledWith('ses_test', 'step-0001.png');
     expect(binary).toBe('QUI=');
     expect(onBrowserSurfaceFocus).toHaveBeenCalledTimes(1);
     expect(onBrowserSurfaceBounds).toHaveBeenCalledWith({ x: 1, y: 2, width: 3, height: 4 });

@@ -10,6 +10,7 @@ interface ChatPanelProps {
   hasSession: boolean;
   isBusy: boolean;
   inputRef?: Ref<HTMLInputElement>;
+  isFocused?: boolean;
 }
 
 export function ChatPanel({
@@ -20,6 +21,7 @@ export function ChatPanel({
   hasSession,
   isBusy,
   inputRef,
+  isFocused = false,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
 
@@ -36,7 +38,7 @@ export function ChatPanel({
   };
 
   return (
-    <div className="chat-panel">
+    <div className="chat-panel" data-focus-active={isFocused ? 'true' : 'false'}>
       <div className="chat-messages">
         {messages.map((msg) => (
           <div key={msg.id} className={`chat-message role-${msg.role}`}>

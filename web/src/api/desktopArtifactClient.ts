@@ -4,15 +4,18 @@ import { getDesktopBridge, type DesktopBridge } from './desktopBridge';
 
 export function createDesktopArtifactClient(bridge: DesktopBridge): ArtifactClient {
   return {
-    getArtifactHref(sessionId, name) {
-      return bridge.artifacts?.resolveUrl?.(sessionId, name) ?? null;
-    },
-
     async openArtifact(sessionId, name) {
       if (!bridge.artifacts) {
         throw new Error('Desktop artifact bridge unavailable');
       }
       await bridge.artifacts.open(sessionId, name);
+    },
+
+    async readArtifactBinary(sessionId, name) {
+      if (!bridge.artifacts) {
+        throw new Error('Desktop artifact bridge unavailable');
+      }
+      return bridge.artifacts.readBinary(sessionId, name);
     },
 
     async readArtifactText(sessionId, name) {
