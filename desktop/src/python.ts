@@ -1,9 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
-import { DEFAULT_BACKEND_HOST, DEFAULT_BACKEND_PORT, REPO_ROOT } from './config';
+import { REPO_ROOT } from './config';
+import { PythonBridgeClient } from './pythonBridgeClient';
 
 
 export interface PythonRuntime {
+  client: PythonBridgeClient;
   process: ChildProcessWithoutNullStreams;
   stop: () => void;
 }
@@ -15,13 +17,9 @@ export async function startPythonRuntime(electronCommandUrl: string): Promise<Py
     'run',
     'python',
     'main.py',
-    '--ui',
+    '--desktop_bridge',
     '--headless',
     'True',
-    '--ui_host',
-    DEFAULT_BACKEND_HOST,
-    '--ui_port',
-    String(DEFAULT_BACKEND_PORT)
   ];
 
   const pythonProcess = spawn(command, args, {
@@ -33,16 +31,18 @@ export async function startPythonRuntime(electronCommandUrl: string): Promise<Py
     stdio: 'pipe'
   });
 
-  pythonProcess.stdout.on('data', (chunk) => {
-    process.stdout.write(`[python] ${chunk}`);
-  });
   pythonProcess.stderr.on('data', (chunk) => {
     process.stderr.write(`[python] ${chunk}`);
   });
 
+  const client = new PythonBridgeClient(pythonProcess);
+  await client.healthcheck();
+
   return {
+    client,
     process: pythonProcess,
     stop: () => {
+      client.dispose();
       if (!pythonProcess.killed) {
         pythonProcess.kill();
       }

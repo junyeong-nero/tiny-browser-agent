@@ -32,22 +32,10 @@ def main() -> int:
         help="The query for the browser agent to execute.",
     )
     parser.add_argument(
-        "--ui",
+        "--desktop_bridge",
         action="store_true",
         default=False,
-        help="Run the FastAPI session UI backend instead of the CLI agent loop.",
-    )
-    parser.add_argument(
-        "--ui_host",
-        type=str,
-        default="127.0.0.1",
-        help="Host used when running the FastAPI UI backend.",
-    )
-    parser.add_argument(
-        "--ui_port",
-        type=int,
-        default=8000,
-        help="Port used when running the FastAPI UI backend.",
+        help="Run the desktop bridge over stdio instead of the CLI agent loop.",
     )
 
     parser.add_argument(
@@ -88,17 +76,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not args.ui and not args.query:
-        parser.error("--query is required unless --ui is set.")
+    if not args.query and not args.desktop_bridge:
+        parser.error("--query is required unless --desktop_bridge is set.")
 
-    if args.ui:
-        if args.env != "playwright":
-            raise ValueError("--ui is only supported with --env playwright.")
-        from ui.server import run_ui_server
+    if args.desktop_bridge:
+        from ui.desktop_bridge import run_desktop_bridge
 
-        run_ui_server(
-            host=args.ui_host,
-            port=args.ui_port,
+        run_desktop_bridge(
             model_name=args.model,
             screen_size=PLAYWRIGHT_SCREEN_SIZE,
             initial_url=args.initial_url,

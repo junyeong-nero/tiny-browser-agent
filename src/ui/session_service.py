@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from .models import CreateSessionResponse, SessionSnapshot, StepRecord, VerificationPayload
+from .models import CreatedSession, SessionSnapshot, StepRecord, VerificationPayload
 from .session_store import SessionStore
 
 
@@ -8,10 +8,10 @@ class SessionService:
     def __init__(self, store: SessionStore):
         self._store = store
 
-    def create_session(self) -> CreateSessionResponse:
+    def create_session(self) -> CreatedSession:
         session = self._store.create_session()
         snapshot = session.get_snapshot()
-        return CreateSessionResponse(session_id=session.session_id, snapshot=snapshot)
+        return CreatedSession(session_id=session.session_id, snapshot=snapshot)
 
     def start_session(self, session_id: str, query: str) -> SessionSnapshot:
         session = self._require_session(session_id)
@@ -43,6 +43,14 @@ class SessionService:
     def get_artifact_path(self, session_id: str, name: str) -> Path:
         session = self._require_session(session_id)
         return session.get_artifact_path(name)
+
+    def read_artifact_text(self, session_id: str, name: str) -> str:
+        artifact_path = self.get_artifact_path(session_id, name)
+        return artifact_path.read_text(encoding="utf-8")
+
+    def read_artifact_bytes(self, session_id: str, name: str) -> bytes:
+        artifact_path = self.get_artifact_path(session_id, name)
+        return artifact_path.read_bytes()
 
     def _require_session(self, session_id: str):
         session = self._store.get_session(session_id)

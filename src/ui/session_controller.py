@@ -38,7 +38,6 @@ def build_verification_payload(
         request_text=snapshot.request_text,
         run_summary=snapshot.run_summary,
         final_result_summary=snapshot.final_result_summary,
-        artifacts_base_url=snapshot.artifacts_base_url,
         verification_items=[item.model_copy(deep=True) for item in snapshot.verification_items],
         grouped_steps=_group_steps_for_verification(steps),
     )
@@ -166,10 +165,8 @@ class SessionController:
         self._assistant_message_emitted = False
         self._pending_verification_items: dict[str, VerificationItem] = {}
 
-        artifacts_base_url = f"/api/sessions/{self.session_id}/artifacts"
         self._latest_snapshot = make_initial_snapshot(
             session_id=self.session_id,
-            artifacts_base_url=artifacts_base_url,
         )
 
     def start(self, query: str) -> None:

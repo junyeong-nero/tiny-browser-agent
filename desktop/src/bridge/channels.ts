@@ -9,7 +9,6 @@ export const BRIDGE_CHANNELS = {
   getArtifactText: 'computer-use:artifacts:get-text',
   getArtifactBinary: 'computer-use:artifacts:get-binary',
   openArtifact: 'computer-use:artifacts:open',
-  resolveArtifactUrl: 'computer-use:artifacts:resolve-url',
   focusBrowserSurface: 'computer-use:browser-surface:focus',
   setBrowserSurfaceBounds: 'computer-use:browser-surface:set-bounds'
 } as const;

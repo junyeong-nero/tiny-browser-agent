@@ -10,7 +10,7 @@ def encode_screenshot_base64(screenshot: bytes | None) -> str | None:
     return base64.b64encode(screenshot).decode("ascii")
 
 
-def make_initial_snapshot(session_id: str, artifacts_base_url: str) -> SessionSnapshot:
+def make_initial_snapshot(session_id: str) -> SessionSnapshot:
     return SessionSnapshot(
         session_id=session_id,
         status=SessionStatus.IDLE,
@@ -26,7 +26,6 @@ def make_initial_snapshot(session_id: str, artifacts_base_url: str) -> SessionSn
         verification_items=[],
         final_result_summary=None,
         error_message=None,
-        artifacts_base_url=artifacts_base_url,
         updated_at=time.time(),
     )
 

@@ -20,8 +20,6 @@ contextBridge.exposeInMainWorld('__COMPUTER_USE_DESKTOP_BRIDGE__', {
       ipcRenderer.invoke(BRIDGE_CHANNELS.getVerification, { sessionId })
   },
   artifacts: {
-    resolveUrl: (sessionId: string, name: string) =>
-      ipcRenderer.invoke(BRIDGE_CHANNELS.resolveArtifactUrl, { sessionId, name }),
     readText: (sessionId: string, name: string) =>
       ipcRenderer.invoke(BRIDGE_CHANNELS.getArtifactText, { sessionId, name }),
     readBinary: (sessionId: string, name: string) =>

@@ -8,13 +8,11 @@ from typing import cast
 from unittest.mock import MagicMock, patch
 
 from google.genai import types
-from fastapi.testclient import TestClient
-
 from src.agent import BrowserAgent, multiply_numbers
 from src.computers.computer import EnvState
 from src.llm.client import LLMClient
 from src.ui.models import SessionSnapshot, SessionStatus, StepAction, StepRecord
-from src.ui.server import create_app, resolve_default_computer_factory
+from src.ui.runtime import resolve_default_computer_factory
 from src.ui.session_controller import AgentFactory, SessionController, build_verification_payload
 from src.ui.session_service import SessionService
 from src.ui.session_store import SessionStore
@@ -484,7 +482,6 @@ class TestVerificationService(unittest.TestCase):
             verification_items=[],
             final_result_summary="final summary",
             error_message=None,
-            artifacts_base_url="/api/sessions/ses_test/artifacts",
             updated_at=1.0,
         )
 
@@ -510,81 +507,6 @@ class TestVerificationService(unittest.TestCase):
             ambiguity_message=None,
             review_evidence=[],
         )
-
-
-class TestSessionApi(unittest.TestCase):
-    def setUp(self):
-        self.tmp_dir = tempfile.TemporaryDirectory()
-        self.store = SessionStore(
-            model_name="test-model",
-            screen_size=(1440, 900),
-            initial_url="https://example.com",
-            highlight_mouse=False,
-            headless=True,
-            artifacts_root=Path(self.tmp_dir.name),
-            computer_factory=FakeComputer,
-            agent_factory=cast(AgentFactory, FakeAgent),
-        )
-        self.app = create_app(
-            model_name="test-model",
-            screen_size=(1440, 900),
-            initial_url="https://example.com",
-            highlight_mouse=False,
-            headless=True,
-            artifacts_root=Path(self.tmp_dir.name),
-            store=self.store,
-        )
-        self.client = TestClient(self.app)
-
-    def tearDown(self):
-        self.tmp_dir.cleanup()
-
-    def test_health_and_session_endpoints(self):
-        health_response = self.client.get("/api/health")
-        self.assertEqual(health_response.status_code, 200)
-        self.assertEqual(health_response.json(), {"status": "ok"})
-
-        create_response = self.client.post("/api/sessions")
-        self.assertEqual(create_response.status_code, 200)
-        session_id = create_response.json()["session_id"]
-
-        start_response = self.client.post(
-            f"/api/sessions/{session_id}/start",
-            json={"query": "visit example"},
-        )
-        self.assertEqual(start_response.status_code, 200)
-
-        wait_for(
-            lambda: self.client.get(f"/api/sessions/{session_id}").json()["status"]
-            == "complete"
-        )
-
-        snapshot_response = self.client.get(f"/api/sessions/{session_id}")
-        self.assertEqual(snapshot_response.status_code, 200)
-        self.assertEqual(snapshot_response.json()["final_reasoning"], "All done.")
-        self.assertEqual(snapshot_response.json()["request_text"], "visit example")
-        self.assertEqual(len(snapshot_response.json()["verification_items"]), 1)
-
-        steps_response = self.client.get(f"/api/sessions/{session_id}/steps")
-        self.assertEqual(steps_response.status_code, 200)
-        self.assertEqual(len(steps_response.json()), 2)
-        self.assertEqual(steps_response.json()[0]["phase_id"], "phase-search")
-
-        verification_response = self.client.get(f"/api/sessions/{session_id}/verification")
-        self.assertEqual(verification_response.status_code, 200)
-        self.assertEqual(len(verification_response.json()["grouped_steps"]), 2)
-
-        artifact_response = self.client.get(
-            f"/api/sessions/{session_id}/artifacts/step-0001.png"
-        )
-        self.assertEqual(artifact_response.status_code, 200)
-        self.assertEqual(artifact_response.content, b"png-bytes")
-
-        video_response = self.client.get(
-            f"/api/sessions/{session_id}/artifacts/session.webm"
-        )
-        self.assertEqual(video_response.status_code, 200)
-        self.assertEqual(video_response.content, b"webm-bytes")
 
 
 class TestUiServerFactoryResolution(unittest.TestCase):

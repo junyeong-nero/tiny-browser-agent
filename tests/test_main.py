@@ -24,9 +24,7 @@ class TestMain(unittest.TestCase):
     @patch("main.BrowserAgent")
     def test_main_playwright(self, mock_browser_agent, mock_playwright_computer, mock_arg_parser):
         mock_args = MagicMock()
-        mock_args.ui = False
-        mock_args.ui_host = '127.0.0.1'
-        mock_args.ui_port = 8000
+        mock_args.desktop_bridge = False
         mock_args.env = 'playwright'
         mock_args.initial_url = 'test_url'
         mock_args.highlight_mouse = True
@@ -55,9 +53,7 @@ class TestMain(unittest.TestCase):
     @patch("main.BrowserAgent")
     def test_main_browserbase(self, mock_browser_agent, mock_browserbase_computer, mock_arg_parser):
         mock_args = MagicMock()
-        mock_args.ui = False
-        mock_args.ui_host = '127.0.0.1'
-        mock_args.ui_port = 8000
+        mock_args.desktop_bridge = False
         mock_args.env = 'browserbase'
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
@@ -81,9 +77,7 @@ class TestMain(unittest.TestCase):
     @patch("main.argparse.ArgumentParser")
     def test_main_browserbase_rejects_log(self, mock_arg_parser):
         mock_args = MagicMock()
-        mock_args.ui = False
-        mock_args.ui_host = '127.0.0.1'
-        mock_args.ui_port = 8000
+        mock_args.desktop_bridge = False
         mock_args.env = 'browserbase'
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
@@ -97,40 +91,9 @@ class TestMain(unittest.TestCase):
             main.main()
 
     @patch("main.argparse.ArgumentParser")
-    @patch("ui.server.run_ui_server")
-    def test_main_ui(self, mock_run_ui_server, mock_arg_parser):
+    def test_main_requires_query_without_desktop_bridge(self, mock_arg_parser):
         mock_args = MagicMock()
-        mock_args.ui = True
-        mock_args.ui_host = '0.0.0.0'
-        mock_args.ui_port = 9000
-        mock_args.env = 'playwright'
-        mock_args.query = None
-        mock_args.model = 'test_model'
-        mock_args.initial_url = 'test_url'
-        mock_args.highlight_mouse = True
-        mock_args.headless = False
-        mock_args.log = False
-        mock_arg_parser.return_value.parse_args.return_value = mock_args
-
-        main.main()
-
-        mock_run_ui_server.assert_called_once_with(
-            host='0.0.0.0',
-            port=9000,
-            model_name='test_model',
-            screen_size=main.PLAYWRIGHT_SCREEN_SIZE,
-            initial_url='test_url',
-            highlight_mouse=True,
-            headless=False,
-            artifacts_root=main.LOGS_DIR / 'ui',
-        )
-
-    @patch("main.argparse.ArgumentParser")
-    def test_main_requires_query_without_ui(self, mock_arg_parser):
-        mock_args = MagicMock()
-        mock_args.ui = False
-        mock_args.ui_host = '127.0.0.1'
-        mock_args.ui_port = 8000
+        mock_args.desktop_bridge = False
         mock_args.env = 'playwright'
         mock_args.query = None
         mock_args.model = 'test_model'
@@ -145,7 +108,32 @@ class TestMain(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'parser error'):
             main.main()
 
-        mock_parser.error.assert_called_once_with('--query is required unless --ui is set.')
+        mock_parser.error.assert_called_once_with('--query is required unless --desktop_bridge is set.')
+
+    @patch("main.argparse.ArgumentParser")
+    @patch("ui.desktop_bridge.run_desktop_bridge")
+    def test_main_desktop_bridge(self, mock_run_desktop_bridge, mock_arg_parser):
+        mock_args = MagicMock()
+        mock_args.desktop_bridge = True
+        mock_args.env = 'playwright'
+        mock_args.query = None
+        mock_args.model = 'test_model'
+        mock_args.initial_url = 'test_url'
+        mock_args.highlight_mouse = True
+        mock_args.headless = True
+        mock_args.log = False
+        mock_arg_parser.return_value.parse_args.return_value = mock_args
+
+        main.main()
+
+        mock_run_desktop_bridge.assert_called_once_with(
+            model_name='test_model',
+            screen_size=main.PLAYWRIGHT_SCREEN_SIZE,
+            initial_url='test_url',
+            highlight_mouse=True,
+            headless=True,
+            artifacts_root=main.LOGS_DIR / 'ui',
+        )
 
 if __name__ == '__main__':
     unittest.main()

@@ -83,7 +83,6 @@ class SessionSnapshot(BaseModel):
     verification_items: list[VerificationItem] = Field(default_factory=list)
     final_result_summary: str | None = None
     error_message: str | None = None
-    artifacts_base_url: str | None = None
     updated_at: float
 
 
@@ -104,19 +103,10 @@ class VerificationPayload(BaseModel):
     request_text: str | None = None
     run_summary: str | None = None
     final_result_summary: str | None = None
-    artifacts_base_url: str | None = None
     verification_items: list[VerificationItem] = Field(default_factory=list)
     grouped_steps: list[VerificationGroup] = Field(default_factory=list)
 
 
-class CreateSessionResponse(BaseModel):
+class CreatedSession(BaseModel):
     session_id: str
     snapshot: SessionSnapshot
-
-
-class StartSessionRequest(BaseModel):
-    query: str
-
-
-class SendMessageRequest(BaseModel):
-    text: str
