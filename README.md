@@ -7,28 +7,9 @@ Browser agent example for Gemini Computer Use with two browser backends:
 
 The CLI entry point is `main.py`. Runtime code lives in `src/`.
 
-## Local UI Mode
+## Desktop Bridge Runtime
 
-This project also includes a local FastAPI + React UI for polling session state, screenshots, reasoning, actions, and artifacts.
-
-Backend:
-
-```bash
-uv sync --dev
-uv run playwright install chromium
-export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-uv run python main.py --ui --headless True
-```
-
-Frontend:
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-The Vite dev server proxies `/api` requests to the FastAPI backend at `http://127.0.0.1:8000`.
+The desktop shell runs the React renderer against a stdio Python bridge instead of a local FastAPI session server.
 
 ## Electron Desktop Shell
 
@@ -45,14 +26,14 @@ desktop/
     ├── preload.ts
     ├── python.ts
     ├── config.ts
-    ├── backendClient.ts
+    ├── pythonBridgeClient.ts
     └── bridge/
         └── channels.ts
 ```
 
 The current scaffold uses this flow:
 
-- Electron `main` starts the existing Python UI backend via `uv run python main.py --ui --headless True`
+- Electron `main` starts the Python desktop bridge via `uv run python main.py --desktop_bridge --headless True`
 - Electron `preload` installs `window.__COMPUTER_USE_DESKTOP_BRIDGE__`
 - The React renderer in `web/` consumes that bridge through the desktop bridge abstractions already added in `web/src/api/`
 
@@ -60,13 +41,12 @@ Current browser surface behavior:
 
 - Electron now creates a hosted `WebContentsView` for the browser surface region
 - renderer bounds/focus events are forwarded to the Electron shell through `browserSurface.setBounds()` and `browserSurface.focus()`
-- renderer URL changes are forwarded through `browserSurface.loadUrl()`
+- the Python runtime controls that hosted surface through the Electron command bridge used by `ElectronSurfaceComputer`
 
 Current limitation:
 
-- the hosted Electron browser surface is currently a **shadow browser surface** that mirrors the current URL
-- it is **not yet the same Chromium instance** controlled by the Python + Playwright backend
-- full unification still requires replacing the current backend/browser ownership model
+- browser mode in the standalone web renderer is no longer a supported runtime path unless a client is injected explicitly
+- the intended runtime is the desktop shell with the installed desktop bridge
 
 Renderer loading:
 
@@ -228,18 +208,15 @@ uv run python main.py \
 ## CLI Reference
 
 ```text
-usage: main.py [-h] --query QUERY [--env {playwright,browserbase}]
-               [--ui] [--ui_host UI_HOST] [--ui_port UI_PORT]
-               [--initial_url INITIAL_URL] [--highlight_mouse]
-               [--headless HEADLESS] [--log] [--model MODEL]
+usage: main.py [-h] [--query QUERY] [--desktop_bridge]
+               [--env {playwright,browserbase}] [--initial_url INITIAL_URL]
+               [--highlight_mouse] [--headless HEADLESS] [--log] [--model MODEL]
 ```
 
 | Argument | Description | Default |
 | - | - | - |
-| `--query` | Natural-language instruction for the agent. Required unless `--ui` is set. | Optional |
-| `--ui` | Run the FastAPI UI backend instead of the CLI agent loop. | `False` |
-| `--ui_host` | Host used by the FastAPI UI backend. | `127.0.0.1` |
-| `--ui_port` | Port used by the FastAPI UI backend. | `8000` |
+| `--query` | Natural-language instruction for the agent. Required unless `--desktop_bridge` is set. | Optional |
+| `--desktop_bridge` | Run the desktop bridge over stdio instead of the CLI agent loop. | `False` |
 | `--env` | Browser backend to use: `playwright` or `browserbase`. | `playwright` |
 | `--initial_url` | Initial page opened before the agent starts. | `https://www.google.com` |
 | `--highlight_mouse` | Highlight cursor position in Playwright screenshots. | `False` |
