@@ -149,6 +149,9 @@ class FakeAgent:
                     "phase_id": "phase-search",
                     "phase_label": "검색",
                     "phase_summary": "조건에 맞는 결과를 찾는 중입니다.",
+                    "action_summary": "검색 페이지 열기",
+                    "reason": "조건에 맞는 결과를 찾기 위해 검색 페이지를 열었습니다.",
+                    "summary_source": "openrouter",
                     "user_visible_label": "검색 페이지 열기",
                     "verification_items": [
                         {
@@ -212,6 +215,9 @@ class FakeAgent:
                 "phase_id": "phase-complete",
                 "phase_label": "완료",
                 "phase_summary": "최종 결과를 정리했습니다.",
+                "action_summary": "결과 정리",
+                "reason": "요청한 작업 결과를 사용자에게 정리했습니다.",
+                "summary_source": "openrouter",
                 "user_visible_label": "결과 정리",
                 "final_result_summary": (
                     "요청한 작업을 마쳤고 검토 항목 1개를 남겼습니다."
@@ -318,7 +324,14 @@ class TestSessionController(unittest.TestCase):
             self.assertEqual(steps[0].a11y_path, "step-0001.a11y.yaml")
             self.assertTrue(steps[0].ambiguity_flag)
             self.assertEqual(steps[0].phase_id, "phase-search")
+            self.assertEqual(steps[0].action_summary, "검색 페이지 열기")
+            self.assertEqual(
+                steps[0].reason,
+                "조건에 맞는 결과를 찾기 위해 검색 페이지를 열었습니다.",
+            )
+            self.assertEqual(steps[0].summary_source, "openrouter")
             self.assertEqual(steps[1].phase_id, "phase-complete")
+            self.assertEqual(steps[1].action_summary, "결과 정리")
             self.assertTrue(controller.get_artifact_path("step-0001.png").exists())
             controller.stop()
             wait_for(lambda: controller.get_snapshot().status == "stopped")
@@ -511,6 +524,7 @@ class TestSessionController(unittest.TestCase):
                 model_name="test-model",
                 llm_client=mock_llm_client,
                 event_sink=controller._handle_agent_event,
+                step_summarizer=None,
             )
 
             result = agent.run_one_iteration()
@@ -626,6 +640,9 @@ class TestVerificationService(unittest.TestCase):
             phase_id=None,
             phase_label=None,
             phase_summary=None,
+            action_summary=None,
+            reason=None,
+            summary_source=None,
             user_visible_label=None,
             ambiguity_flag=None,
             ambiguity_type=None,

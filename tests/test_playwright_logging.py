@@ -129,6 +129,7 @@ class TestPlaywrightLogging(unittest.TestCase):
                 model_name="test_model",
                 llm_client=mock_llm_client,
                 verbose=False,
+                step_summarizer=None,
             )
 
             agent._enrich_persisted_action_metadata(

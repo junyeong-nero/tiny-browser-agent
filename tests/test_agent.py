@@ -52,6 +52,7 @@ class TestBrowserAgent(unittest.TestCase):
             query="test query",
             model_name="test_model",
             llm_client=self.mock_llm_client,
+            step_summarizer=None,
         )
 
     def make_response(self, parts, finish_reason=None):
@@ -190,6 +191,7 @@ class TestBrowserAgent(unittest.TestCase):
             model_name="test_model",
             llm_client=self.mock_llm_client,
             event_sink=events.append,
+            step_summarizer=None,
         )
         mock_get_model_response.return_value = self.make_response(
             [],
@@ -240,6 +242,7 @@ class TestBrowserAgent(unittest.TestCase):
             model_name="test_model",
             llm_client=self.mock_llm_client,
             event_sink=events.append,
+            step_summarizer=None,
         )
         function_call = types.FunctionCall(name="navigate", args={"url": "https://example.com"})
         mock_get_model_response.return_value = self.make_response(
@@ -365,6 +368,9 @@ class TestBrowserAgent(unittest.TestCase):
                 "phase_id": "phase-input",
                 "phase_label": "입력 및 조작",
                 "phase_summary": None,
+                "action_summary": "Typed text at (10, 20)",
+                "reason": "Needed to enter text into the page.",
+                "summary_source": "app_derived",
                 "user_visible_label": "Typed text at (10, 20)",
                 "ambiguity_flag": True,
                 "ambiguity_type": "typed_text_not_in_query",
@@ -380,6 +386,9 @@ class TestBrowserAgent(unittest.TestCase):
                 "phase_id": "phase-navigation",
                 "phase_label": "페이지 이동",
                 "phase_summary": None,
+                "action_summary": "Navigated to https://example.com",
+                "reason": "Needed to open https://example.com.",
+                "summary_source": "app_derived",
                 "user_visible_label": "Navigated to https://example.com",
                 "ambiguity_flag": False,
                 "ambiguity_type": None,
@@ -396,6 +405,8 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(review_metadata["review_evidence"], ["typed_text_not_in_query"])
         self.assertEqual(review_metadata["verification_items"], [{"id": "v1"}])
         self.assertEqual(review_metadata["phase_id"], "phase-input")
+        self.assertEqual(review_metadata["action_summary"], "Typed text at (10, 20)")
+        self.assertEqual(review_metadata["reason"], "Needed to enter text into the page.")
 
     def test_build_review_metadata_for_action_creates_verification_item_for_typed_text_ambiguity(self):
         review_metadata = self.agent._build_review_metadata_for_action(
@@ -590,6 +601,7 @@ class TestBrowserAgent(unittest.TestCase):
             model_name="test_model",
             llm_client=self.mock_llm_client,
             event_sink=events.append,
+            step_summarizer=None,
         )
         function_call = types.FunctionCall(
             name="navigate",
@@ -651,6 +663,7 @@ class TestBrowserAgent(unittest.TestCase):
             model_name="test_model",
             llm_client=self.mock_llm_client,
             event_sink=events.append,
+            step_summarizer=None,
         )
         mock_response = MagicMock()
         mock_candidate = MagicMock()
@@ -688,6 +701,7 @@ class TestBrowserAgent(unittest.TestCase):
             model_name="test_model",
             llm_client=self.mock_llm_client,
             event_sink=events.append,
+            step_summarizer=None,
         )
         self.mock_browser_computer.latest_artifact_metadata.return_value = {
             "step": 1,
@@ -722,6 +736,9 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(review_event["phase_id"], "phase-navigation")
         self.assertEqual(review_event["phase_label"], "페이지 이동")
         self.assertEqual(review_event["phase_summary"], "Open the destination page.")
+        self.assertEqual(review_event["action_summary"], "Navigated to https://example.com")
+        self.assertEqual(review_event["reason"], "Open the destination page.")
+        self.assertEqual(review_event["summary_source"], "app_derived")
         self.assertEqual(review_event["user_visible_label"], "Navigated to https://example.com")
 
 

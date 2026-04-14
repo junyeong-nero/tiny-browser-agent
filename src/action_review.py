@@ -3,6 +3,8 @@ from typing import Any, Optional
 
 from google.genai import types
 
+from action_step_summarizer import ActionStepSummary, OpenRouterActionStepSummarizer
+
 
 NAVIGATION_ACTION_NAMES = {
     "navigate",
@@ -85,9 +87,15 @@ def detect_ambiguity_candidate(
 
 
 class ActionReviewService:
-    def __init__(self, query: str):
+    def __init__(
+        self,
+        query: str,
+        step_summarizer: OpenRouterActionStepSummarizer | None = None,
+    ):
         self._query = query
         self._action_review_history: list[ActionReviewContext] = []
+        self._step_summarizer = step_summarizer
+        self._step_summary_cache: dict[tuple[int, int], ActionStepSummary] = {}
 
     def build_action_summary(self, function_call: types.FunctionCall) -> str:
         action_name = function_call.name or "action"
@@ -200,6 +208,41 @@ class ActionReviewService:
             else f"Step {step_id}",
         }
 
+    def _get_action_step_summary(
+        self,
+        *,
+        step_id: int,
+        function_call_index: int,
+        function_call: types.FunctionCall,
+        reasoning: Optional[str],
+        current_url: str | None,
+    ) -> ActionStepSummary:
+        cache_key = (step_id, function_call_index)
+        cached_summary = self._step_summary_cache.get(cache_key)
+        if cached_summary is not None:
+            return cached_summary
+
+        fallback_summary = ActionStepSummary(
+            action_summary=self.build_action_summary(function_call),
+            reason=self.clean_reasoning_text(reasoning)
+            or self.build_fallback_reason(function_call),
+            summary_source="app_derived",
+        )
+
+        if self._step_summarizer is None:
+            self._step_summary_cache[cache_key] = fallback_summary
+            return fallback_summary
+
+        summarized = self._step_summarizer.summarize_action(
+            query=self._query,
+            function_call=function_call,
+            reasoning=reasoning,
+            current_url=current_url,
+        )
+        resolved_summary = summarized or fallback_summary
+        self._step_summary_cache[cache_key] = resolved_summary
+        return resolved_summary
+
     def build_review_metadata_for_action(
         self,
         step_id: int,
@@ -208,6 +251,13 @@ class ActionReviewService:
         reasoning: Optional[str],
         artifacts: Optional[dict[str, Any]],
     ) -> dict[str, Any]:
+        action_step_summary = self._get_action_step_summary(
+            step_id=step_id,
+            function_call_index=function_call_index,
+            function_call=function_call,
+            reasoning=reasoning,
+            current_url=artifacts.get("url") if artifacts else None,
+        )
         current_context = ActionReviewContext(
             action_name=function_call.name or "action",
             action_args=dict(function_call.args or {}),
@@ -227,6 +277,10 @@ class ActionReviewService:
                 reasoning=reasoning,
                 step_id=step_id,
             ),
+            "action_summary": action_step_summary.action_summary,
+            "reason": action_step_summary.reason,
+            "summary_source": action_step_summary.summary_source,
+            "user_visible_label": action_step_summary.action_summary,
             "ambiguity_flag": ambiguity_candidate is not None,
             "ambiguity_type": ambiguity_candidate.ambiguity_type if ambiguity_candidate else None,
             "ambiguity_message": ambiguity_candidate.message if ambiguity_candidate else None,
@@ -263,15 +317,22 @@ class ActionReviewService:
         artifacts: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         cleaned_reasoning = self.clean_reasoning_text(reasoning)
+        action_step_summary = self._get_action_step_summary(
+            step_id=step_id,
+            function_call_index=function_call_index,
+            function_call=function_call,
+            reasoning=reasoning,
+            current_url=artifacts.get("url") if artifacts else None,
+        )
         return {
             "action": {
                 "name": function_call.name,
                 "args": dict(function_call.args or {}),
             },
-            "action_summary": self.build_action_summary(function_call),
-            "reason": cleaned_reasoning or self.build_fallback_reason(function_call),
+            "action_summary": action_step_summary.action_summary,
+            "reason": action_step_summary.reason,
             "reasoning_text": cleaned_reasoning,
-            "summary_source": "app_derived",
+            "summary_source": action_step_summary.summary_source,
             "model_step_id": step_id,
             "function_call_index_within_step": function_call_index,
             "ambiguity_flag": ambiguity_candidate is not None,
@@ -310,6 +371,11 @@ class ActionReviewService:
             "phase_id": existing_metadata.get("phase_id") or review_metadata.get("phase_id"),
             "phase_label": existing_metadata.get("phase_label") or review_metadata.get("phase_label"),
             "phase_summary": existing_metadata.get("phase_summary") or review_metadata.get("phase_summary"),
+            "action_summary": existing_metadata.get("action_summary")
+            or review_metadata.get("action_summary"),
+            "reason": existing_metadata.get("reason") or review_metadata.get("reason"),
+            "summary_source": existing_metadata.get("summary_source")
+            or review_metadata.get("summary_source"),
             "user_visible_label": existing_metadata.get("user_visible_label")
             or review_metadata.get("user_visible_label"),
             "ambiguity_flag": ambiguity_flag,

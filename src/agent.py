@@ -34,6 +34,7 @@ from action_review import (
     AmbiguityCandidate,
     detect_ambiguity_candidate,
 )
+from action_step_summarizer import OpenRouterActionStepSummarizer
 from computers import EnvState, Computer
 from llm import LLMClient
 from tool_calling import (
@@ -45,6 +46,7 @@ from tool_calling import (
 )
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
+_UNSET_STEP_SUMMARIZER: object = object()
 
 
 console = Console()
@@ -68,6 +70,7 @@ class BrowserAgent:
         verbose: bool = True,
         llm_client: Optional[LLMClient] = None,
         event_sink: Optional[Callable[[dict[str, Any]], None]] = None,
+        step_summarizer: OpenRouterActionStepSummarizer | None = _UNSET_STEP_SUMMARIZER,  # type: ignore[assignment]
     ):
         self._browser_computer = browser_computer
         self._query = query
@@ -79,11 +82,16 @@ class BrowserAgent:
         self._step_id = 0
         self._custom_functions = [multiply_numbers]
         self._step_review_metadata: dict[int, dict[str, Any]] = {}
+        if step_summarizer is _UNSET_STEP_SUMMARIZER:
+            step_summarizer = OpenRouterActionStepSummarizer.from_env()
         self._tool_executor = BrowserToolExecutor(
             browser_computer=self._browser_computer,
             custom_functions=self._custom_functions,
         )
-        self._review_service = ActionReviewService(query=self._query)
+        self._review_service = ActionReviewService(
+            query=self._query,
+            step_summarizer=step_summarizer,
+        )
         self._metadata_writer = ActionMetadataWriter(
             browser_computer=self._browser_computer,
             review_service=self._review_service,
@@ -151,6 +159,12 @@ class BrowserAgent:
             phase_id=step_review_metadata.get("phase_id", default_phase_id),
             phase_label=step_review_metadata.get("phase_label", default_phase_label),
             phase_summary=step_review_metadata.get("phase_summary", reasoning),
+            action_summary=step_review_metadata.get(
+                "action_summary",
+                step_review_metadata.get("user_visible_label", default_user_visible_label),
+            ),
+            reason=step_review_metadata.get("reason", reasoning),
+            summary_source=step_review_metadata.get("summary_source", "app_derived"),
             user_visible_label=step_review_metadata.get(
                 "user_visible_label",
                 default_user_visible_label,

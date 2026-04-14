@@ -126,6 +126,9 @@ class SessionState:
                 phase_id=None,
                 phase_label=None,
                 phase_summary=None,
+                action_summary=None,
+                reason=None,
+                summary_source=None,
                 user_visible_label=None,
                 ambiguity_flag=None,
                 ambiguity_type=None,
@@ -219,24 +222,18 @@ class SessionState:
     ) -> None:
         step = self._get_step(step_id)
         if step:
-            if "phase_id" in payload:
-                step.phase_id = payload.get("phase_id")
-            if "phase_label" in payload:
-                step.phase_label = payload.get("phase_label")
-            if "phase_summary" in payload:
-                step.phase_summary = payload.get("phase_summary")
-            if "user_visible_label" in payload:
-                step.user_visible_label = payload.get("user_visible_label")
-            if "ambiguity_flag" in payload:
-                step.ambiguity_flag = payload.get("ambiguity_flag")
-            if "ambiguity_type" in payload:
-                step.ambiguity_type = payload.get("ambiguity_type")
-            if "ambiguity_message" in payload:
-                step.ambiguity_message = payload.get("ambiguity_message")
+            _SIMPLE_REVIEW_FIELDS = (
+                "phase_id", "phase_label", "phase_summary",
+                "action_summary", "reason", "summary_source",
+                "user_visible_label",
+                "ambiguity_flag", "ambiguity_type", "ambiguity_message",
+                "a11y_path",
+            )
+            for field in _SIMPLE_REVIEW_FIELDS:
+                if field in payload:
+                    setattr(step, field, payload.get(field))
             if "review_evidence" in payload:
                 step.review_evidence = list(payload.get("review_evidence") or [])
-            if "a11y_path" in payload:
-                step.a11y_path = payload.get("a11y_path")
 
         run_summary = payload.get("run_summary")
         if run_summary:

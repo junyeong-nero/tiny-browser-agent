@@ -54,6 +54,9 @@ class StepRecord(BaseModel):
     phase_id: str | None = None
     phase_label: str | None = None
     phase_summary: str | None = None
+    action_summary: str | None = None
+    reason: str | None = None
+    summary_source: str | None = None
     user_visible_label: str | None = None
     ambiguity_flag: bool | None = None
     ambiguity_type: str | None = None
