@@ -9,6 +9,161 @@ interface JsonObject {
   [key: string]: unknown;
 }
 
+type BrowserCommandPayload = JsonObject | BrowserSurfaceState;
+
+interface BrowserCommandRoute {
+  method: 'GET' | 'POST';
+  path: string;
+  handle: (payload: JsonObject) => Promise<BrowserCommandPayload>;
+}
+
+
+export function createBrowserCommandRoutes(
+  browserSurfaceManager: BrowserSurfaceManager,
+): BrowserCommandRoute[] {
+  const captureState = () => browserSurfaceManager.captureState();
+
+  return [
+    {
+      method: 'GET',
+      path: '/health',
+      async handle() {
+        return { status: 'ok' };
+      },
+    },
+    {
+      method: 'GET',
+      path: '/computer/screen-size',
+      async handle() {
+        return browserSurfaceManager.getScreenSize();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/state',
+      async handle() {
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/navigate',
+      async handle(payload) {
+        await browserSurfaceManager.navigate(readString(payload, 'url'));
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/go-back',
+      async handle() {
+        await browserSurfaceManager.goBack();
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/go-forward',
+      async handle() {
+        await browserSurfaceManager.goForward();
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/click-at',
+      async handle(payload) {
+        await browserSurfaceManager.clickAt(readNumber(payload, 'x'), readNumber(payload, 'y'));
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/hover-at',
+      async handle(payload) {
+        await browserSurfaceManager.hoverAt(readNumber(payload, 'x'), readNumber(payload, 'y'));
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/type-text-at',
+      async handle(payload) {
+        await browserSurfaceManager.typeTextAt(
+          readNumber(payload, 'x'),
+          readNumber(payload, 'y'),
+          readString(payload, 'text'),
+          readBoolean(payload, 'pressEnter', false),
+          readBoolean(payload, 'clearBeforeTyping', true),
+        );
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/scroll-document',
+      async handle(payload) {
+        await browserSurfaceManager.scrollDocument(readDirection(payload, 'direction'));
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/scroll-at',
+      async handle(payload) {
+        await browserSurfaceManager.scrollAt(
+          readNumber(payload, 'x'),
+          readNumber(payload, 'y'),
+          readDirection(payload, 'direction'),
+          readNumber(payload, 'magnitude'),
+        );
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/key-combination',
+      async handle(payload) {
+        await browserSurfaceManager.keyCombination(readStringArray(payload, 'keys'));
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/drag-and-drop',
+      async handle(payload) {
+        await browserSurfaceManager.dragAndDrop(
+          readNumber(payload, 'x'),
+          readNumber(payload, 'y'),
+          readNumber(payload, 'destinationX'),
+          readNumber(payload, 'destinationY'),
+        );
+        return captureState();
+      },
+    },
+  ];
+}
+
+
+export async function handleBrowserCommandRequest(
+  browserSurfaceManager: BrowserSurfaceManager,
+  method: string,
+  path: string,
+  payload: JsonObject = {},
+): Promise<{ status: number; payload: BrowserCommandPayload }> {
+  const route = createBrowserCommandRoutes(browserSurfaceManager).find(
+    (candidate) => candidate.method === method && candidate.path === path,
+  );
+  if (!route) {
+    return { status: 404, payload: { error: 'Not found' } };
+  }
+
+  return {
+    status: 200,
+    payload: await route.handle(payload),
+  };
+}
+
 
 export class BrowserCommandServer {
   private server: ReturnType<typeof createServer> | null = null;
@@ -67,103 +222,14 @@ export class BrowserCommandServer {
     try {
       const method = request.method ?? 'GET';
       const url = new URL(request.url ?? '/', 'http://127.0.0.1');
-
-      if (method === 'GET' && url.pathname === '/health') {
-        this.respondJson(response, 200, { status: 'ok' });
-        return;
-      }
-
-      if (method === 'GET' && url.pathname === '/computer/screen-size') {
-        this.respondJson(response, 200, this.browserSurfaceManager.getScreenSize());
-        return;
-      }
-
       const payload = method === 'POST' ? await this.readJsonBody(request) : {};
-
-      if (method === 'POST' && url.pathname === '/computer/state') {
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      if (method === 'POST' && url.pathname === '/computer/navigate') {
-        await this.browserSurfaceManager.navigate(readString(payload, 'url'));
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      if (method === 'POST' && url.pathname === '/computer/go-back') {
-        await this.browserSurfaceManager.goBack();
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      if (method === 'POST' && url.pathname === '/computer/go-forward') {
-        await this.browserSurfaceManager.goForward();
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      if (method === 'POST' && url.pathname === '/computer/click-at') {
-        await this.browserSurfaceManager.clickAt(readNumber(payload, 'x'), readNumber(payload, 'y'));
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      if (method === 'POST' && url.pathname === '/computer/hover-at') {
-        await this.browserSurfaceManager.hoverAt(readNumber(payload, 'x'), readNumber(payload, 'y'));
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      if (method === 'POST' && url.pathname === '/computer/type-text-at') {
-        await this.browserSurfaceManager.typeTextAt(
-          readNumber(payload, 'x'),
-          readNumber(payload, 'y'),
-          readString(payload, 'text'),
-          readBoolean(payload, 'pressEnter', false),
-          readBoolean(payload, 'clearBeforeTyping', true),
-        );
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      if (method === 'POST' && url.pathname === '/computer/scroll-document') {
-        await this.browserSurfaceManager.scrollDocument(
-          readDirection(payload, 'direction'),
-        );
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      if (method === 'POST' && url.pathname === '/computer/scroll-at') {
-        await this.browserSurfaceManager.scrollAt(
-          readNumber(payload, 'x'),
-          readNumber(payload, 'y'),
-          readDirection(payload, 'direction'),
-          readNumber(payload, 'magnitude'),
-        );
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      if (method === 'POST' && url.pathname === '/computer/key-combination') {
-        await this.browserSurfaceManager.keyCombination(readStringArray(payload, 'keys'));
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      if (method === 'POST' && url.pathname === '/computer/drag-and-drop') {
-        await this.browserSurfaceManager.dragAndDrop(
-          readNumber(payload, 'x'),
-          readNumber(payload, 'y'),
-          readNumber(payload, 'destinationX'),
-          readNumber(payload, 'destinationY'),
-        );
-        this.respondJson(response, 200, await this.browserSurfaceManager.captureState());
-        return;
-      }
-
-      this.respondJson(response, 404, { error: 'Not found' });
+      const result = await handleBrowserCommandRequest(
+        this.browserSurfaceManager,
+        method,
+        url.pathname,
+        payload,
+      );
+      this.respondJson(response, result.status, result.payload);
     } catch (error) {
       this.respondJson(response, 500, {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -171,7 +237,7 @@ export class BrowserCommandServer {
     }
   }
 
-  private respondJson(response: ServerResponse, status: number, payload: JsonObject | BrowserSurfaceState): void {
+  private respondJson(response: ServerResponse, status: number, payload: BrowserCommandPayload): void {
     response.statusCode = status;
     response.setHeader('Content-Type', 'application/json');
     response.end(JSON.stringify(payload));

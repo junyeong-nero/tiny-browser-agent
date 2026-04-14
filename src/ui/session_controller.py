@@ -1,6 +1,5 @@
 import threading
 import time
-import uuid
 from contextlib import AbstractContextManager
 from pathlib import Path
 from queue import Empty, Queue
@@ -12,19 +11,16 @@ from computers import Computer, PlaywrightComputer
 from collections import Counter
 
 from .models import (
-    ChatMessage,
     SessionSnapshot,
     SessionStatus,
     StepRecord,
     VerificationGroup,
-    VerificationItem,
     VerificationPayload,
 )
-from .serializers import (
-    encode_screenshot_base64,
-    make_initial_snapshot,
-    serialize_step_actions,
-)
+from .session_state import SessionState
+
+SESSION_IDLE_TIMEOUT_SECONDS = 15 * 60
+
 ComputerFactory = Callable[..., AbstractContextManager[Computer]]
 AgentFactory = Callable[..., BrowserAgent]
 
@@ -35,6 +31,8 @@ def build_verification_payload(
 ) -> VerificationPayload:
     return VerificationPayload(
         session_id=snapshot.session_id,
+        current_run_id=snapshot.current_run_id,
+        last_completed_run_id=snapshot.last_completed_run_id,
         request_text=snapshot.request_text,
         run_summary=snapshot.run_summary,
         final_result_summary=snapshot.final_result_summary,
@@ -69,6 +67,9 @@ def _should_start_new_group(previous_step: StepRecord | None, step: StepRecord) 
     if previous_step is None:
         return True
 
+    if step.run_id != previous_step.run_id:
+        return True
+
     if step.phase_id:
         return step.phase_id != previous_step.phase_id
 
@@ -90,6 +91,12 @@ def _action_signature(step: StepRecord) -> str:
 def _build_verification_group(group_steps: list[StepRecord]) -> VerificationGroup:
     first_step = group_steps[0]
     last_step = group_steps[-1]
+    base_group_id = first_step.phase_id or f"group-{first_step.step_id}"
+    group_id = (
+        f"{first_step.run_id}:{base_group_id}"
+        if first_step.run_id
+        else base_group_id
+    )
     label = (
         first_step.phase_label
         or first_step.user_visible_label
@@ -97,7 +104,8 @@ def _build_verification_group(group_steps: list[StepRecord]) -> VerificationGrou
         or f"Step {first_step.step_id}"
     )
     return VerificationGroup(
-        id=first_step.phase_id or f"group-{first_step.step_id}",
+        id=group_id,
+        run_id=first_step.run_id,
         label=label,
         summary=_build_group_summary(group_steps),
         step_ids=[step.step_id for step in group_steps],
@@ -142,6 +150,7 @@ class SessionController:
         highlight_mouse: bool,
         headless: bool,
         artifacts_root: Path,
+        idle_timeout_seconds: float = SESSION_IDLE_TIMEOUT_SECONDS,
         computer_factory: ComputerFactory = PlaywrightComputer,
         agent_factory: AgentFactory = BrowserAgent,
     ):
@@ -152,37 +161,32 @@ class SessionController:
         self._highlight_mouse = highlight_mouse
         self._headless = headless
         self._artifacts_root = artifacts_root
+        self._idle_timeout_seconds = idle_timeout_seconds
         self._computer_factory = computer_factory
         self._agent_factory = agent_factory
         self._log_dir = self._artifacts_root / self.session_id
         self._lock = threading.RLock()
         self._thread: Optional[threading.Thread] = None
         self._agent: Optional[BrowserAgent] = None
-        self._steps: list[StepRecord] = []
-        self._messages: list[ChatMessage] = []
-        self._message_queue: Queue[str] = Queue()
-        self._stop_requested = False
-        self._assistant_message_emitted = False
-        self._pending_verification_items: dict[str, VerificationItem] = {}
-
-        self._latest_snapshot = make_initial_snapshot(
+        self._state = SessionState(
             session_id=self.session_id,
+            idle_timeout_seconds=self._idle_timeout_seconds,
         )
+        self._message_queue: Queue[str] = Queue()
+        self._close_requested = False
+        self._interrupt_requested = False
 
     def start(self, query: str) -> None:
         with self._lock:
             if self._thread and self._thread.is_alive():
                 raise ValueError("Session is already running.")
-            if self._latest_snapshot.status != SessionStatus.IDLE:
+            if self._state.snapshot.status != SessionStatus.IDLE:
                 raise ValueError("Session has already been started.")
-            self._stop_requested = False
-            self._assistant_message_emitted = False
-            self._append_message_locked(role="user", text=query)
-            self._latest_snapshot.request_text = query
-            self._latest_snapshot.status = SessionStatus.RUNNING
-            self._touch_snapshot_locked()
+            self._close_requested = False
+            self._interrupt_requested = False
+            self._state.prepare_start(query)
             self._thread = threading.Thread(
-                target=self._run_agent,
+                target=self._run_session,
                 args=(query,),
                 daemon=True,
                 name=f"session-{self.session_id}",
@@ -191,34 +195,46 @@ class SessionController:
 
     def stop(self) -> None:
         with self._lock:
-            self._stop_requested = True
-            if self._latest_snapshot.status == SessionStatus.IDLE:
-                self._latest_snapshot.status = SessionStatus.STOPPED
-                self._touch_snapshot_locked()
+            self._close_requested = True
+            if self._state.snapshot.status == SessionStatus.IDLE:
+                self._state.mark_stopped()
+
+    def interrupt(self) -> None:
+        with self._lock:
+            if self._state.snapshot.status != SessionStatus.RUNNING:
+                raise ValueError("Session is not running.")
+            self._interrupt_requested = True
+
+    def close(self) -> None:
+        self.stop()
+        thread: Optional[threading.Thread]
+        with self._lock:
+            thread = self._thread
+        if thread and thread.is_alive():
+            thread.join(timeout=5.0)
 
     def enqueue_message(self, text: str) -> None:
         with self._lock:
-            if self._latest_snapshot.status != SessionStatus.RUNNING:
+            if self._state.snapshot.status not in (
+                SessionStatus.RUNNING,
+                SessionStatus.WAITING_FOR_INPUT,
+            ):
                 raise ValueError("Session is not running.")
-            self._append_message_locked(role="user", text=text)
+            self._state.append_user_message(text)
             self._message_queue.put(text)
 
     def get_snapshot(self) -> SessionSnapshot:
         with self._lock:
-            return self._latest_snapshot.model_copy(deep=True)
+            return self._state.snapshot_copy()
 
     def get_steps(self, after_step_id: int | None = None) -> list[StepRecord]:
         with self._lock:
-            if after_step_id is None:
-                steps = self._steps
-            else:
-                steps = [step for step in self._steps if step.step_id > after_step_id]
-            return [step.model_copy(deep=True) for step in steps]
+            return self._state.steps_copy(after_step_id=after_step_id)
 
     def get_verification_payload(self):
         with self._lock:
-            snapshot = self._latest_snapshot.model_copy(deep=True)
-            steps = [step.model_copy(deep=True) for step in self._steps]
+            snapshot = self._state.snapshot_copy()
+            steps = self._state.steps_copy()
         return build_verification_payload(snapshot=snapshot, steps=steps)
 
     def get_artifact_path(self, name: str) -> Path:
@@ -232,7 +248,7 @@ class SessionController:
                 return candidate
         raise FileNotFoundError(name)
 
-    def _run_agent(self, query: str) -> None:
+    def _run_session(self, query: str) -> None:
         try:
             with self._computer_factory(
                 screen_size=self._screen_size,
@@ -250,33 +266,66 @@ class SessionController:
                 with self._lock:
                     self._agent = agent
 
-                status = "CONTINUE"
-                while status == "CONTINUE" and not self._stop_requested:
-                    self._drain_message_queue(agent)
-                    status = agent.run_one_iteration()
+                while not self._close_requested:
+                    with self._lock:
+                        session_status = self._state.snapshot.status
+                        expires_at = self._state.snapshot.expires_at
 
-                with self._lock:
-                    if self._stop_requested:
-                        self._latest_snapshot.status = SessionStatus.STOPPED
-                    elif self._latest_snapshot.status != SessionStatus.ERROR:
-                        self._latest_snapshot.status = SessionStatus.COMPLETE
-                        if agent.final_reasoning and not self._latest_snapshot.final_reasoning:
-                            self._latest_snapshot.final_reasoning = agent.final_reasoning
-                        if agent.final_reasoning and not self._assistant_message_emitted:
-                            self._append_message_locked(
-                                role="assistant",
-                                text=agent.final_reasoning,
-                            )
-                            self._assistant_message_emitted = True
-                    self._touch_snapshot_locked()
+                    if session_status == SessionStatus.ERROR:
+                        break
+
+                    if session_status == SessionStatus.RUNNING:
+                        status = "CONTINUE"
+                        while (
+                            status == "CONTINUE"
+                            and not self._interrupt_requested
+                            and not self._close_requested
+                        ):
+                            self._drain_message_queue(agent)
+                            status = agent.run_one_iteration()
+
+                        with self._lock:
+                            if self._close_requested:
+                                self._state.mark_stopped()
+                            elif self._interrupt_requested:
+                                self._interrupt_requested = False
+                                self._state.enter_waiting_state(run_status="stopped")
+                            elif self._state.snapshot.status != SessionStatus.ERROR:
+                                self._state.enter_waiting_state(run_status="complete")
+                                self._state.finalize_run(agent.final_reasoning)
+                        continue
+
+                    if (
+                        session_status == SessionStatus.WAITING_FOR_INPUT
+                        and expires_at is not None
+                        and time.time() >= expires_at
+                    ):
+                        with self._lock:
+                            self._state.mark_stopped("Session expired due to inactivity.")
+                        break
+
+                    queue_timeout = 0.1
+                    if session_status == SessionStatus.WAITING_FOR_INPUT and expires_at is not None:
+                        queue_timeout = max(0.0, min(queue_timeout, expires_at - time.time()))
+
+                    try:
+                        message = self._message_queue.get(timeout=queue_timeout)
+                    except Empty:
+                        continue
+
+                    if self._close_requested:
+                        break
+                    agent.append_user_message(message)
+                    with self._lock:
+                        self._state.begin_run()
             self._finalize_video_artifact(browser_computer)
         except Exception as exc:
             with self._lock:
-                self._latest_snapshot.status = SessionStatus.ERROR
-                self._latest_snapshot.error_message = str(exc)
-                self._touch_snapshot_locked()
+                self._state.mark_error(str(exc))
         finally:
             with self._lock:
+                if self._close_requested:
+                    self._state.mark_stopped()
                 self._agent = None
 
     def _drain_message_queue(self, agent: BrowserAgent) -> None:
@@ -288,213 +337,8 @@ class SessionController:
             agent.append_user_message(message)
 
     def _handle_agent_event(self, event: dict[str, Any]) -> None:
-        event_type = event["type"]
-        step_id = event.get("step_id")
         with self._lock:
-            if event_type == "step_started":
-                if not isinstance(step_id, int):
-                    return
-                step = StepRecord(
-                    step_id=step_id,
-                    timestamp=event["timestamp"],
-                    reasoning=None,
-                    function_calls=[],
-                    url=self._latest_snapshot.current_url,
-                    status="running",
-                    screenshot_path=None,
-                    html_path=None,
-                    metadata_path=None,
-                    a11y_path=None,
-                    error_message=None,
-                    phase_id=None,
-                    phase_label=None,
-                    phase_summary=None,
-                    user_visible_label=None,
-                    ambiguity_flag=None,
-                    ambiguity_type=None,
-                    ambiguity_message=None,
-                    review_evidence=[],
-                )
-                self._steps.append(step)
-                self._latest_snapshot.latest_step_id = step.step_id
-            elif event_type == "reasoning_extracted":
-                step = self._get_step_locked(step_id)
-                if step:
-                    step.reasoning = event.get("reasoning")
-                self._latest_snapshot.last_reasoning = event.get("reasoning")
-                if event.get("reasoning"):
-                    self._latest_snapshot.run_summary = event.get("reasoning")
-            elif event_type == "function_calls_extracted":
-                step = self._get_step_locked(step_id)
-                serialized_actions = serialize_step_actions(event.get("function_calls", []))
-                if step:
-                    step.function_calls = serialized_actions
-                self._latest_snapshot.last_actions = serialized_actions
-            elif event_type == "action_executed":
-                step = self._get_step_locked(step_id)
-                env_state = event.get("env_state") or {}
-                artifacts = event.get("artifacts") or {}
-                url = env_state.get("url")
-                screenshot = env_state.get("screenshot")
-                if step:
-                    step.url = url or step.url
-                    step.screenshot_path = artifacts.get("screenshot_path")
-                    step.html_path = artifacts.get("html_path")
-                    step.metadata_path = artifacts.get("metadata_path")
-                    step.a11y_path = artifacts.get("a11y_path")
-                if url:
-                    self._latest_snapshot.current_url = url
-                if screenshot is not None:
-                    self._latest_snapshot.latest_screenshot_b64 = encode_screenshot_base64(
-                        screenshot
-                    )
-                self._resolve_verification_items_locked()
-            elif event_type == "review_metadata_extracted":
-                self._apply_review_metadata_locked(step_id=step_id, payload=event)
-            elif event_type == "step_complete":
-                step = self._get_step_locked(step_id)
-                if step:
-                    step.status = event.get("status", "complete")
-                self._apply_review_metadata_locked(step_id=step_id, payload=event)
-                final_reasoning = event.get("final_reasoning")
-                if final_reasoning:
-                    self._latest_snapshot.final_reasoning = final_reasoning
-                    self._latest_snapshot.run_summary = final_reasoning
-                    if not self._latest_snapshot.final_result_summary:
-                        self._latest_snapshot.final_result_summary = final_reasoning
-                    if not self._assistant_message_emitted:
-                        self._append_message_locked(role="assistant", text=final_reasoning)
-                        self._assistant_message_emitted = True
-            elif event_type == "step_error":
-                step = self._get_step_locked(step_id)
-                if step:
-                    step.status = "error"
-                    step.error_message = event.get("error_message")
-                self._latest_snapshot.status = SessionStatus.ERROR
-                self._latest_snapshot.error_message = event.get("error_message")
-            self._touch_snapshot_locked()
-
-    def _append_message_locked(
-        self,
-        role: Literal["user", "assistant", "system"],
-        text: str,
-    ) -> None:
-        message = ChatMessage(
-            id=uuid.uuid4().hex,
-            role=role,
-            text=text,
-            timestamp=time.time(),
-        )
-        self._messages.append(message)
-        self._latest_snapshot.messages = [
-            existing_message.model_copy(deep=True) for existing_message in self._messages
-        ]
-        if role == "user" and not self._latest_snapshot.request_text:
-            self._latest_snapshot.request_text = text
-
-    def _apply_review_metadata_locked(
-        self,
-        step_id: int | None,
-        payload: dict[str, Any],
-    ) -> None:
-        step = self._get_step_locked(step_id)
-        if step:
-            if "phase_id" in payload:
-                step.phase_id = payload.get("phase_id")
-            if "phase_label" in payload:
-                step.phase_label = payload.get("phase_label")
-            if "phase_summary" in payload:
-                step.phase_summary = payload.get("phase_summary")
-            if "user_visible_label" in payload:
-                step.user_visible_label = payload.get("user_visible_label")
-            if "ambiguity_flag" in payload:
-                step.ambiguity_flag = payload.get("ambiguity_flag")
-            if "ambiguity_type" in payload:
-                step.ambiguity_type = payload.get("ambiguity_type")
-            if "ambiguity_message" in payload:
-                step.ambiguity_message = payload.get("ambiguity_message")
-            if "review_evidence" in payload:
-                step.review_evidence = list(payload.get("review_evidence") or [])
-            if "a11y_path" in payload:
-                step.a11y_path = payload.get("a11y_path")
-
-        run_summary = payload.get("run_summary")
-        if run_summary:
-            self._latest_snapshot.run_summary = run_summary
-
-        final_result_summary = payload.get("final_result_summary")
-        if final_result_summary:
-            self._latest_snapshot.final_result_summary = final_result_summary
-
-        verification_items = payload.get("verification_items")
-        if verification_items:
-            self._record_verification_items_locked(verification_items)
-        self._resolve_verification_items_locked()
-
-    def _record_verification_items_locked(self, items: list[dict[str, Any]]) -> None:
-        for item_payload in items:
-            source_step_id = item_payload.get("source_step_id")
-            if source_step_id is None:
-                continue
-            item = VerificationItem(
-                id=str(item_payload["id"]),
-                message=str(item_payload["message"]),
-                detail=item_payload.get("detail"),
-                source_step_id=source_step_id,
-                source_url=item_payload.get("source_url"),
-                screenshot_path=item_payload.get("screenshot_path"),
-                html_path=item_payload.get("html_path"),
-                metadata_path=item_payload.get("metadata_path"),
-                a11y_path=item_payload.get("a11y_path"),
-                ambiguity_flag=item_payload.get("ambiguity_flag"),
-                ambiguity_type=item_payload.get("ambiguity_type"),
-                ambiguity_message=item_payload.get("ambiguity_message"),
-                review_evidence=list(item_payload.get("review_evidence") or []),
-                status=item_payload.get("status", "needs_review"),
-            )
-            self._pending_verification_items[item.id] = item
-
-    def _resolve_verification_items_locked(self) -> None:
-        resolved_items: list[VerificationItem] = []
-        for item in self._pending_verification_items.values():
-            step = self._get_step_locked(item.source_step_id)
-            if step is None:
-                continue
-            resolved_items.append(
-                item.model_copy(
-                    update={
-                        "source_url": step.url,
-                        "screenshot_path": step.screenshot_path,
-                        "html_path": step.html_path,
-                        "metadata_path": step.metadata_path,
-                        "a11y_path": item.a11y_path or step.a11y_path,
-                        "ambiguity_flag": (
-                            item.ambiguity_flag
-                            if item.ambiguity_flag is not None
-                            else step.ambiguity_flag
-                        ),
-                        "ambiguity_type": item.ambiguity_type or step.ambiguity_type,
-                        "ambiguity_message": (
-                            item.ambiguity_message or step.ambiguity_message
-                        ),
-                        "review_evidence": item.review_evidence or step.review_evidence,
-                    }
-                )
-            )
-        self._latest_snapshot.verification_items = [
-            item.model_copy(deep=True) for item in resolved_items
-        ]
-
-    def _get_step_locked(self, step_id: int | None) -> StepRecord | None:
-        if step_id is None:
-            return None
-        for step in reversed(self._steps):
-            if step.step_id == step_id:
-                return step
-        return None
-
-    def _touch_snapshot_locked(self) -> None:
-        self._latest_snapshot.updated_at = time.time()
+            self._state.handle_agent_event(event)
 
     def _finalize_video_artifact(self, browser_computer: Computer | None = None) -> None:
         finalize_video = getattr(browser_computer, "finalize_video_artifact", None)

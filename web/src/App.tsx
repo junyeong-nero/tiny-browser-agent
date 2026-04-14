@@ -1,226 +1,62 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRef } from 'react';
 
-import { useSessionClient } from './api/SessionClientContext';
 import { useBrowserSurfaceHost } from './api/browserSurfaceBridge';
 import { BrowserPane } from './components/BrowserPane';
 import { ChatPanel } from './components/ChatPanel';
 import { Layout } from './components/Layout';
 import { StatusBar } from './components/StatusBar';
 import { VerificationSidebar } from './components/VerificationSidebar';
-import { getFocusShortcutRegion } from './focus/focusManager';
-import { useSendMessage } from './hooks/useSendMessage';
-import { useSessionControls } from './hooks/useSessionControls';
-import { useSessionSnapshot } from './hooks/useSessionSnapshot';
-import { useSessionSteps } from './hooks/useSessionSteps';
-import { useSessionVerification } from './hooks/useSessionVerification';
-import {
-  getFinalResultSummary,
-  getRequestText,
-  getRunSummary,
-  type PreviewMode,
-} from './reviewPanel';
-import type { SessionSnapshot } from './types/api';
+import { useAppSessionRuntime } from './hooks/useAppSessionRuntime';
+import { useFocusRegions } from './hooks/useFocusRegions';
 import './styles/app.css';
 
 function App() {
-  const sessionClient = useSessionClient();
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [seedSnapshot, setSeedSnapshot] = useState<SessionSnapshot | null>(null);
-  const [sessionError, setSessionError] = useState<string | null>(null);
-  const [bridgeError, setBridgeError] = useState<string | null>(null);
-  const [previewMode, setPreviewMode] = useState<PreviewMode>({ kind: 'current' });
-  const [focusedRegion, setFocusedRegion] = useState<'browser' | 'verification' | 'chat' | null>(null);
-  const [stopRequested, setStopRequested] = useState(false);
-  const browserPaneRef = useRef<HTMLElement | null>(null);
+  const browserPaneRef = useRef<HTMLDivElement | null>(null);
   const verificationPanelRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLInputElement | null>(null);
-  const { snapshot, error: snapshotError, refreshSnapshot } = useSessionSnapshot(sessionId);
-  const displaySnapshot = snapshot ?? seedSnapshot;
-  const isLiveBrowserSurfaceVisible = previewMode.kind === 'current';
+  const {
+    sessionId,
+    displaySnapshot,
+    steps,
+    verification,
+    error,
+    bridgeError,
+    previewMode,
+    selectedStep,
+    requestText,
+    runSummary,
+    finalResultSummary,
+    stopRequested,
+    hasSession,
+    isSessionActive,
+    isBusy,
+    isStopping,
+    isInterrupting,
+    isClosing,
+    setPreviewMode,
+    createSession,
+    handleStartSession,
+    handleSendMessage,
+    handleInterruptSession,
+    handleCloseSession,
+  } = useAppSessionRuntime();
   const {
     focusBrowserSurface,
     hasBrowserSurfaceBridge,
   } = useBrowserSurfaceHost(browserPaneRef, {
-    isVisible: isLiveBrowserSurfaceVisible,
+    isVisible: previewMode.kind === 'current',
   });
   const {
-    steps,
-    error: stepsError,
-    refreshSteps,
-    resetSteps,
-  } = useSessionSteps(sessionId, displaySnapshot?.status ?? null);
-  const {
-    sendMessage,
-    error: sendMessageError,
-    isSending,
-  } = useSendMessage(sessionId);
-  const {
-    startSession,
-    stopSession,
-    error: controlsError,
-    isStarting,
-    isStopping,
-  } = useSessionControls(sessionId);
-  const {
-    verification,
-    error: verificationError,
-    refreshVerification,
-  } = useSessionVerification(sessionId, displaySnapshot?.status ?? null);
-
-  const error = useMemo(
-    () => sessionError ?? controlsError ?? sendMessageError ?? stepsError ?? snapshotError ?? verificationError,
-    [controlsError, sendMessageError, sessionError, snapshotError, stepsError, verificationError],
-  );
-  const selectedStep = useMemo(
-    () =>
-      previewMode.kind === 'step'
-        ? steps.find((step) => step.step_id === previewMode.stepId) ?? null
-        : null,
-    [previewMode, steps],
-  );
-  const requestText = useMemo(() => getRequestText(displaySnapshot), [displaySnapshot]);
-  const runSummary = useMemo(() => getRunSummary(displaySnapshot), [displaySnapshot]);
-  const finalResultSummary = useMemo(
-    () => getFinalResultSummary(displaySnapshot),
-    [displaySnapshot],
-  );
-
-  const createSession = useCallback(async () => {
-    try {
-      const response = await sessionClient.createSession();
-      setSessionId(response.session_id);
-      setSeedSnapshot(response.snapshot);
-      setPreviewMode({ kind: 'current' });
-      resetSteps();
-      setSessionError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create session';
-      setSessionError(message);
-      setBridgeError(message);
-    }
-  }, [resetSteps, sessionClient]);
-
-  const handleStartSession = useCallback(
-    async (query: string) => {
-      try {
-        setBridgeError(null);
-        await startSession(query);
-        await refreshSnapshot();
-        await refreshSteps();
-        await refreshVerification();
-        setPreviewMode({ kind: 'current' });
-        setSessionError(null);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to start session';
-        setSessionError(message);
-        setBridgeError(message);
-      }
-    },
-    [refreshSnapshot, refreshSteps, refreshVerification, startSession],
-  );
-
-  const handleSendMessage = useCallback(
-    async (text: string) => {
-      try {
-        setBridgeError(null);
-        await sendMessage(text);
-        await refreshSnapshot();
-        await refreshSteps();
-        await refreshVerification();
-        setPreviewMode({ kind: 'current' });
-        setSessionError(null);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to send message';
-        setSessionError(message);
-        setBridgeError(message);
-      }
-    },
-    [refreshSnapshot, refreshSteps, refreshVerification, sendMessage],
-  );
-
-  const handleStopSession = useCallback(async () => {
-    try {
-      setBridgeError(null);
-      setStopRequested(true);
-      await stopSession();
-      await refreshSnapshot();
-      setSessionError(null);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to stop session';
-      setSessionError(message);
-      setBridgeError(message);
-      setStopRequested(false);
-    }
-  }, [refreshSnapshot, stopSession]);
-
-  useEffect(() => {
-    if (!stopRequested) {
-      return;
-    }
-
-    const status = displaySnapshot?.status;
-    if (status === 'stopped' || status === 'error' || status === 'complete') {
-      setStopRequested(false);
-    }
-  }, [displaySnapshot?.status, stopRequested]);
-
-  const focusBrowserPane = useCallback(() => {
-    setFocusedRegion('browser');
-    void focusBrowserSurface();
-  }, [focusBrowserSurface]);
-
-  const focusVerificationPanel = useCallback(() => {
-    setFocusedRegion('verification');
-    verificationPanelRef.current?.focus();
-  }, []);
-
-  const focusChatInput = useCallback(() => {
-    setFocusedRegion('chat');
-    chatInputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const browserElement = browserPaneRef.current;
-    const verificationElement = verificationPanelRef.current;
-    const chatElement = chatInputRef.current;
-
-    const handleBrowserFocus = () => setFocusedRegion('browser');
-    const handleVerificationFocus = () => setFocusedRegion('verification');
-    const handleChatFocus = () => setFocusedRegion('chat');
-
-    browserElement?.addEventListener('focusin', handleBrowserFocus);
-    verificationElement?.addEventListener('focusin', handleVerificationFocus);
-    chatElement?.addEventListener('focus', handleChatFocus);
-
-    return () => {
-      browserElement?.removeEventListener('focusin', handleBrowserFocus);
-      verificationElement?.removeEventListener('focusin', handleVerificationFocus);
-      chatElement?.removeEventListener('focus', handleChatFocus);
-    };
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const region = getFocusShortcutRegion(event);
-      if (!region) {
-        return;
-      }
-
-      event.preventDefault();
-      if (region === 'browser') {
-        focusBrowserPane();
-        return;
-      }
-      if (region === 'verification') {
-        focusVerificationPanel();
-        return;
-      }
-      focusChatInput();
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [focusBrowserPane, focusChatInput, focusVerificationPanel]);
+    focusedRegion,
+    focusBrowserPane,
+    focusVerificationPanel,
+    focusChatInput,
+  } = useFocusRegions({
+    browserPaneRef,
+    verificationPanelRef,
+    chatInputRef,
+    focusBrowserSurface,
+  });
 
   return (
     <Layout
@@ -230,9 +66,13 @@ function App() {
           status={displaySnapshot?.status}
           currentUrl={displaySnapshot?.current_url}
           latestStepId={displaySnapshot?.latest_step_id}
+          expiresAt={displaySnapshot?.expires_at}
           onCreateSession={createSession}
-          onStopSession={handleStopSession}
-          stopPending={stopRequested}
+          onInterruptSession={handleInterruptSession}
+          onCloseSession={handleCloseSession}
+          stopPending={isStopping}
+          interruptPending={stopRequested || isInterrupting}
+          closePending={isClosing}
         />
       }
       browserPane={
@@ -252,12 +92,10 @@ function App() {
           messages={displaySnapshot?.messages ?? []}
           onSendMessage={handleSendMessage}
           onStartSession={handleStartSession}
-          isSessionActive={
-            displaySnapshot?.status === 'running' ||
-            displaySnapshot?.status === 'waiting_for_input'
-          }
-          hasSession={!!sessionId}
-          isBusy={isSending || isStarting || isStopping}
+          status={displaySnapshot?.status}
+          isSessionActive={isSessionActive}
+          hasSession={hasSession}
+          isBusy={isBusy}
           inputRef={chatInputRef}
           isFocused={focusedRegion === 'chat'}
         />

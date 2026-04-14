@@ -3,6 +3,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { BRIDGE_CHANNELS, type BrowserSurfaceBounds } from './bridge/channels';
 
 
+contextBridge.exposeInMainWorld('__COMPUTER_USE_DESKTOP_HOST__', true);
+
 contextBridge.exposeInMainWorld('__COMPUTER_USE_DESKTOP_BRIDGE__', {
   sessions: {
     createSession: () => ipcRenderer.invoke(BRIDGE_CHANNELS.createSession),
@@ -10,6 +12,10 @@ contextBridge.exposeInMainWorld('__COMPUTER_USE_DESKTOP_BRIDGE__', {
       ipcRenderer.invoke(BRIDGE_CHANNELS.startSession, { sessionId, query }),
     stopSession: (sessionId: string) =>
       ipcRenderer.invoke(BRIDGE_CHANNELS.stopSession, { sessionId }),
+    interruptSession: (sessionId: string) =>
+      ipcRenderer.invoke(BRIDGE_CHANNELS.interruptSession, { sessionId }),
+    closeSession: (sessionId: string) =>
+      ipcRenderer.invoke(BRIDGE_CHANNELS.closeSession, { sessionId }),
     sendMessage: (sessionId: string, text: string) =>
       ipcRenderer.invoke(BRIDGE_CHANNELS.sendMessage, { sessionId, text }),
     getSession: (sessionId: string) =>

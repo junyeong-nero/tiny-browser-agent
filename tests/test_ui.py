@@ -46,9 +46,12 @@ class FakeComputer(AbstractContextManager):
         self.history_dir = self.log_dir / "history"
         self.video_dir = self.log_dir / "video"
         self._latest_artifacts = None
+        self.enter_count = 0
+        self.exit_count = 0
         FakeComputer.instances.append(self)
 
     def __enter__(self):
+        self.enter_count += 1
         self.history_dir.mkdir(parents=True, exist_ok=True)
         self.video_dir.mkdir(parents=True, exist_ok=True)
         (self.history_dir / "step-0001.png").write_bytes(b"png-bytes")
@@ -79,6 +82,7 @@ class FakeComputer(AbstractContextManager):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.exit_count += 1
         return False
 
     def finalize_video_artifact(self):
@@ -177,12 +181,17 @@ class FakeAgent:
             time.sleep(0.05)
             return "CONTINUE"
 
-        self.final_reasoning = "All done."
-        self.event_sink({"type": "step_started", "step_id": 2, "timestamp": time.time()})
+        current_step_id = self.run_count
+        self.final_reasoning = (
+            "All done."
+            if self.run_count == 2
+            else f"Handled follow up: {self.appended_messages[-1]}"
+        )
+        self.event_sink({"type": "step_started", "step_id": current_step_id, "timestamp": time.time()})
         self.event_sink(
             {
                 "type": "reasoning_extracted",
-                "step_id": 2,
+                "step_id": current_step_id,
                 "timestamp": time.time(),
                 "reasoning": "Task complete.",
             }
@@ -190,7 +199,7 @@ class FakeAgent:
         self.event_sink(
             {
                 "type": "function_calls_extracted",
-                "step_id": 2,
+                "step_id": current_step_id,
                 "timestamp": time.time(),
                 "function_calls": [],
             }
@@ -198,19 +207,23 @@ class FakeAgent:
         self.event_sink(
             {
                 "type": "review_metadata_extracted",
-                "step_id": 2,
+                "step_id": current_step_id,
                 "timestamp": time.time(),
                 "phase_id": "phase-complete",
                 "phase_label": "완료",
                 "phase_summary": "최종 결과를 정리했습니다.",
                 "user_visible_label": "결과 정리",
-                "final_result_summary": "요청한 작업을 마쳤고 검토 항목 1개를 남겼습니다.",
+                "final_result_summary": (
+                    "요청한 작업을 마쳤고 검토 항목 1개를 남겼습니다."
+                    if self.run_count == 2
+                    else f"후속 요청을 처리했습니다: {self.appended_messages[-1]}"
+                ),
             }
         )
         self.event_sink(
             {
                 "type": "step_complete",
-                "step_id": 2,
+                "step_id": current_step_id,
                 "timestamp": time.time(),
                 "status": "complete",
                 "final_reasoning": self.final_reasoning,
@@ -236,6 +249,23 @@ class BlockingAgent(FakeAgent):
         return "CONTINUE"
 
 
+class SlowAgent(FakeAgent):
+    def run_one_iteration(self):
+        self.run_count += 1
+        assert self.event_sink is not None
+        self.event_sink({"type": "step_started", "step_id": self.run_count, "timestamp": time.time()})
+        time.sleep(0.1)
+        self.event_sink(
+            {
+                "type": "reasoning_extracted",
+                "step_id": self.run_count,
+                "timestamp": time.time(),
+                "reasoning": "Still working.",
+            }
+        )
+        return "CONTINUE"
+
+
 class TestSessionController(unittest.TestCase):
     def setUp(self):
         FakeAgent.instances = []
@@ -256,16 +286,19 @@ class TestSessionController(unittest.TestCase):
             )
 
             controller.start("visit example")
-            wait_for(lambda: controller.get_snapshot().status == "complete")
+            wait_for(lambda: controller.get_snapshot().status == "waiting_for_input")
 
             snapshot = controller.get_snapshot()
             steps = controller.get_steps()
 
+            self.assertEqual(snapshot.status, "waiting_for_input")
             self.assertEqual(snapshot.current_url, "https://example.com/1")
             self.assertIsNotNone(snapshot.latest_screenshot_b64)
             self.assertEqual(snapshot.latest_step_id, 2)
             self.assertEqual(snapshot.final_reasoning, "All done.")
             self.assertEqual(snapshot.request_text, "visit example")
+            self.assertEqual(snapshot.last_completed_run_id, "run-0001")
+            self.assertIsNone(snapshot.current_run_id)
             self.assertEqual(
                 snapshot.final_result_summary,
                 "요청한 작업을 마쳤고 검토 항목 1개를 남겼습니다.",
@@ -280,12 +313,15 @@ class TestSessionController(unittest.TestCase):
             )
             self.assertEqual([message.role for message in snapshot.messages], ["user", "assistant"])
             self.assertEqual(len(steps), 2)
+            self.assertEqual(steps[0].run_id, "run-0001")
             self.assertEqual(steps[0].screenshot_path, "step-0001.png")
             self.assertEqual(steps[0].a11y_path, "step-0001.a11y.yaml")
             self.assertTrue(steps[0].ambiguity_flag)
             self.assertEqual(steps[0].phase_id, "phase-search")
             self.assertEqual(steps[1].phase_id, "phase-complete")
             self.assertTrue(controller.get_artifact_path("step-0001.png").exists())
+            controller.stop()
+            wait_for(lambda: controller.get_snapshot().status == "stopped")
 
     def test_session_controller_enqueues_messages_for_agent(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -304,9 +340,45 @@ class TestSessionController(unittest.TestCase):
             controller.start("visit example")
             time.sleep(0.01)
             controller.enqueue_message("follow up")
-            wait_for(lambda: controller.get_snapshot().status == "complete")
+            wait_for(lambda: controller.get_snapshot().status == "waiting_for_input")
 
             self.assertIn("follow up", FakeAgent.instances[-1].appended_messages)
+            controller.stop()
+            wait_for(lambda: controller.get_snapshot().status == "stopped")
+
+    def test_session_controller_reuses_browser_for_follow_up_run(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            controller = SessionController(
+                session_id="ses_test",
+                model_name="test-model",
+                screen_size=(1440, 900),
+                initial_url="https://example.com",
+                highlight_mouse=False,
+                headless=True,
+                artifacts_root=Path(tmp_dir),
+                computer_factory=FakeComputer,
+                agent_factory=cast(AgentFactory, FakeAgent),
+            )
+
+            controller.start("visit example")
+            wait_for(lambda: controller.get_snapshot().status == "waiting_for_input")
+            controller.enqueue_message("follow up")
+            wait_for(lambda: controller.get_snapshot().last_completed_run_id == "run-0002")
+
+            snapshot = controller.get_snapshot()
+            steps = controller.get_steps()
+
+            self.assertEqual(snapshot.status, "waiting_for_input")
+            self.assertEqual(snapshot.last_completed_run_id, "run-0002")
+            self.assertEqual(snapshot.final_reasoning, "Handled follow up: follow up")
+            self.assertEqual(len(FakeComputer.instances), 1)
+            self.assertEqual(FakeComputer.instances[0].enter_count, 1)
+            self.assertEqual(FakeComputer.instances[0].exit_count, 0)
+            self.assertEqual(len(steps), 3)
+            self.assertEqual(steps[-1].run_id, "run-0002")
+            controller.stop()
+            wait_for(lambda: controller.get_snapshot().status == "stopped")
+            self.assertEqual(FakeComputer.instances[0].exit_count, 1)
 
     def test_session_controller_stop_transitions_to_stopped(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -328,6 +400,55 @@ class TestSessionController(unittest.TestCase):
             wait_for(lambda: controller.get_snapshot().status == "stopped")
 
             self.assertEqual(controller.get_snapshot().status, "stopped")
+
+    def test_session_controller_interrupt_transitions_back_to_waiting(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            controller = SessionController(
+                session_id="ses_test",
+                model_name="test-model",
+                screen_size=(1440, 900),
+                initial_url="https://example.com",
+                highlight_mouse=False,
+                headless=True,
+                artifacts_root=Path(tmp_dir),
+                computer_factory=FakeComputer,
+                agent_factory=cast(AgentFactory, SlowAgent),
+            )
+
+            controller.start("visit example")
+            time.sleep(0.02)
+            controller.interrupt()
+            wait_for(lambda: controller.get_snapshot().status == "waiting_for_input")
+
+            snapshot = controller.get_snapshot()
+            self.assertEqual(snapshot.last_run_status, "stopped")
+            self.assertEqual(snapshot.waiting_reason, "follow_up")
+            self.assertIsNotNone(snapshot.expires_at)
+            controller.close()
+            wait_for(lambda: controller.get_snapshot().status == "stopped")
+
+    def test_session_controller_idle_timeout_stops_session(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            controller = SessionController(
+                session_id="ses_test",
+                model_name="test-model",
+                screen_size=(1440, 900),
+                initial_url="https://example.com",
+                highlight_mouse=False,
+                headless=True,
+                artifacts_root=Path(tmp_dir),
+                idle_timeout_seconds=0.05,
+                computer_factory=FakeComputer,
+                agent_factory=cast(AgentFactory, FakeAgent),
+            )
+
+            controller.start("visit example")
+            wait_for(lambda: controller.get_snapshot().status == "waiting_for_input")
+            wait_for(lambda: controller.get_snapshot().status == "stopped", timeout=1.0)
+
+            snapshot = controller.get_snapshot()
+            self.assertEqual(snapshot.status, "stopped")
+            self.assertEqual(snapshot.error_message, "Session expired due to inactivity.")
 
     def test_session_controller_handles_real_browser_agent_event_payloads(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -421,16 +542,19 @@ class TestSessionController(unittest.TestCase):
             )
 
             controller.start("visit example")
-            wait_for(lambda: controller.get_snapshot().status == "complete")
+            wait_for(lambda: controller.get_snapshot().status == "waiting_for_input")
 
             payload = controller.get_verification_payload()
 
             self.assertEqual(payload.request_text, "visit example")
+            self.assertEqual(payload.last_completed_run_id, "run-0001")
             self.assertEqual(len(payload.grouped_steps), 2)
-            self.assertEqual(payload.grouped_steps[0].id, "phase-search")
+            self.assertEqual(payload.grouped_steps[0].id, "run-0001:phase-search")
             self.assertEqual(payload.grouped_steps[0].step_ids, [1])
             self.assertEqual(payload.grouped_steps[0].a11y_path, "step-0001.a11y.yaml")
-            self.assertEqual(payload.grouped_steps[1].id, "phase-complete")
+            self.assertEqual(payload.grouped_steps[1].id, "run-0001:phase-complete")
+            controller.stop()
+            wait_for(lambda: controller.get_snapshot().status == "stopped")
 
 
 class TestVerificationService(unittest.TestCase):
@@ -469,7 +593,7 @@ class TestVerificationService(unittest.TestCase):
     def _build_snapshot(self):
         return SessionSnapshot(
             session_id="ses_test",
-            status=SessionStatus.COMPLETE,
+            status=SessionStatus.WAITING_FOR_INPUT,
             current_url="https://example.com/results",
             latest_screenshot_b64=None,
             latest_step_id=3,
@@ -488,6 +612,7 @@ class TestVerificationService(unittest.TestCase):
     def _build_step(self, step_id: int, url: str, action_name: str, reasoning: str):
         return StepRecord(
             step_id=step_id,
+            run_id="run-0001",
             timestamp=float(step_id),
             reasoning=reasoning,
             function_calls=[StepAction(name=action_name, args={})],
@@ -552,17 +677,37 @@ class TestSessionService(unittest.TestCase):
         start_snapshot = self.service.start_session(session_id, "visit example")
         self.assertEqual(start_snapshot.session_id, session_id)
 
-        wait_for(lambda: self.service.get_snapshot(session_id).status == "complete")
+        wait_for(lambda: self.service.get_snapshot(session_id).status == "waiting_for_input")
 
         snapshot = self.service.get_snapshot(session_id)
         steps = self.service.get_steps(session_id)
         verification = self.service.get_verification(session_id)
         artifact_path = self.service.get_artifact_path(session_id, "step-0001.png")
 
+        self.assertEqual(snapshot.status, "waiting_for_input")
         self.assertEqual(snapshot.final_reasoning, "All done.")
         self.assertEqual(len(steps), 2)
         self.assertEqual(len(verification.grouped_steps), 2)
         self.assertTrue(artifact_path.exists())
+        self.service.stop_session(session_id)
+        wait_for(lambda: self.service.get_snapshot(session_id).status == "stopped")
+
+    def test_service_close_session_removes_session(self):
+        created = self.service.create_session()
+        self.service.close_session(created.session_id)
+
+        with self.assertRaises(LookupError):
+            self.service.get_snapshot(created.session_id)
+
+    def test_service_interrupt_session_returns_snapshot(self):
+        created = self.service.create_session()
+        session_id = created.session_id
+        self.service.start_session(session_id, "visit example")
+        time.sleep(0.02)
+
+        snapshot = self.service.interrupt_session(session_id)
+
+        self.assertEqual(snapshot.status, "running")
 
     def test_service_raises_lookup_error_for_missing_session(self):
         with self.assertRaises(LookupError):

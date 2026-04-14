@@ -2,6 +2,8 @@ export const BRIDGE_CHANNELS = {
   createSession: 'computer-use:sessions:create',
   startSession: 'computer-use:sessions:start',
   stopSession: 'computer-use:sessions:stop',
+  interruptSession: 'computer-use:sessions:interrupt',
+  closeSession: 'computer-use:sessions:close',
   sendMessage: 'computer-use:sessions:send-message',
   getSession: 'computer-use:sessions:get',
   getSteps: 'computer-use:sessions:get-steps',

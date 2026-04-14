@@ -1,6 +1,13 @@
 import type { Ref } from 'react';
 
-import { getFinalResultSummary, getRequestText, getRunSummary, getValidVerificationItems, type PreviewMode } from '../reviewPanel';
+import {
+  filterVerificationItemsForRun,
+  getFinalResultSummary,
+  getRelevantRunId,
+  getRequestText,
+  getRunSummary,
+  type PreviewMode,
+} from '../reviewPanel';
 import type { SessionSnapshot, StepRecord, VerificationPayload } from '../types/api';
 import { ArtifactLinks } from './ArtifactLinks';
 import { CompletionBanner } from './CompletionBanner';
@@ -57,8 +64,10 @@ export function VerificationSidebar({
   const summary = runSummary ?? verificationPayload?.run_summary ?? getRunSummary(snapshot);
   const finalSummary =
     finalResultSummary ?? verificationPayload?.final_result_summary ?? getFinalResultSummary(snapshot);
-  const verificationItems = getValidVerificationItems(
+  const relevantRunId = getRelevantRunId(snapshot, verificationPayload, steps);
+  const verificationItems = filterVerificationItemsForRun(
     verificationPayload?.verification_items ?? snapshot?.verification_items,
+    relevantRunId,
   );
 
   return (
@@ -72,7 +81,13 @@ export function VerificationSidebar({
       {error && <div className="error-banner">{error}</div>}
       {bridgeError && <div className="error-banner bridge-error-banner">Bridge error: {bridgeError}</div>}
       {stopPending && <div className="error-banner stop-pending-banner">Stopping session...</div>}
-      <CompletionBanner status={snapshot?.status} verificationCount={verificationItems.length} />
+      <CompletionBanner
+        status={snapshot?.status}
+        verificationCount={verificationItems.length}
+        waitingReason={snapshot?.waiting_reason}
+        lastRunStatus={snapshot?.last_run_status}
+        errorMessage={snapshot?.error_message}
+      />
       <section className="verification-section focus-controls-section">
         <h2>패널 이동</h2>
         <div className="focus-controls">
@@ -90,7 +105,7 @@ export function VerificationSidebar({
       <RequestSummaryHeader requestText={resolvedRequestText} />
       <TaskSummarySection summary={summary} />
       <ConfirmationNeededSection
-        items={verificationPayload?.verification_items ?? snapshot?.verification_items}
+        items={verificationItems}
         onSelectStepPreview={onSelectStepPreview}
         sessionId={verificationPayload?.session_id ?? snapshot?.session_id}
       />

@@ -14,6 +14,12 @@ export function createDesktopSessionClient(bridge: DesktopBridge): SessionClient
     stopSession(sessionId) {
       return bridge.sessions.stopSession(sessionId);
     },
+    interruptSession(sessionId) {
+      return bridge.sessions.interruptSession(sessionId);
+    },
+    closeSession(sessionId) {
+      return bridge.sessions.closeSession(sessionId);
+    },
     sendMessage(sessionId, req) {
       return bridge.sessions.sendMessage(sessionId, req.text);
     },

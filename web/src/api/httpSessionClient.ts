@@ -29,6 +29,20 @@ export const httpSessionClient: SessionClient = {
     if (!res.ok) throw new Error('Failed to stop session');
   },
 
+  async interruptSession(sessionId) {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}/interrupt`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('Failed to interrupt session');
+  },
+
+  async closeSession(sessionId) {
+    const res = await fetch(`${API_BASE}/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to close session');
+  },
+
   async sendMessage(sessionId, req) {
     const res = await fetch(`${API_BASE}/sessions/${sessionId}/messages`, {
       method: 'POST',

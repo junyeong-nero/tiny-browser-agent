@@ -4,9 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionClientProvider } from '../api/SessionClientContext';
 import type { SessionClient } from '../api/sessionClient';
-import { useSessionSnapshot } from './useSessionSnapshot';
+import { useSessionVerification } from './useSessionVerification';
 
-describe('useSessionSnapshot', () => {
+describe('useSessionVerification', () => {
   const mockClient: SessionClient = {
     createSession: vi.fn(),
     startSession: vi.fn(),
@@ -23,31 +23,33 @@ describe('useSessionSnapshot', () => {
     vi.clearAllMocks();
   });
 
-  it('loads the snapshot for the provided session id', async () => {
-    vi.mocked(mockClient.getSession).mockResolvedValue({
+  it('loads verification payload for the provided session id', async () => {
+    vi.mocked(mockClient.getVerification).mockResolvedValue({
       session_id: 'ses_test',
-      status: 'idle',
-      current_url: null,
-      latest_screenshot_b64: null,
-      latest_step_id: null,
-      last_reasoning: null,
-      last_actions: [],
-      messages: [],
-      final_reasoning: null,
-      error_message: null,
-      updated_at: 1,
+      verification_items: [],
+      grouped_steps: [
+        {
+          id: 'group-1',
+          label: '페이지 이동',
+          step_ids: [1],
+          steps: [],
+        },
+      ],
     });
 
     const wrapper = ({ children }: { children: ReactNode }) =>
       createElement(SessionClientProvider, { client: mockClient, children });
 
-    const { result } = renderHook(() => useSessionSnapshot('ses_test'), { wrapper });
-
-    await waitFor(() => {
-      expect(result.current.snapshot?.session_id).toBe('ses_test');
+    const { result } = renderHook(() => useSessionVerification('ses_test', 'running'), {
+      wrapper,
     });
 
-    expect(mockClient.getSession).toHaveBeenCalledWith('ses_test');
+    await waitFor(() => {
+      expect(result.current.verification?.session_id).toBe('ses_test');
+    });
+
+    expect(result.current.verification?.grouped_steps).toHaveLength(1);
+    expect(mockClient.getVerification).toHaveBeenCalledWith('ses_test');
     expect(result.current.error).toBeNull();
   });
 });

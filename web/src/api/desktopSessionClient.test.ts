@@ -26,6 +26,8 @@ describe('createDesktopSessionClient', () => {
         }),
         startSession: vi.fn().mockResolvedValue(undefined),
         stopSession: vi.fn().mockResolvedValue(undefined),
+        interruptSession: vi.fn().mockResolvedValue(undefined),
+        closeSession: vi.fn().mockResolvedValue(undefined),
         sendMessage: vi.fn().mockResolvedValue(undefined),
         getSession: vi.fn().mockResolvedValue({
           session_id: 'ses_test',
@@ -54,6 +56,8 @@ describe('createDesktopSessionClient', () => {
     await client.createSession();
     await client.startSession('ses_test', { query: 'visit example' });
     await client.stopSession('ses_test');
+    await client.interruptSession('ses_test');
+    await client.closeSession('ses_test');
     await client.sendMessage('ses_test', { text: 'follow up' });
     await client.getSession('ses_test');
     await client.getSteps('ses_test', 7);
@@ -62,6 +66,8 @@ describe('createDesktopSessionClient', () => {
     expect(bridge.sessions.createSession).toHaveBeenCalledTimes(1);
     expect(bridge.sessions.startSession).toHaveBeenCalledWith('ses_test', 'visit example');
     expect(bridge.sessions.stopSession).toHaveBeenCalledWith('ses_test');
+    expect(bridge.sessions.interruptSession).toHaveBeenCalledWith('ses_test');
+    expect(bridge.sessions.closeSession).toHaveBeenCalledWith('ses_test');
     expect(bridge.sessions.sendMessage).toHaveBeenCalledWith('ses_test', 'follow up');
     expect(bridge.sessions.getSession).toHaveBeenCalledWith('ses_test');
     expect(bridge.sessions.getSteps).toHaveBeenCalledWith('ses_test', 7);

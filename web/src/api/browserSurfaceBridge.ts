@@ -59,8 +59,8 @@ export async function focusBrowserSurface(
 }
 
 
-export function useBrowserSurfaceHost(
-  hostRef: RefObject<HTMLElement | null>,
+export function useBrowserSurfaceHost<T extends HTMLElement>(
+  hostRef: RefObject<T | null>,
   options: BrowserSurfaceHostOptions = {},
 ) {
   const browserSurfaceBridge = getBrowserSurfaceBridge();

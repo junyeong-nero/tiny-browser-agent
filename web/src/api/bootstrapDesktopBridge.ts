@@ -4,6 +4,8 @@ import {
   type DesktopBridge,
   type DesktopBridgeHost,
 } from './desktopBridge';
+import { httpArtifactClient } from './httpArtifactClient';
+import { httpSessionClient } from './httpSessionClient';
 import { createStubDesktopBridge } from './stubDesktopBridge';
 
 
@@ -38,5 +40,11 @@ export function bootstrapDesktopBridge(
     return null;
   }
 
-  return installDesktopBridge(createStubDesktopBridge(), host);
+  return installDesktopBridge(
+    createStubDesktopBridge({
+      sessionClient: httpSessionClient,
+      artifactClient: httpArtifactClient,
+    }),
+    host,
+  );
 }

@@ -60,6 +60,14 @@ export class PythonBridgeClient {
     return this.call('stopSession', { sessionId });
   }
 
+  interruptSession(sessionId: string): Promise<unknown> {
+    return this.call('interruptSession', { sessionId });
+  }
+
+  closeSession(sessionId: string): Promise<unknown> {
+    return this.call('closeSession', { sessionId });
+  }
+
   sendMessage(sessionId: string, text: string): Promise<unknown> {
     return this.call('sendMessage', { sessionId, text });
   }

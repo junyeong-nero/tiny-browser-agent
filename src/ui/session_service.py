@@ -28,6 +28,16 @@ class SessionService:
         session.stop()
         return session.get_snapshot()
 
+    def interrupt_session(self, session_id: str) -> SessionSnapshot:
+        session = self._require_session(session_id)
+        session.interrupt()
+        return session.get_snapshot()
+
+    def close_session(self, session_id: str) -> None:
+        session = self._require_session(session_id)
+        session.close()
+        self._store.delete_session(session_id)
+
     def get_snapshot(self, session_id: str) -> SessionSnapshot:
         session = self._require_session(session_id)
         return session.get_snapshot()

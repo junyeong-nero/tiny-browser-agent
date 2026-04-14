@@ -40,34 +40,10 @@ class DesktopBridgeServer:
         }
 
     def _dispatch(self, method: str, params: dict[str, Any]) -> Any:
-        if method == "healthcheck":
-            return {"status": "ok"}
-        if method == "createSession":
-            return self._service.create_session()
-        if method == "startSession":
-            return self._service.start_session(_read_string(params, "sessionId"), _read_string(params, "query"))
-        if method == "stopSession":
-            return self._service.stop_session(_read_string(params, "sessionId"))
-        if method == "sendMessage":
-            return self._service.send_message(_read_string(params, "sessionId"), _read_string(params, "text"))
-        if method == "getSession":
-            return self._service.get_snapshot(_read_string(params, "sessionId"))
-        if method == "getSteps":
-            return self._service.get_steps(
-                _read_string(params, "sessionId"),
-                after_step_id=_read_optional_int(params, "afterStepId"),
-            )
-        if method == "getVerification":
-            return self._service.get_verification(_read_string(params, "sessionId"))
-        if method == "readArtifactText":
-            return self._service.read_artifact_text(_read_string(params, "sessionId"), _read_string(params, "name"))
-        if method == "readArtifactBinary":
-            payload = self._service.read_artifact_bytes(_read_string(params, "sessionId"), _read_string(params, "name"))
-            return base64.b64encode(payload).decode("ascii")
-        if method == "resolveArtifactPath":
-            artifact_path = self._service.get_artifact_path(_read_string(params, "sessionId"), _read_string(params, "name"))
-            return str(artifact_path)
-        raise ValueError(f"Unsupported bridge method: {method}")
+        handler = _build_method_handlers(self._service).get(method)
+        if handler is None:
+            raise ValueError(f"Unsupported bridge method: {method}")
+        return handler(params)
 
     def _error_response(self, request_id: Any, code: str, message: str) -> dict[str, Any]:
         return {
@@ -127,6 +103,46 @@ def _read_optional_int(payload: dict[str, Any], key: str) -> int | None:
     if not isinstance(value, int):
         raise ValueError(f"Expected integer field '{key}'.")
     return value
+
+
+def _build_method_handlers(service: SessionService) -> dict[str, Any]:
+    return {
+        "healthcheck": lambda _params: {"status": "ok"},
+        "createSession": lambda _params: service.create_session(),
+        "startSession": lambda params: service.start_session(
+            _read_string(params, "sessionId"),
+            _read_string(params, "query"),
+        ),
+        "stopSession": lambda params: service.stop_session(_read_string(params, "sessionId")),
+        "interruptSession": lambda params: service.interrupt_session(_read_string(params, "sessionId")),
+        "closeSession": lambda params: service.close_session(_read_string(params, "sessionId")),
+        "sendMessage": lambda params: service.send_message(
+            _read_string(params, "sessionId"),
+            _read_string(params, "text"),
+        ),
+        "getSession": lambda params: service.get_snapshot(_read_string(params, "sessionId")),
+        "getSteps": lambda params: service.get_steps(
+            _read_string(params, "sessionId"),
+            after_step_id=_read_optional_int(params, "afterStepId"),
+        ),
+        "getVerification": lambda params: service.get_verification(_read_string(params, "sessionId")),
+        "readArtifactText": lambda params: service.read_artifact_text(
+            _read_string(params, "sessionId"),
+            _read_string(params, "name"),
+        ),
+        "readArtifactBinary": lambda params: base64.b64encode(
+            service.read_artifact_bytes(
+                _read_string(params, "sessionId"),
+                _read_string(params, "name"),
+            )
+        ).decode("ascii"),
+        "resolveArtifactPath": lambda params: str(
+            service.get_artifact_path(
+                _read_string(params, "sessionId"),
+                _read_string(params, "name"),
+            )
+        ),
+    }
 
 
 def _serialize_result(result: Any) -> Any:

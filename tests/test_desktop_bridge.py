@@ -71,6 +71,39 @@ class TestDesktopBridgeServer(unittest.TestCase):
         self.assertEqual(binary_response["result"], "QUI=")
         self.assertEqual(path_response["result"], "/tmp/example.html")
 
+    def test_handle_request_supports_close_session(self):
+        service = MagicMock()
+        service.close_session.return_value = None
+        server = DesktopBridgeServer(service)
+
+        response = server.handle_request(
+            {
+                "id": "5",
+                "method": "closeSession",
+                "params": {"sessionId": "ses_test"},
+            }
+        )
+
+        self.assertEqual(response["ok"], True)
+        self.assertIsNone(response["result"])
+        service.close_session.assert_called_once_with("ses_test")
+
+    def test_handle_request_supports_interrupt_session(self):
+        service = MagicMock()
+        service.interrupt_session.return_value = {"status": "running"}
+        server = DesktopBridgeServer(service)
+
+        response = server.handle_request(
+            {
+                "id": "6",
+                "method": "interruptSession",
+                "params": {"sessionId": "ses_test"},
+            }
+        )
+
+        self.assertEqual(response["ok"], True)
+        service.interrupt_session.assert_called_once_with("ses_test")
+
     def test_handle_request_returns_error_for_invalid_payload(self):
         server = DesktopBridgeServer(MagicMock())
 

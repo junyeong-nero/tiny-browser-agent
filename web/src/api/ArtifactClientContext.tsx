@@ -1,11 +1,25 @@
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 
 import type { ArtifactClient } from './artifactClient';
+import { createBridgeAwareClient, resolveBridgeBackedClient } from './bridgeClientResolver';
+import { isDesktopHost } from './desktopBridge';
 import { getDesktopArtifactClient } from './desktopArtifactClient';
+import { httpArtifactClient } from './httpArtifactClient';
 import { unsupportedArtifactClient } from './unsupportedArtifactClient';
 
 
 const ArtifactClientContext = createContext<ArtifactClient>(unsupportedArtifactClient);
+
+function getDefaultArtifactClient(): ArtifactClient {
+  return resolveBridgeBackedClient({
+    getDesktopClient: getDesktopArtifactClient,
+    httpClient: httpArtifactClient,
+    unsupportedClient: unsupportedArtifactClient,
+    isDesktopHost: isDesktopHost(),
+  });
+}
+
+const bridgeAwareArtifactClient = createBridgeAwareClient<ArtifactClient>(getDefaultArtifactClient);
 
 
 interface ArtifactClientProviderProps {
@@ -15,21 +29,18 @@ interface ArtifactClientProviderProps {
 
 
 export function resolveArtifactClient(client?: ArtifactClient): ArtifactClient {
-  if (client) {
-    return client;
-  }
-
-  const desktopClient = getDesktopArtifactClient();
-  if (desktopClient) {
-    return desktopClient;
-  }
-
-  return unsupportedArtifactClient;
+  return resolveBridgeBackedClient({
+    explicitClient: client,
+    getDesktopClient: getDesktopArtifactClient,
+    httpClient: httpArtifactClient,
+    unsupportedClient: unsupportedArtifactClient,
+    isDesktopHost: isDesktopHost(),
+  });
 }
 
 
 export function ArtifactClientProvider({ children, client }: ArtifactClientProviderProps) {
-  const resolvedClient = useMemo(() => resolveArtifactClient(client), [client]);
+  const resolvedClient = client ?? bridgeAwareArtifactClient;
 
   return (
     <ArtifactClientContext.Provider value={resolvedClient}>

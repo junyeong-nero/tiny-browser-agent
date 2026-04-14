@@ -66,4 +66,42 @@ describe('VerificationSidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: '현재 시점 보기' }));
     expect(onSelectCurrentPreview).toHaveBeenCalledTimes(1);
   });
+
+  it('surfaces reusable waiting state after an interrupt', () => {
+    render(
+      <VerificationSidebar
+        snapshot={{
+          session_id: 'ses_test',
+          status: 'waiting_for_input',
+          waiting_reason: 'follow_up',
+          last_run_status: 'stopped',
+          expires_at: Date.now() / 1000 + 60,
+          current_url: 'https://example.com',
+          latest_screenshot_b64: 'Zm9v',
+          latest_step_id: 2,
+          last_reasoning: '중단 직전 상태',
+          last_actions: [],
+          messages: [],
+          final_reasoning: null,
+          request_text: '테스트',
+          run_summary: '중단 직전 상태',
+          verification_items: [],
+          final_result_summary: null,
+          error_message: null,
+          updated_at: 2,
+        }}
+        steps={[]}
+        error={null}
+        previewMode={{ kind: 'current' }}
+        verificationPayload={null}
+        onFocusBrowserPane={vi.fn()}
+        onFocusChatInput={vi.fn()}
+        onFocusVerificationPanel={vi.fn()}
+        onSelectCurrentPreview={vi.fn()}
+        onSelectStepPreview={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('[알림] 실행이 중단되었습니다. 같은 세션에서 이어서 요청할 수 있습니다.')).toBeInTheDocument();
+  });
 });

@@ -4,9 +4,17 @@ export type PreviewMode = { kind: 'current' } | { kind: 'step'; stepId: number }
 
 export interface StepGroup {
   id: string;
+  run_id?: string | null;
   label: string;
   summary: string | null;
   steps: StepRecord[];
+}
+
+export interface RunGroup<TGroup extends StepGroup | VerificationGroup = StepGroup | VerificationGroup> {
+  id: string;
+  runId: string | null;
+  label: string;
+  groups: TGroup[];
 }
 
 export function getRequestText(snapshot: SessionSnapshot | null | undefined): string | null {
@@ -44,6 +52,39 @@ export function getValidVerificationItems(
   return (items ?? []).filter((item) => item.source_step_id != null);
 }
 
+export function getRelevantRunId(
+  snapshot: SessionSnapshot | null | undefined,
+  verificationPayload?: {
+    current_run_id?: string | null;
+    last_completed_run_id?: string | null;
+    grouped_steps?: VerificationGroup[] | null;
+  } | null,
+  steps: StepRecord[] = [],
+): string | null {
+  const latestGroupedRunId = verificationPayload?.grouped_steps?.[verificationPayload.grouped_steps.length - 1]?.run_id;
+  const latestStepRunId = steps[steps.length - 1]?.run_id ?? null;
+  return (
+    snapshot?.current_run_id
+    ?? verificationPayload?.current_run_id
+    ?? latestGroupedRunId
+    ?? latestStepRunId
+    ?? snapshot?.last_completed_run_id
+    ?? verificationPayload?.last_completed_run_id
+    ?? null
+  );
+}
+
+export function filterVerificationItemsForRun(
+  items: VerificationItem[] | null | undefined,
+  runId: string | null,
+): VerificationItem[] {
+  const validItems = getValidVerificationItems(items);
+  if (!runId) {
+    return validItems;
+  }
+  return validItems.filter((item) => !item.run_id || item.run_id === runId);
+}
+
 export function groupStepsForDisplay(steps: StepRecord[]): StepGroup[] {
   if (steps.length === 0) {
     return [];
@@ -54,6 +95,7 @@ export function groupStepsForDisplay(steps: StepRecord[]): StepGroup[] {
     return [
       {
         id: 'all-steps',
+        run_id: steps[0].run_id ?? null,
         label: '전체 과정 보기',
         summary: null,
         steps,
@@ -76,6 +118,7 @@ export function groupStepsForDisplay(steps: StepRecord[]): StepGroup[] {
 
     groups.push({
       id: phaseId,
+      run_id: step.run_id ?? null,
       label: step.phase_label ?? step.user_visible_label ?? `Step ${step.step_id}`,
       summary: step.phase_summary ?? null,
       steps: [step],
@@ -93,4 +136,45 @@ export function getProcessGroups(
     return groupedSteps;
   }
   return groupStepsForDisplay(steps);
+}
+
+function getRunLabel(runId: string | null, index: number): string {
+  if (!runId) {
+    return index === 0 ? 'Current session' : `Session group ${index + 1}`;
+  }
+  const [, numericPart] = runId.split('-');
+  const parsed = Number.parseInt(numericPart ?? '', 10);
+  if (Number.isFinite(parsed)) {
+    return `Run ${parsed}`;
+  }
+  return runId;
+}
+
+export function groupProcessGroupsByRun(
+  groupedSteps: VerificationGroup[] | null | undefined,
+  steps: StepRecord[],
+): RunGroup[] {
+  const groups = getProcessGroups(groupedSteps, steps);
+  if (groups.length === 0) {
+    return [];
+  }
+
+  const runGroups: RunGroup[] = [];
+  for (const group of groups) {
+    const runId = ('run_id' in group ? group.run_id : null) ?? group.steps[0]?.run_id ?? null;
+    const previousRunGroup = runGroups[runGroups.length - 1];
+    if (previousRunGroup && previousRunGroup.runId === runId) {
+      previousRunGroup.groups.push(group);
+      continue;
+    }
+
+    runGroups.push({
+      id: runId ?? `session-run-${runGroups.length + 1}`,
+      runId,
+      label: getRunLabel(runId, runGroups.length),
+      groups: [group],
+    });
+  }
+
+  return runGroups;
 }

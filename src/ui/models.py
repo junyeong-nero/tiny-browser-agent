@@ -22,6 +22,7 @@ class VerificationItem(BaseModel):
     id: str
     message: str
     detail: str | None = None
+    run_id: str | None = None
     source_step_id: int | None = None
     source_url: str | None = None
     screenshot_path: str | None = None
@@ -39,6 +40,7 @@ class StepRecord(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
     step_id: int
+    run_id: str | None = None
     timestamp: float
     reasoning: str | None = None
     function_calls: list[StepAction] = Field(default_factory=list)
@@ -71,6 +73,11 @@ class SessionSnapshot(BaseModel):
 
     session_id: str
     status: SessionStatus
+    current_run_id: str | None = None
+    last_completed_run_id: str | None = None
+    last_run_status: Literal["complete", "stopped", "error"] | None = None
+    waiting_reason: Literal["follow_up", "confirmation"] | None = None
+    expires_at: float | None = None
     current_url: str | None = None
     latest_screenshot_b64: str | None = None
     latest_step_id: int | None = None
@@ -88,6 +95,7 @@ class SessionSnapshot(BaseModel):
 
 class VerificationGroup(BaseModel):
     id: str
+    run_id: str | None = None
     label: str
     summary: str | None = None
     step_ids: list[int] = Field(default_factory=list)
@@ -100,6 +108,8 @@ class VerificationGroup(BaseModel):
 
 class VerificationPayload(BaseModel):
     session_id: str
+    current_run_id: str | None = None
+    last_completed_run_id: str | None = None
     request_text: str | None = None
     run_summary: str | None = None
     final_result_summary: str | None = None

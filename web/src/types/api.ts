@@ -15,6 +15,7 @@ export interface VerificationItem {
   id: string;
   message: string;
   detail?: string | null;
+  run_id?: string | null;
   source_step_id: number | null;
   source_url?: string | null;
   screenshot_path?: string | null;
@@ -30,6 +31,7 @@ export interface VerificationItem {
 
 export interface StepRecord {
   step_id: number;
+  run_id?: string | null;
   timestamp: number;
   reasoning: string | null;
   function_calls: StepAction[];
@@ -52,6 +54,7 @@ export interface StepRecord {
 
 export interface VerificationGroup {
   id: string;
+  run_id?: string | null;
   label: string;
   summary?: string | null;
   step_ids: number[];
@@ -64,6 +67,8 @@ export interface VerificationGroup {
 
 export interface VerificationPayload {
   session_id: string;
+  current_run_id?: string | null;
+  last_completed_run_id?: string | null;
   request_text?: string | null;
   run_summary?: string | null;
   final_result_summary?: string | null;
@@ -81,6 +86,11 @@ export interface ChatMessage {
 export interface SessionSnapshot {
   session_id: string;
   status: SessionStatus;
+  current_run_id?: string | null;
+  last_completed_run_id?: string | null;
+  last_run_status?: 'complete' | 'stopped' | 'error' | null;
+  waiting_reason?: 'follow_up' | 'confirmation' | null;
+  expires_at?: number | null;
   current_url: string | null;
   latest_screenshot_b64: string | null;
   latest_step_id: number | null;

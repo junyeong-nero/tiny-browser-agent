@@ -14,6 +14,11 @@ def make_initial_snapshot(session_id: str) -> SessionSnapshot:
     return SessionSnapshot(
         session_id=session_id,
         status=SessionStatus.IDLE,
+        current_run_id=None,
+        last_completed_run_id=None,
+        last_run_status=None,
+        waiting_reason=None,
+        expires_at=None,
         current_url=None,
         latest_screenshot_b64=None,
         latest_step_id=None,

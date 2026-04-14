@@ -1,6 +1,7 @@
 import { type Ref, useState } from 'react';
 
 import type { ChatMessage } from '../types/api';
+import type { SessionStatus } from '../types/api';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -9,6 +10,7 @@ interface ChatPanelProps {
   isSessionActive: boolean;
   hasSession: boolean;
   isBusy: boolean;
+  status?: SessionStatus | null;
   inputRef?: Ref<HTMLInputElement>;
   isFocused?: boolean;
 }
@@ -20,16 +22,19 @@ export function ChatPanel({
   isSessionActive,
   hasSession,
   isBusy,
+  status = null,
   inputRef,
   isFocused = false,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
+  const canSubmit =
+    hasSession && !isBusy && (status === 'idle' || status === 'running' || status === 'waiting_for_input');
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!input.trim()) return;
 
-    if (!isSessionActive && hasSession && messages.length === 0) {
+    if (status === 'idle' && !isSessionActive && hasSession && messages.length === 0) {
       onStartSession(input);
     } else {
       onSendMessage(input);
@@ -53,13 +58,21 @@ export function ChatPanel({
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={hasSession ? 'Type a message...' : 'Create a session first'}
-          disabled={!hasSession || isBusy}
+          placeholder={
+            !hasSession
+              ? 'Create a session first'
+              : status === 'waiting_for_input'
+                ? 'Ask a follow-up in the same browser session...'
+                : status === 'stopped' || status === 'error'
+                  ? 'Close this session and create a new one to continue'
+                  : 'Type a message...'
+          }
+          disabled={!canSubmit}
           className="chat-input"
         />
         <button
           type="submit"
-          disabled={!hasSession || !input.trim() || isBusy}
+          disabled={!canSubmit || !input.trim()}
           className="btn-primary"
         >
           Send

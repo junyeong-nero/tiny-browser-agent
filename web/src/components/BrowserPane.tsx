@@ -11,7 +11,7 @@ interface BrowserPaneProps {
   status: string | undefined;
   hasBrowserSurfaceBridge?: boolean;
   isFocused?: boolean;
-  paneRef?: Ref<HTMLElement>;
+  paneRef?: Ref<HTMLDivElement>;
 }
 
 export function BrowserPane({

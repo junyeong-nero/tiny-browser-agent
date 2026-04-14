@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { BrowserCommandServer } from './browserCommandServer';
+import { handleBrowserCommandRequest } from './browserCommandServer';
 import type { BrowserSurfaceManager, BrowserSurfaceState } from './browserSurfaceManager';
 
 
@@ -37,18 +37,13 @@ function createMockManager() {
 }
 
 
-test('BrowserCommandServer exposes health and screen size endpoints', async () => {
+test('BrowserCommandServer exposes health and screen size routes', async () => {
   const { manager } = createMockManager();
-  const server = new BrowserCommandServer(manager);
-  const baseUrl = await server.start();
+  const healthResponse = await handleBrowserCommandRequest(manager, 'GET', '/health');
+  const sizeResponse = await handleBrowserCommandRequest(manager, 'GET', '/computer/screen-size');
 
-  const healthResponse = await fetch(`${baseUrl}/health`);
-  const sizeResponse = await fetch(`${baseUrl}/computer/screen-size`);
-
-  assert.deepEqual(await healthResponse.json(), { status: 'ok' });
-  assert.deepEqual(await sizeResponse.json(), { width: 640, height: 480 });
-
-  await server.stop();
+  assert.deepEqual(healthResponse, { status: 200, payload: { status: 'ok' } });
+  assert.deepEqual(sizeResponse, { status: 200, payload: { width: 640, height: 480 } });
 });
 
 
@@ -59,17 +54,21 @@ test('BrowserCommandServer returns current state after navigation commands', asy
     navigateCalls.push(url);
   };
 
-  const server = new BrowserCommandServer(manager);
-  const baseUrl = await server.start();
-
-  const response = await fetch(`${baseUrl}/computer/navigate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url: 'https://example.com/tasks' }),
-  });
+  const response = await handleBrowserCommandRequest(
+    manager,
+    'POST',
+    '/computer/navigate',
+    { url: 'https://example.com/tasks' },
+  );
 
   assert.deepEqual(navigateCalls, ['https://example.com/tasks']);
-  assert.deepEqual(await response.json(), state);
+  assert.deepEqual(response, { status: 200, payload: state });
+});
 
-  await server.stop();
+test('BrowserCommandServer returns 404 for unknown routes', async () => {
+  const { manager } = createMockManager();
+
+  const response = await handleBrowserCommandRequest(manager, 'GET', '/missing');
+
+  assert.deepEqual(response, { status: 404, payload: { error: 'Not found' } });
 });

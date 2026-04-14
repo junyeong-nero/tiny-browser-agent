@@ -1,18 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { BrowserSurfaceManager, getHiddenBrowserSurfaceBounds, shouldHideBrowserSurface } from './browserSurfaceManager';
+import {
+  BrowserSurfaceManager,
+  createSameTabWindowOpenHandler,
+  getHiddenBrowserSurfaceBounds,
+  getManagedBrowserSurfaceAttachmentTarget,
+  shouldHideBrowserSurface,
+} from './browserSurfaceManager';
 import type {
   ManagedBrowserSurfaceView,
   ManagedBrowserSurfaceWebContents,
   ManagedBrowserSurfaceWindow,
 } from './browserSurfaceManager';
+import type { BrowserWindowConstructorOptions, WebContents } from 'electron';
 
 
 function createMockEnvironment(currentUrl = 'about:blank') {
-  const addedViews: ManagedBrowserSurfaceView[] = [];
+  const addedViews: Array<ManagedBrowserSurfaceView | ManagedBrowserSurfaceView['nativeView']> = [];
   const recordedBounds: Array<{ x: number; y: number; width: number; height: number }> = [];
   const loadedUrls: string[] = [];
+  const topLevelNavigationListeners = new Set<(url: string) => void>();
   let focused = 0;
   let windowFocused = 0;
   let closed = 0;
@@ -40,6 +48,13 @@ function createMockEnvironment(currentUrl = 'about:blank') {
     async loadURL(nextUrl: string) {
       url = nextUrl;
       loadedUrls.push(nextUrl);
+      topLevelNavigationListeners.forEach((listener) => listener(nextUrl));
+    },
+    observeTopLevelNavigations(listener) {
+      topLevelNavigationListeners.add(listener);
+      return () => {
+        topLevelNavigationListeners.delete(listener);
+      };
     },
     sendKeyEvent() {
       return undefined;
@@ -76,6 +91,10 @@ function createMockEnvironment(currentUrl = 'about:blank') {
     focused: () => focused,
     loadedUrls,
     manager: new BrowserSurfaceManager(() => view),
+    navigateTo(nextUrl: string) {
+      url = nextUrl;
+      topLevelNavigationListeners.forEach((listener) => listener(nextUrl));
+    },
     recordedBounds,
     view,
     window,
@@ -145,6 +164,18 @@ test('BrowserSurfaceManager destroys and resets the hosted surface state', async
 });
 
 
+test('BrowserSurfaceManager attaches the native Electron view when available', async () => {
+  const environment = createMockEnvironment();
+  const nativeView = { tag: 'native-view' } as unknown as ManagedBrowserSurfaceView['nativeView'];
+  environment.view.nativeView = nativeView;
+
+  await environment.manager.attachWindow(environment.window);
+
+  assert.equal(environment.addedViews.length, 1);
+  assert.equal(environment.addedViews[0], nativeView);
+});
+
+
 test('shouldHideBrowserSurface handles missing URL and zero-sized bounds', () => {
   assert.equal(shouldHideBrowserSurface(null, 'https://example.com'), true);
   assert.equal(shouldHideBrowserSurface({ x: 0, y: 0, width: 0, height: 100 }, 'https://example.com'), true);
@@ -167,4 +198,153 @@ test('BrowserSurfaceManager captures HTML and accessibility metadata', async () 
   assert.equal(state.a11ySource, 'dom_accessibility_outline');
   assert.equal(state.a11yCaptureStatus, 'captured');
   assert.equal(state.a11yCaptureError, null);
+});
+
+
+test('BrowserSurfaceManager preserves click-triggered same-tab navigations that commit after capture', async () => {
+  const environment = createMockEnvironmentWithA11y('https://example.com/original');
+  let delayedNavigationUrl: string | null = null;
+  environment.view.webContents.sendMouseEvent = ({ type }) => {
+    if (type === 'mouseUp' && delayedNavigationUrl) {
+      setTimeout(() => {
+        environment.navigateTo(delayedNavigationUrl as string);
+      }, 0);
+    }
+  };
+
+  await environment.manager.attachWindow(environment.window);
+  await environment.manager.setBounds({ x: 10, y: 20, width: 300, height: 200 });
+  await environment.manager.setUrl('https://example.com/original');
+  environment.loadedUrls.length = 0;
+  delayedNavigationUrl = 'https://example.com/next';
+
+  await environment.manager.clickAt(50, 60);
+  const immediateState = await environment.manager.captureState();
+
+  assert.equal(immediateState.url, 'https://example.com/original');
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await environment.manager.sync();
+
+  assert.deepEqual(environment.loadedUrls, []);
+});
+
+
+test('BrowserSurfaceManager preserves popup redirects that load directly into the hosted surface', async () => {
+  const environment = createMockEnvironmentWithA11y('https://example.com/original');
+
+  await environment.manager.attachWindow(environment.window);
+  await environment.manager.setBounds({ x: 10, y: 20, width: 300, height: 200 });
+  await environment.manager.setUrl('https://example.com/original');
+  environment.loadedUrls.length = 0;
+
+  await environment.view.webContents.loadURL('https://example.com/popup-target');
+  await environment.manager.sync();
+
+  assert.deepEqual(environment.loadedUrls, ['https://example.com/popup-target']);
+});
+
+
+test('BrowserSurfaceManager retries empty screenshot captures before succeeding', async () => {
+  const environment = createMockEnvironmentWithA11y('https://example.com');
+  const capturedScreenshots = [Buffer.alloc(0), Buffer.alloc(0), Buffer.from('png')];
+  environment.view.webContents.captureScreenshot = async () => {
+    const nextScreenshot = capturedScreenshots.shift();
+    assert.ok(nextScreenshot);
+    return nextScreenshot;
+  };
+
+  await environment.manager.attachWindow(environment.window);
+  await environment.manager.setBounds({ x: 10, y: 20, width: 300, height: 200 });
+  await environment.manager.setUrl('https://example.com');
+
+  const state = await environment.manager.captureState();
+
+  assert.equal(state.screenshotBase64, Buffer.from('png').toString('base64'));
+  assert.equal(capturedScreenshots.length, 0);
+});
+
+
+test('BrowserSurfaceManager throws when screenshot capture stays empty', async () => {
+  const environment = createMockEnvironmentWithA11y('https://example.com');
+  environment.view.webContents.captureScreenshot = async () => Buffer.alloc(0);
+
+  await environment.manager.attachWindow(environment.window);
+  await environment.manager.setBounds({ x: 10, y: 20, width: 300, height: 200 });
+  await environment.manager.setUrl('https://example.com');
+
+  await assert.rejects(
+    () => environment.manager.captureState(),
+    /empty PNG buffer/,
+  );
+});
+
+
+test('getManagedBrowserSurfaceAttachmentTarget falls back to the managed wrapper without a native view', () => {
+  const environment = createMockEnvironment();
+
+  assert.equal(getManagedBrowserSurfaceAttachmentTarget(environment.view), environment.view);
+});
+
+
+test('createSameTabWindowOpenHandler redirects popup URLs into the hosted browser surface', async () => {
+  const loadedUrls: string[] = [];
+  const handler = createSameTabWindowOpenHandler(async (url) => {
+    loadedUrls.push(url);
+  });
+
+  const result = handler({ url: 'https://example.com/docs' });
+
+  assert.deepEqual(result, { action: 'deny' });
+  assert.deepEqual(loadedUrls, ['https://example.com/docs']);
+});
+
+
+test('createSameTabWindowOpenHandler ignores about:blank popups', async () => {
+  let loadCalls = 0;
+  const handler = createSameTabWindowOpenHandler(async () => {
+    loadCalls += 1;
+  });
+
+  const result = handler({ url: 'about:blank' });
+
+  assert.deepEqual(result, { action: 'deny' });
+  assert.equal(loadCalls, 0);
+});
+
+
+test('createSameTabWindowOpenHandler creates a popup proxy for about:blank popups when requested', async () => {
+  const loadedUrls: string[] = [];
+  let popupNavigationHandler: (url: string) => void = () => {
+    throw new Error('Expected popup navigation handler to be replaced.');
+  };
+  let receivedOptions: BrowserWindowConstructorOptions | null = null;
+  const popupWebContents = { kind: 'popup-proxy' } as unknown as WebContents;
+
+  const handler = createSameTabWindowOpenHandler(
+    async (url) => {
+      loadedUrls.push(url);
+    },
+    (options, onPopupNavigate) => {
+      receivedOptions = options;
+      popupNavigationHandler = onPopupNavigate;
+      return popupWebContents;
+    },
+  );
+
+  const result = handler({ url: 'about:blank' });
+
+  assert.equal(result.action, 'allow');
+  assert.ok(result.createWindow);
+  assert.equal(
+    result.createWindow?.({ webPreferences: { sandbox: true } } as BrowserWindowConstructorOptions),
+    popupWebContents,
+  );
+  assert.deepEqual(receivedOptions, { webPreferences: { sandbox: true } });
+  assert.deepEqual(loadedUrls, []);
+
+  popupNavigationHandler('about:blank');
+  popupNavigationHandler('https://example.com/oauth');
+
+  assert.deepEqual(loadedUrls, ['https://example.com/oauth']);
 });

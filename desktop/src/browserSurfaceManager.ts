@@ -1,11 +1,16 @@
-import { WebContentsView, shell } from 'electron';
+import {
+  WebContentsView,
+  type View,
+} from 'electron';
 
 import type { BrowserSurfaceBounds } from './bridge/channels';
+import { captureBrowserSurfaceState } from './browserSurfaceCapture';
+import { attachSameTabPopupHandling, createSameTabWindowOpenHandler } from './browserSurfacePopups';
 
 
 export interface ManagedBrowserSurfaceWindow {
   contentView: {
-    addChildView(view: ManagedBrowserSurfaceView): void;
+    addChildView(view: View | ManagedBrowserSurfaceView): void;
   };
   focus(): void;
 }
@@ -32,6 +37,7 @@ export interface ManagedBrowserSurfaceWebContents {
   getURL(): string;
   insertText(text: string): Promise<void> | void;
   loadURL(url: string): Promise<void>;
+  observeTopLevelNavigations(listener: (url: string) => void): () => void;
   runScript(code: string): Promise<unknown>;
   sendKeyEvent(event: BrowserKeyEvent): void;
   sendMouseEvent(event: BrowserMouseEvent): void;
@@ -40,6 +46,7 @@ export interface ManagedBrowserSurfaceWebContents {
 
 
 export interface ManagedBrowserSurfaceView {
+  nativeView?: View;
   setBounds(bounds: BrowserSurfaceBounds): void;
   webContents: ManagedBrowserSurfaceWebContents;
 }
@@ -85,13 +92,13 @@ const MODIFIER_KEY_MAP: Record<string, string> = {
   shift: 'shift',
 };
 
-
 export class BrowserSurfaceManager {
   private browserSurfaceBounds: BrowserSurfaceBounds | null = null;
   private browserSurfaceUrl: string | null = null;
   private browserSurfaceView: ManagedBrowserSurfaceView | null = null;
   private browserSurfaceWindow: ManagedBrowserSurfaceWindow | null = null;
   private lastVisibleBrowserSurfaceBounds: BrowserSurfaceBounds | null = null;
+  private stopObservingTopLevelNavigations: (() => void) | null = null;
 
   constructor(
     private readonly createView: () => ManagedBrowserSurfaceView,
@@ -130,24 +137,10 @@ export class BrowserSurfaceManager {
 
   async captureState(): Promise<BrowserSurfaceState> {
     const browserSurfaceView = this.getViewOrThrow();
-    const screenshot = await browserSurfaceView.webContents.captureScreenshot();
-    const html = await this.safeReadHtml(browserSurfaceView);
-    const a11ySnapshot = await this.captureAccessibilitySnapshot(browserSurfaceView);
-    const url = browserSurfaceView.webContents.getURL();
     const { width, height } = this.getScreenSize();
-    this.browserSurfaceUrl = url;
-
-    return {
-      screenshotBase64: screenshot.toString('base64'),
-      url,
-      html,
-      a11yText: a11ySnapshot.text,
-      a11ySource: a11ySnapshot.source,
-      a11yCaptureStatus: a11ySnapshot.status,
-      a11yCaptureError: a11ySnapshot.error,
-      width,
-      height,
-    };
+    const state = await captureBrowserSurfaceState(browserSurfaceView, { width, height });
+    this.browserSurfaceUrl = state.url;
+    return state;
   }
 
   async navigate(url: string): Promise<void> {
@@ -291,6 +284,8 @@ export class BrowserSurfaceManager {
   }
 
   destroy(): void {
+    this.stopObservingTopLevelNavigations?.();
+    this.stopObservingTopLevelNavigations = null;
     if (this.browserSurfaceView) {
       this.browserSurfaceView.webContents.close();
     }
@@ -309,7 +304,11 @@ export class BrowserSurfaceManager {
 
     if (!this.browserSurfaceView) {
       this.browserSurfaceView = this.createView();
-      this.browserSurfaceWindow.contentView.addChildView(this.browserSurfaceView);
+      this.stopObservingTopLevelNavigations =
+        this.browserSurfaceView.webContents.observeTopLevelNavigations((url) => {
+          this.browserSurfaceUrl = url;
+        });
+      this.browserSurfaceWindow.contentView.addChildView(getManagedBrowserSurfaceAttachmentTarget(this.browserSurfaceView));
     }
 
     return this.browserSurfaceView;
@@ -323,72 +322,6 @@ export class BrowserSurfaceManager {
     return browserSurfaceView;
   }
 
-  private async safeReadHtml(browserSurfaceView: ManagedBrowserSurfaceView): Promise<string | null> {
-    try {
-      return (await browserSurfaceView.webContents.runScript(
-        'document.documentElement ? document.documentElement.outerHTML : null',
-      )) as string | null;
-    } catch (_error) {
-      return null;
-    }
-  }
-
-  private async captureAccessibilitySnapshot(
-    browserSurfaceView: ManagedBrowserSurfaceView,
-  ): Promise<{
-    text: string | null;
-    source: string;
-    status: 'captured' | 'error';
-    error: string | null;
-  }> {
-    const source = 'dom_accessibility_outline';
-
-    try {
-      const text = (await browserSurfaceView.webContents.runScript(`
-        (() => {
-          const lines = [];
-
-          function visit(node, depth) {
-            if (!(node instanceof HTMLElement)) {
-              return;
-            }
-
-            const role = node.getAttribute('role') || node.tagName.toLowerCase();
-            const label =
-              node.getAttribute('aria-label') ||
-              (node instanceof HTMLInputElement ? node.value || node.placeholder || '' : '') ||
-              (node.innerText || '').trim().split('\n')[0];
-
-            if (role || label) {
-              const prefix = '  '.repeat(depth);
-              lines.push(prefix + '- ' + role + (label ? ': ' + label : ''));
-            }
-
-            for (const child of Array.from(node.children).slice(0, 40)) {
-              visit(child, depth + 1);
-            }
-          }
-
-          visit(document.body, 0);
-          return lines.join('\n');
-        })();
-      `)) as string | null;
-
-      return {
-        text: text || null,
-        source,
-        status: 'captured',
-        error: null,
-      };
-    } catch (error) {
-      return {
-        text: null,
-        source,
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Unknown accessibility capture error',
-      };
-    }
-  }
 }
 
 
@@ -400,13 +333,10 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
       sandbox: true,
     },
   });
-
-  browserSurfaceView.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
-    return { action: 'deny' };
-  });
+  const popupSupport = attachSameTabPopupHandling(browserSurfaceView);
 
   return {
+    nativeView: browserSurfaceView,
     setBounds(bounds) {
       browserSurfaceView.setBounds(bounds);
     },
@@ -416,6 +346,7 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
         return screenshot.toPNG();
       },
       close() {
+        popupSupport.closeAllPopupProxies();
         browserSurfaceView.webContents.close();
       },
       focus() {
@@ -429,6 +360,30 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
       },
       loadURL(url) {
         return browserSurfaceView.webContents.loadURL(url);
+      },
+      observeTopLevelNavigations(listener) {
+        const handleDidNavigate = (
+          _event: Electron.Event,
+          url: string,
+          _httpResponseCode: number,
+          _httpStatusText: string,
+        ) => {
+          listener(url);
+        };
+        const handleDidNavigateInPage = (
+          _event: Electron.Event,
+          url: string,
+        ) => {
+          listener(url);
+        };
+
+        browserSurfaceView.webContents.on('did-navigate', handleDidNavigate);
+        browserSurfaceView.webContents.on('did-navigate-in-page', handleDidNavigateInPage);
+
+        return () => {
+          browserSurfaceView.webContents.off('did-navigate', handleDidNavigate);
+          browserSurfaceView.webContents.off('did-navigate-in-page', handleDidNavigateInPage);
+        };
       },
       runScript(code) {
         return browserSurfaceView.webContents.executeJavaScript(code);
@@ -444,6 +399,19 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
       },
     },
   };
+}
+
+export { createSameTabWindowOpenHandler };
+
+
+export function getManagedBrowserSurfaceAttachmentTarget(
+  browserSurfaceView: ManagedBrowserSurfaceView | View,
+): View | ManagedBrowserSurfaceView {
+  if (!('webContents' in browserSurfaceView && 'setBounds' in browserSurfaceView)) {
+    return browserSurfaceView;
+  }
+
+  return browserSurfaceView.nativeView ?? browserSurfaceView;
 }
 
 

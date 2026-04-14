@@ -11,6 +11,8 @@ export function useSessionControls(sessionId: string | null) {
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [isInterrupting, setIsInterrupting] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
 
   const startSession = useCallback(
     async (query: string) => {
@@ -49,5 +51,49 @@ export function useSessionControls(sessionId: string | null) {
     }
   }, [sessionClient, sessionId]);
 
-  return { startSession, stopSession, error, isStarting, isStopping };
+  const interruptSession = useCallback(async () => {
+    if (!sessionId) {
+      return;
+    }
+    setIsInterrupting(true);
+    try {
+      await sessionClient.interruptSession(sessionId);
+      setError(null);
+    } catch (interruptError) {
+      const message = getErrorMessage(interruptError, 'Failed to interrupt session');
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsInterrupting(false);
+    }
+  }, [sessionClient, sessionId]);
+
+  const closeSession = useCallback(async () => {
+    if (!sessionId) {
+      return;
+    }
+    setIsClosing(true);
+    try {
+      await sessionClient.closeSession(sessionId);
+      setError(null);
+    } catch (closeError) {
+      const message = getErrorMessage(closeError, 'Failed to close session');
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setIsClosing(false);
+    }
+  }, [sessionClient, sessionId]);
+
+  return {
+    startSession,
+    stopSession,
+    interruptSession,
+    closeSession,
+    error,
+    isStarting,
+    isStopping,
+    isInterrupting,
+    isClosing,
+  };
 }

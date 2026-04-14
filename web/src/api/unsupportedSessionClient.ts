@@ -16,6 +16,12 @@ export const unsupportedSessionClient: SessionClient = {
   async stopSession() {
     unavailable();
   },
+  async interruptSession() {
+    unavailable();
+  },
+  async closeSession() {
+    unavailable();
+  },
   async sendMessage() {
     unavailable();
   },

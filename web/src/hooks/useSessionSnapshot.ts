@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback } from 'react';
 
 import { useSessionClient } from '../api/SessionClientContext';
 import type { SessionSnapshot } from '../types/api';
-
-const ACTIVE_POLL_INTERVAL_MS = 500;
-const TERMINAL_POLL_INTERVAL_MS = 2000;
+import {
+  ACTIVE_POLL_INTERVAL_MS,
+  TERMINAL_POLL_INTERVAL_MS,
+  usePollingResource,
+} from './usePollingResource';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to load session snapshot';
@@ -12,65 +14,41 @@ function getErrorMessage(error: unknown): string {
 
 export function useSessionSnapshot(sessionId: string | null) {
   const sessionClient = useSessionClient();
-  const [snapshot, setSnapshot] = useState<SessionSnapshot | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const timeoutRef = useRef<number | null>(null);
+  const createInitialState = useCallback(() => null as SessionSnapshot | null, []);
+  const fetchResource = useCallback(async () => {
+    if (!sessionId) {
+      throw new Error('Session id is required');
+    }
+    return sessionClient.getSession(sessionId);
+  }, [sessionClient, sessionId]);
+  const mergeState = useCallback(
+    (_currentSnapshot: SessionSnapshot | null, nextSnapshot: SessionSnapshot) => nextSnapshot,
+    [],
+  );
+  const getPollIntervalMs = useCallback((nextSnapshot: SessionSnapshot) => {
+    return ['complete', 'error', 'stopped', 'waiting_for_input'].includes(nextSnapshot.status)
+      ? TERMINAL_POLL_INTERVAL_MS
+      : ACTIVE_POLL_INTERVAL_MS;
+  }, []);
+  const {
+    data: snapshot,
+    error,
+    refresh,
+  } = usePollingResource<SessionSnapshot | null, SessionSnapshot>({
+    enabled: !!sessionId,
+    createInitialState,
+    fetchResource,
+    mergeState,
+    getErrorMessage,
+    getPollIntervalMs,
+  });
 
   const refreshSnapshot = useCallback(async () => {
     if (!sessionId) {
       return null;
     }
-    const nextSnapshot = await sessionClient.getSession(sessionId);
-    setSnapshot(nextSnapshot);
-    setError(null);
-    return nextSnapshot;
-  }, [sessionId, sessionClient]);
-
-  useEffect(() => {
-    setSnapshot(null);
-    setError(null);
-
-    if (!sessionId) {
-      return undefined;
-    }
-
-    let cancelled = false;
-
-    const schedulePoll = (delayMs: number) => {
-      timeoutRef.current = window.setTimeout(runPoll, delayMs);
-    };
-
-    const runPoll = async () => {
-      try {
-        const nextSnapshot = await sessionClient.getSession(sessionId);
-        if (cancelled) {
-          return;
-        }
-        setSnapshot(nextSnapshot);
-        setError(null);
-
-        const delayMs = ['complete', 'error', 'stopped'].includes(nextSnapshot.status)
-          ? TERMINAL_POLL_INTERVAL_MS
-          : ACTIVE_POLL_INTERVAL_MS;
-        schedulePoll(delayMs);
-      } catch (pollError) {
-        if (cancelled) {
-          return;
-        }
-        setError(getErrorMessage(pollError));
-        schedulePoll(TERMINAL_POLL_INTERVAL_MS);
-      }
-    };
-
-    void runPoll();
-
-    return () => {
-      cancelled = true;
-      if (timeoutRef.current != null) {
-        window.clearTimeout(timeoutRef.current);
-      }
-    };
-  }, [sessionClient, sessionId]);
+    return refresh();
+  }, [refresh, sessionId]);
 
   return { snapshot, error, refreshSnapshot };
 }

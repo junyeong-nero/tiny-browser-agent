@@ -53,6 +53,7 @@ describe('ProcessHistorySection', () => {
           steps={[
             {
               step_id: 2,
+              run_id: 'run-0001',
               timestamp: 2,
               reasoning: 'Selected a flight',
               function_calls: [{ name: 'click_at', args: {} }],
@@ -72,6 +73,7 @@ describe('ProcessHistorySection', () => {
             },
             {
               step_id: 3,
+              run_id: 'run-0001',
               timestamp: 3,
               reasoning: 'Reviewed the fare',
               function_calls: [],
@@ -102,5 +104,69 @@ describe('ProcessHistorySection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'A11y 보기' }));
     expect(screen.getByText('검토가 필요한 선택입니다.')).toBeInTheDocument();
     expect(await screen.findByText('- link "Result"')).toBeInTheDocument();
+  });
+
+  it('groups backend process history by run id', () => {
+    render(
+      <ArtifactClientProvider client={httpArtifactClient}>
+        <ProcessHistorySection
+          sessionId="ses_test"
+          groupedSteps={[
+            {
+              id: 'run-0001:phase-search',
+              run_id: 'run-0001',
+              label: '검색',
+              summary: '첫 번째 실행',
+              step_ids: [1],
+              steps: [
+                {
+                  step_id: 1,
+                  run_id: 'run-0001',
+                  timestamp: 1,
+                  reasoning: '첫 번째 실행',
+                  function_calls: [],
+                  url: null,
+                  status: 'complete',
+                  screenshot_path: null,
+                  html_path: null,
+                  metadata_path: null,
+                  error_message: null,
+                },
+              ],
+            },
+            {
+              id: 'run-0002:phase-search',
+              run_id: 'run-0002',
+              label: '후속 검색',
+              summary: '두 번째 실행',
+              step_ids: [2],
+              steps: [
+                {
+                  step_id: 2,
+                  run_id: 'run-0002',
+                  timestamp: 2,
+                  reasoning: '두 번째 실행',
+                  function_calls: [],
+                  url: null,
+                  status: 'complete',
+                  screenshot_path: null,
+                  html_path: null,
+                  metadata_path: null,
+                  error_message: null,
+                },
+              ],
+            },
+          ]}
+          steps={[]}
+          previewMode={{ kind: 'current' }}
+          onSelectStepPreview={vi.fn()}
+        />
+      </ArtifactClientProvider>,
+    );
+
+    expect(screen.getByText('Run 1')).toBeInTheDocument();
+    expect(screen.getByText('Run 2')).toBeInTheDocument();
+    expect(screen.getAllByText('첫 번째 실행')).toHaveLength(2);
+    expect(screen.getAllByText('두 번째 실행')).toHaveLength(2);
   });
 });

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { getDesktopBridge, hasDesktopBridge, type DesktopBridge } from './desktopBridge';
+import {
+  getDesktopBridge,
+  hasDesktopBridge,
+  isDesktopHost,
+  markDesktopHost,
+  type DesktopBridge,
+} from './desktopBridge';
 
 
 describe('desktopBridge', () => {
@@ -17,6 +23,8 @@ describe('desktopBridge', () => {
         createSession: async () => ({ session_id: 'ses_test', snapshot: {} as never }),
         startSession: async () => undefined,
         stopSession: async () => undefined,
+        interruptSession: async () => undefined,
+        closeSession: async () => undefined,
         sendMessage: async () => undefined,
         getSession: async () => ({ session_id: 'ses_test' } as never),
         getSteps: async () => [],
@@ -29,5 +37,15 @@ describe('desktopBridge', () => {
 
     expect(getDesktopBridge(host)).toBe(bridge);
     expect(hasDesktopBridge(host)).toBe(true);
+  });
+
+  it('detects an explicit desktop host marker without a bridge', () => {
+    const host = {} as typeof globalThis & { __COMPUTER_USE_DESKTOP_HOST__?: boolean };
+
+    markDesktopHost(host);
+
+    expect(isDesktopHost(host)).toBe(true);
+    expect(getDesktopBridge(host)).toBeNull();
+    expect(hasDesktopBridge(host)).toBe(false);
   });
 });
