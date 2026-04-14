@@ -112,6 +112,18 @@ export VERTEXAI_PROJECT="YOUR_PROJECT_ID"
 export VERTEXAI_LOCATION="YOUR_LOCATION"
 ```
 
+### OpenRouter step summarizer (optional)
+
+```bash
+export OPENROUTER_API_KEY="YOUR_OPENROUTER_API_KEY"
+export ACTION_SUMMARY_PROVIDER="openrouter"
+export ACTION_SUMMARY_MODEL="google/gemma-4-31b-it:free"
+```
+
+When enabled, the main browser agent still uses Gemini/Vertex AI for action generation.
+OpenRouter is used only to rewrite executed action steps into short user-facing summaries.
+If OpenRouter fails or is rate-limited, the app falls back to built-in summaries.
+
 ### Browserbase
 
 ```bash
@@ -232,6 +244,13 @@ usage: main.py [-h] [--query QUERY] [--desktop_bridge]
 | `USE_VERTEXAI` | Set to `true` or `1` to use Vertex AI instead of the Gemini Developer API. |
 | `VERTEXAI_PROJECT` | Vertex AI project ID. |
 | `VERTEXAI_LOCATION` | Vertex AI location. |
+| `ACTION_SUMMARY_PROVIDER` | Optional action-step summarizer provider. Currently supports `openrouter`. |
+| `ACTION_SUMMARY_MODEL` | Optional action-step summarizer model. Defaults to `google/gemma-4-31b-it:free`. |
+| `ACTION_SUMMARY_TIMEOUT_SECONDS` | Optional timeout for action-step summarization requests. Defaults to `15`. |
+| `OPENROUTER_API_KEY` | OpenRouter API key. |
+| `OPENROUTER_BASE_URL` | Optional OpenRouter-compatible base URL. Defaults to `https://openrouter.ai/api/v1`. |
+| `OPENROUTER_HTTP_REFERER` | Optional `HTTP-Referer` header sent to OpenRouter. |
+| `OPENROUTER_TITLE` | Optional `X-Title` header sent to OpenRouter. |
 | `BROWSERBASE_API_KEY` | Browserbase API key. |
 | `BROWSERBASE_PROJECT_ID` | Browserbase project ID. |
 
