@@ -10,7 +10,7 @@ describe('ProcessHistorySection', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows the latest action first and keeps an empty previous-history disclosure', () => {
+  it('derives a readable fallback summary and reason for the latest action while metadata is pending', () => {
     render(
       <ArtifactClientProvider client={httpArtifactClient}>
         <ProcessHistorySection
@@ -19,10 +19,10 @@ describe('ProcessHistorySection', () => {
             {
               step_id: 1,
               timestamp: 1,
-              reasoning: 'Opened the site',
-              function_calls: [],
+              reasoning: null,
+              function_calls: [{ name: 'type_text_at', args: { text: 'Naver' } }],
               url: null,
-              status: 'complete',
+              status: 'running',
               screenshot_path: null,
               html_path: null,
               metadata_path: null,
@@ -37,10 +37,11 @@ describe('ProcessHistorySection', () => {
 
     const recentSection = screen.getByText('최근 행동').closest('section')!;
     expect(screen.getByText('최근 행동')).toBeInTheDocument();
-    expect(within(recentSection).getAllByText('Step 1')).toHaveLength(2);
+    expect(within(recentSection).getByText('Step 1')).toBeInTheDocument();
     expect(within(recentSection).getByText('행동 요약')).toBeInTheDocument();
+    expect(within(recentSection).getByText('"Naver" 입력')).toBeInTheDocument();
     expect(within(recentSection).getByText('이유')).toBeInTheDocument();
-    expect(within(recentSection).getByText('이유 정보가 아직 없습니다.')).toBeInTheDocument();
+    expect(within(recentSection).getByText('필요한 텍스트를 입력하는 단계입니다.')).toBeInTheDocument();
     expect(screen.getByText('이전 과정 보기')).toBeInTheDocument();
     fireEvent.click(screen.getByText('이전 과정 보기'));
     expect(screen.getByText('이전 과정이 없습니다.')).toBeInTheDocument();
@@ -134,6 +135,52 @@ describe('ProcessHistorySection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'A11y 보기' }));
     expect(screen.getByText('검토가 필요한 선택입니다.')).toBeInTheDocument();
     expect(await screen.findByText('- link "Result"')).toBeInTheDocument();
+  });
+
+  it('keeps showing the last ready action until the new running step has summary metadata', () => {
+    render(
+      <ArtifactClientProvider client={httpArtifactClient}>
+        <ProcessHistorySection
+          sessionId="ses_test"
+          steps={[
+            {
+              step_id: 12,
+              timestamp: 12,
+              reasoning: '검색 결과의 첫 번째 항목을 눌렀습니다.',
+              function_calls: [{ name: 'click_at', args: { x: 100, y: 200 } }],
+              url: 'https://example.com/results',
+              status: 'complete',
+              screenshot_path: 'step-0012.png',
+              html_path: null,
+              metadata_path: null,
+              error_message: null,
+              action_summary: '검색 결과 클릭',
+              reason: '원하는 결과 페이지로 이동하기 위해 선택했습니다.',
+              user_visible_label: '검색 결과 클릭',
+            },
+            {
+              step_id: 13,
+              timestamp: 13,
+              reasoning: null,
+              function_calls: [],
+              url: 'https://example.com/results',
+              status: 'running',
+              screenshot_path: null,
+              html_path: null,
+              metadata_path: null,
+              error_message: null,
+            },
+          ]}
+          previewMode={{ kind: 'current' }}
+          onSelectStepPreview={vi.fn()}
+        />
+      </ArtifactClientProvider>,
+    );
+
+    const recentSection = screen.getByText('최근 행동').closest('section')!;
+    expect(within(recentSection).getByText('검색 결과 클릭')).toBeInTheDocument();
+    expect(within(recentSection).getByText('원하는 결과 페이지로 이동하기 위해 선택했습니다.')).toBeInTheDocument();
+    expect(within(recentSection).queryByText('Step 13')).not.toBeInTheDocument();
   });
 
   it('keeps older run history behind a disclosure and labels multiple runs', () => {

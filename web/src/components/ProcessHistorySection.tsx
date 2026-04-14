@@ -27,18 +27,68 @@ interface StepCardProps {
   compact?: boolean;
 }
 
-function getStepTitle(step: StepRecord): string {
-  return step.action_summary ?? step.user_visible_label ?? `Step ${step.step_id}`;
+function getPrimaryAction(step: StepRecord) {
+  return step.function_calls[0] ?? null;
 }
 
-function getStepReason(step: StepRecord): string | null {
-  if (!step.reason) {
+function getTrimmedText(value: unknown): string | null {
+  if (typeof value !== 'string') {
     return null;
   }
-  const normalizedReason = step.reason.trim();
+  const trimmedValue = value.trim();
+  return trimmedValue ? trimmedValue : null;
+}
+
+function getFallbackActionSummary(step: StepRecord): string | null {
+  const action = getPrimaryAction(step);
+  if (!action) {
+    return null;
+  }
+
+  const typedText = getTrimmedText(action.args.text);
+  const keys = getTrimmedText(action.args.keys);
+  const direction = getTrimmedText(action.args.direction);
+
+  switch (action.name) {
+    case 'open_web_browser':
+      return '브라우저 열기';
+    case 'click_at':
+      return '화면 요소 클릭';
+    case 'hover_at':
+      return '화면 요소 확인';
+    case 'type_text_at':
+      return typedText ? `"${typedText}" 입력` : '텍스트 입력';
+    case 'scroll_document':
+    case 'scroll_at':
+      return direction ? `${direction} 방향 스크롤` : '페이지 스크롤';
+    case 'wait_5_seconds':
+      return '로딩 대기';
+    case 'go_back':
+      return '이전 페이지 이동';
+    case 'go_forward':
+      return '다음 페이지 이동';
+    case 'search':
+      return '검색 페이지 열기';
+    case 'navigate':
+      return '페이지 열기';
+    case 'key_combination':
+      return keys ? `${keys} 입력` : '키보드 단축키 실행';
+    case 'drag_and_drop':
+      return '항목 드래그';
+    default:
+      return '동작 실행';
+  }
+}
+
+function normalizeDisplayedReasonText(reason: string | null | undefined): string | null {
+  if (!reason) {
+    return null;
+  }
+  const normalizedReason = reason.trim();
   if (!normalizedReason) {
     return null;
   }
+
   const lowerReason = normalizedReason.toLowerCase();
   const looksLikeVerboseMetaReason =
     normalizedReason.length > 180
@@ -55,6 +105,60 @@ function getStepReason(step: StepRecord): string | null {
   }
 
   return normalizedReason;
+}
+
+function getFallbackReason(step: StepRecord): string | null {
+  const action = getPrimaryAction(step);
+  if (!action) {
+    return null;
+  }
+
+  switch (action.name) {
+    case 'open_web_browser':
+      return '브라우저를 열어 작업을 시작하는 단계입니다.';
+    case 'click_at':
+      return '선택한 화면 요소를 클릭하는 단계입니다.';
+    case 'hover_at':
+      return '선택한 화면 요소를 확인하는 단계입니다.';
+    case 'type_text_at':
+      return '필요한 텍스트를 입력하는 단계입니다.';
+    case 'scroll_document':
+    case 'scroll_at':
+      return '다음 내용을 보기 위해 스크롤하는 단계입니다.';
+    case 'wait_5_seconds':
+      return '페이지 응답을 기다리는 단계입니다.';
+    case 'go_back':
+      return '이전 페이지로 돌아가는 단계입니다.';
+    case 'go_forward':
+      return '다음 페이지로 이동하는 단계입니다.';
+    case 'search':
+      return '검색을 시작하기 위한 단계입니다.';
+    case 'navigate':
+      return '요청한 페이지를 여는 단계입니다.';
+    case 'key_combination':
+      return '키보드 단축키를 실행하는 단계입니다.';
+    case 'drag_and_drop':
+      return '화면 요소를 옮기는 단계입니다.';
+    default:
+      return '요청을 진행하기 위한 단계입니다.';
+  }
+}
+
+function getStepTitle(step: StepRecord): string {
+  return (
+    step.action_summary
+    ?? step.user_visible_label
+    ?? getFallbackActionSummary(step)
+    ?? `Step ${step.step_id}`
+  );
+}
+
+function getStepReason(step: StepRecord): string | null {
+  return (
+    normalizeDisplayedReasonText(step.reason)
+    ?? normalizeDisplayedReasonText(step.reasoning)
+    ?? getFallbackReason(step)
+  );
 }
 
 function getRawReasoning(step: StepRecord): string | null {
@@ -85,6 +189,27 @@ function hasHiddenDetails(step: StepRecord): boolean {
       || step.url
       || getSummarySourceLabel(step),
   );
+}
+
+function hasReadyDisplayMetadata(step: StepRecord): boolean {
+  return Boolean(
+    step.action_summary
+      || step.user_visible_label
+      || getFallbackActionSummary(step),
+  ) && Boolean(
+    normalizeDisplayedReasonText(step.reason)
+      || normalizeDisplayedReasonText(step.reasoning)
+      || getFallbackReason(step),
+  );
+}
+
+function filterVisibleSteps(groups: StepGroup[]): StepGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      steps: group.steps.filter((step) => step.status !== 'running' || hasReadyDisplayMetadata(step)),
+    }))
+    .filter((group) => group.steps.length > 0);
 }
 
 function trimLatestStepFromGroups(groups: StepGroup[]): StepGroup[] {
@@ -252,11 +377,12 @@ export function ProcessHistorySection({
   sessionId,
 }: ProcessHistorySectionProps) {
   const groups = getProcessGroups(groupedSteps, steps);
-  const allSteps = groups.flatMap((group) => group.steps);
+  const visibleGroups = filterVisibleSteps(groups);
+  const allSteps = visibleGroups.flatMap((group) => group.steps);
   const latestStep = allSteps[allSteps.length - 1] ?? null;
-  const historyGroups = trimLatestStepFromGroups(groups);
+  const historyGroups = trimLatestStepFromGroups(visibleGroups);
   const historyRunGroups = groupProcessGroupsByRun(historyGroups);
-  const allRunGroups = groupProcessGroupsByRun(groups);
+  const allRunGroups = groupProcessGroupsByRun(visibleGroups);
   const showRunLabels = allRunGroups.length > 1;
 
   return (
