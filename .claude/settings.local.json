@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsx:*)",
+      "Bash(python -m pytest tests/test_agent.py tests/test_ui.py tests/test_playwright_logging.py -x -q)",
+      "Bash(npx vitest:*)",
+      "Bash(python3 -m pytest tests/test_agent.py tests/test_ui.py tests/test_playwright_logging.py -x -q)",
+      "Bash(pip3 show:*)",
+      "Bash(.venv/bin/python -m pytest tests/test_agent.py tests/test_ui.py tests/test_playwright_logging.py -x -q)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)"
+    ]
+  }
+}
