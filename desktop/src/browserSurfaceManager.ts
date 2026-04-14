@@ -268,7 +268,7 @@ export class BrowserSurfaceManager {
     if (shouldHideBrowserSurface(browserSurfaceBounds, browserSurfaceUrl)) {
       browserSurfaceView.setBounds(getHiddenBrowserSurfaceBounds());
       if (browserSurfaceView.webContents.getURL() !== 'about:blank') {
-        await browserSurfaceView.webContents.loadURL('about:blank');
+        await browserSurfaceView.webContents.loadURL('about:blank').catch(ignoreAbortedNavigation);
       }
       return;
     }
@@ -279,7 +279,7 @@ export class BrowserSurfaceManager {
 
     browserSurfaceView.setBounds(browserSurfaceBounds);
     if (browserSurfaceView.webContents.getURL() !== browserSurfaceUrl) {
-      await browserSurfaceView.webContents.loadURL(browserSurfaceUrl);
+      await browserSurfaceView.webContents.loadURL(browserSurfaceUrl).catch(ignoreAbortedNavigation);
     }
   }
 
@@ -435,4 +435,14 @@ export function shouldHideBrowserSurface(
 
 function normalizeElectronKey(key: string): string {
   return KEY_CODE_MAP[key.toLowerCase()] ?? key;
+}
+
+
+function ignoreAbortedNavigation(error: unknown): void {
+  const isAborted =
+    error instanceof Error &&
+    (error as { code?: string }).code === 'ERR_ABORTED';
+  if (!isAborted) {
+    throw error;
+  }
 }
