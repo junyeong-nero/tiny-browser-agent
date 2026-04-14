@@ -7,9 +7,7 @@ import { useSessionSnapshot } from './useSessionSnapshot';
 import { useSessionSteps } from './useSessionSteps';
 import { useSessionVerification } from './useSessionVerification';
 import {
-  getFinalResultSummary,
   getRequestText,
-  getRunSummary,
   type PreviewMode,
 } from '../reviewPanel';
 import type { SessionSnapshot } from '../types/api';
@@ -73,11 +71,6 @@ export function useAppSessionRuntime() {
     [previewMode, steps],
   );
   const requestText = useMemo(() => getRequestText(displaySnapshot), [displaySnapshot]);
-  const runSummary = useMemo(() => getRunSummary(displaySnapshot), [displaySnapshot]);
-  const finalResultSummary = useMemo(
-    () => getFinalResultSummary(displaySnapshot),
-    [displaySnapshot],
-  );
 
   const refreshSessionResources = useCallback(async () => {
     await refreshSnapshot();
@@ -191,8 +184,6 @@ export function useAppSessionRuntime() {
     previewMode,
     selectedStep,
     requestText,
-    runSummary,
-    finalResultSummary,
     stopRequested,
     hasSession: !!sessionId,
     isSessionActive:

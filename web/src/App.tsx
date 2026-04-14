@@ -24,8 +24,6 @@ function App() {
     previewMode,
     selectedStep,
     requestText,
-    runSummary,
-    finalResultSummary,
     stopRequested,
     hasSession,
     isSessionActive,
@@ -48,9 +46,6 @@ function App() {
   });
   const {
     focusedRegion,
-    focusBrowserPane,
-    focusVerificationPanel,
-    focusChatInput,
   } = useFocusRegions({
     browserPaneRef,
     verificationPanelRef,
@@ -108,14 +103,8 @@ function App() {
           error={error}
           previewMode={previewMode}
           requestText={requestText}
-          runSummary={runSummary}
-          finalResultSummary={finalResultSummary}
           verificationPayload={verification}
-          onSelectCurrentPreview={() => setPreviewMode({ kind: 'current' })}
           onSelectStepPreview={(stepId) => setPreviewMode({ kind: 'step', stepId })}
-          onFocusBrowserPane={focusBrowserPane}
-          onFocusVerificationPanel={focusVerificationPanel}
-          onFocusChatInput={focusChatInput}
           isFocused={focusedRegion === 'verification'}
           bridgeError={bridgeError}
           stopPending={stopRequested}

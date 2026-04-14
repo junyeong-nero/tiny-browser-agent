@@ -5,7 +5,6 @@ import { VerificationSidebar } from './VerificationSidebar';
 
 describe('VerificationSidebar', () => {
   it('renders current-data sections and routes preview actions', () => {
-    const onSelectCurrentPreview = vi.fn();
     const onSelectStepPreview = vi.fn();
 
     render(
@@ -46,25 +45,29 @@ describe('VerificationSidebar', () => {
         error={null}
         previewMode={{ kind: 'current' }}
         verificationPayload={null}
-        onFocusBrowserPane={vi.fn()}
-        onFocusChatInput={vi.fn()}
-        onFocusVerificationPanel={vi.fn()}
-        onSelectCurrentPreview={onSelectCurrentPreview}
         onSelectStepPreview={onSelectStepPreview}
       />,
     );
 
     expect(screen.getByText('[알림] 태스크 완료.')).toBeInTheDocument();
+    expect(screen.getByText('지금 상태')).toBeInTheDocument();
+    expect(screen.getByText('최근 행동')).toBeInTheDocument();
+    expect(screen.getByText('이전 과정 보기')).toBeInTheDocument();
+    expect(screen.queryByText('최종 결과')).not.toBeInTheDocument();
+    expect(screen.getByText('요청')).toBeInTheDocument();
+    expect(screen.getByText('상태')).toBeInTheDocument();
     expect(screen.getByText('서울에서 도쿄 가는 항공권 찾아줘')).toBeInTheDocument();
-    expect(screen.getAllByText('항공편을 찾고 가격을 정리했습니다.')).toHaveLength(2);
-    expect(screen.getByText('과정 기록')).toBeInTheDocument();
-    expect(screen.getByText('Debug Artifacts')).toBeInTheDocument();
+    expect(screen.queryByText('요약')).not.toBeInTheDocument();
+    expect(screen.queryByText('항공편을 찾고 가격을 정리했습니다.')).not.toBeInTheDocument();
+    expect(screen.queryByText('과정 기록')).not.toBeInTheDocument();
+    expect(screen.queryByText('Debug Artifacts')).not.toBeInTheDocument();
+    expect(screen.queryByText('패널 이동')).not.toBeInTheDocument();
+    expect(screen.queryByText('세부 자료')).not.toBeInTheDocument();
+    expect(screen.queryByText('최근 단계')).not.toBeInTheDocument();
+    expect(screen.queryByText('현재 위치')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '이 시점 보기' }));
     expect(onSelectStepPreview).toHaveBeenCalledWith(1);
-
-    fireEvent.click(screen.getByRole('button', { name: '현재 시점 보기' }));
-    expect(onSelectCurrentPreview).toHaveBeenCalledTimes(1);
   });
 
   it('surfaces reusable waiting state after an interrupt', () => {
@@ -94,10 +97,6 @@ describe('VerificationSidebar', () => {
         error={null}
         previewMode={{ kind: 'current' }}
         verificationPayload={null}
-        onFocusBrowserPane={vi.fn()}
-        onFocusChatInput={vi.fn()}
-        onFocusVerificationPanel={vi.fn()}
-        onSelectCurrentPreview={vi.fn()}
         onSelectStepPreview={vi.fn()}
       />,
     );

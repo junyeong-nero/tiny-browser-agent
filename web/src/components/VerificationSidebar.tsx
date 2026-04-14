@@ -2,20 +2,14 @@ import type { Ref } from 'react';
 
 import {
   filterVerificationItemsForRun,
-  getFinalResultSummary,
   getRelevantRunId,
   getRequestText,
-  getRunSummary,
   type PreviewMode,
 } from '../reviewPanel';
 import type { SessionSnapshot, StepRecord, VerificationPayload } from '../types/api';
-import { ArtifactLinks } from './ArtifactLinks';
 import { CompletionBanner } from './CompletionBanner';
-import { ConfirmationNeededSection } from './ConfirmationNeededSection';
-import { FinalResultSection } from './FinalResultSection';
+import { CurrentStatusSection } from './CurrentStatusSection';
 import { ProcessHistorySection } from './ProcessHistorySection';
-import { RequestSummaryHeader } from './RequestSummaryHeader';
-import { TaskSummarySection } from './TaskSummarySection';
 
 interface VerificationSidebarProps {
   snapshot: SessionSnapshot | null;
@@ -23,15 +17,9 @@ interface VerificationSidebarProps {
   error: string | null;
   previewMode: PreviewMode;
   requestText?: string | null;
-  runSummary?: string | null;
-  finalResultSummary?: string | null;
   verificationPayload?: VerificationPayload | null;
   sidebarRef?: Ref<HTMLDivElement>;
-  onSelectCurrentPreview: () => void;
   onSelectStepPreview: (stepId: number) => void;
-  onFocusBrowserPane: () => void;
-  onFocusVerificationPanel: () => void;
-  onFocusChatInput: () => void;
   isFocused?: boolean;
   bridgeError?: string | null;
   stopPending?: boolean;
@@ -43,15 +31,9 @@ export function VerificationSidebar({
   error,
   previewMode,
   requestText,
-  runSummary,
-  finalResultSummary,
   verificationPayload,
   sidebarRef,
-  onSelectCurrentPreview,
   onSelectStepPreview,
-  onFocusBrowserPane,
-  onFocusVerificationPanel,
-  onFocusChatInput,
   isFocused = false,
   bridgeError = null,
   stopPending = false,
@@ -61,9 +43,6 @@ export function VerificationSidebar({
   }
 
   const resolvedRequestText = requestText ?? getRequestText(snapshot);
-  const summary = runSummary ?? verificationPayload?.run_summary ?? getRunSummary(snapshot);
-  const finalSummary =
-    finalResultSummary ?? verificationPayload?.final_result_summary ?? getFinalResultSummary(snapshot);
   const relevantRunId = getRelevantRunId(snapshot, verificationPayload, steps);
   const verificationItems = filterVerificationItemsForRun(
     verificationPayload?.verification_items ?? snapshot?.verification_items,
@@ -88,26 +67,9 @@ export function VerificationSidebar({
         lastRunStatus={snapshot?.last_run_status}
         errorMessage={snapshot?.error_message}
       />
-      <section className="verification-section focus-controls-section">
-        <h2>패널 이동</h2>
-        <div className="focus-controls">
-          <button type="button" className="btn-secondary preview-button" onClick={onFocusBrowserPane}>
-            브라우저 영역으로 이동
-          </button>
-          <button type="button" className="btn-secondary preview-button" onClick={onFocusVerificationPanel}>
-            검증 패널 상단으로 이동
-          </button>
-          <button type="button" className="btn-secondary preview-button" onClick={onFocusChatInput}>
-            채팅 입력으로 이동
-          </button>
-        </div>
-      </section>
-      <RequestSummaryHeader requestText={resolvedRequestText} />
-      <TaskSummarySection summary={summary} />
-      <ConfirmationNeededSection
-        items={verificationItems}
-        onSelectStepPreview={onSelectStepPreview}
-        sessionId={verificationPayload?.session_id ?? snapshot?.session_id}
+      <CurrentStatusSection
+        requestText={resolvedRequestText}
+        status={snapshot?.status}
       />
       <ProcessHistorySection
         steps={steps}
@@ -116,11 +78,6 @@ export function VerificationSidebar({
         onSelectStepPreview={onSelectStepPreview}
         sessionId={verificationPayload?.session_id ?? snapshot?.session_id}
       />
-      <FinalResultSection summary={finalSummary} onSelectCurrentPreview={onSelectCurrentPreview} />
-      <section className="verification-section debug-artifacts-section">
-        <h2>Debug Artifacts</h2>
-        <ArtifactLinks snapshot={snapshot} />
-      </section>
     </div>
   );
 }

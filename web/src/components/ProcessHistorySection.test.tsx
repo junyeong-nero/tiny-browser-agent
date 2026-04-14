@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ArtifactClientProvider } from '../api/ArtifactClientContext';
@@ -10,7 +10,7 @@ describe('ProcessHistorySection', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders a single disclosure without phase metadata', () => {
+  it('shows the latest action first and keeps an empty previous-history disclosure', () => {
     render(
       <ArtifactClientProvider client={httpArtifactClient}>
         <ProcessHistorySection
@@ -35,12 +35,18 @@ describe('ProcessHistorySection', () => {
       </ArtifactClientProvider>,
     );
 
-    expect(screen.getByText('전체 과정 보기')).toBeInTheDocument();
-    expect(screen.getByText('Step 1')).toBeInTheDocument();
-    expect(screen.getByText('Opened the site')).toBeInTheDocument();
+    const recentSection = screen.getByText('최근 행동').closest('section')!;
+    expect(screen.getByText('최근 행동')).toBeInTheDocument();
+    expect(within(recentSection).getAllByText('Step 1')).toHaveLength(2);
+    expect(within(recentSection).getByText('행동 요약')).toBeInTheDocument();
+    expect(within(recentSection).getByText('이유')).toBeInTheDocument();
+    expect(within(recentSection).getByText('이유 정보가 아직 없습니다.')).toBeInTheDocument();
+    expect(screen.getByText('이전 과정 보기')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('이전 과정 보기'));
+    expect(screen.getByText('이전 과정이 없습니다.')).toBeInTheDocument();
   });
 
-  it('foregrounds summarized reason text and tucks raw reasoning behind a disclosure', async () => {
+  it('foregrounds the latest action and tucks secondary details behind disclosures', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({ ok: true, text: async () => '- link "Result"' }),
@@ -102,26 +108,35 @@ describe('ProcessHistorySection', () => {
       </ArtifactClientProvider>,
     );
 
-    const summaries = screen.getAllByText(/항공편 탐색|요금 검토/);
-    expect(summaries[0]).toHaveTextContent('항공편 탐색');
-    expect(summaries[1]).toHaveTextContent('요금 검토');
-    expect(screen.getByText('항공편 선택')).toBeInTheDocument();
-    expect(screen.getAllByText('OpenRouter 요약')).toHaveLength(2);
+    const recentSection = screen.getByText('최근 행동').closest('section')!;
+    expect(screen.getByText('최근 행동')).toBeInTheDocument();
+    expect(within(recentSection).getByText('행동 요약')).toBeInTheDocument();
+    expect(within(recentSection).getByText('요금 검토')).toBeInTheDocument();
+    expect(within(recentSection).getByText('이유')).toBeInTheDocument();
+    expect(within(recentSection).getByText('선택한 항공편의 가격 조건을 확인했습니다.')).toBeInTheDocument();
+    expect(screen.queryByText('항공편 선택')).not.toBeInTheDocument();
+    expect(screen.queryByText('검색 결과를 검토한 뒤 원하는 항공편 카드의 CTA를 클릭했습니다.')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('세부 정보 보기'));
+    expect(screen.getByText('Reviewed the fare')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('이전 과정 보기'));
     expect(screen.getByText('원하는 항공편 상세 정보로 이동하기 위해 선택했습니다.')).toBeInTheDocument();
-    expect(screen.getByText('선택한 항공편의 가격 조건을 확인했습니다.')).toBeInTheDocument();
-    fireEvent.click(screen.getAllByText('원문 reasoning 보기')[0]);
+    expect(screen.getAllByText('항공편 선택')).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: '세부 정보 보기' }));
     expect(
       screen.getByText('검색 결과를 검토한 뒤 원하는 항공편 카드의 CTA를 클릭했습니다.'),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: '이 시점 보기' })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: '이 시점 보기' })[1]);
     expect(onSelectStepPreview).toHaveBeenCalledWith(2);
     fireEvent.click(screen.getByRole('button', { name: 'A11y 보기' }));
     expect(screen.getByText('검토가 필요한 선택입니다.')).toBeInTheDocument();
     expect(await screen.findByText('- link "Result"')).toBeInTheDocument();
   });
 
-  it('groups backend process history by run id', () => {
+  it('keeps older run history behind a disclosure and labels multiple runs', () => {
     render(
       <ArtifactClientProvider client={httpArtifactClient}>
         <ProcessHistorySection
@@ -185,9 +200,12 @@ describe('ProcessHistorySection', () => {
       </ArtifactClientProvider>,
     );
 
+    expect(screen.getAllByText('Step 2')).toHaveLength(2);
+    expect(screen.getByText('행동 요약')).toBeInTheDocument();
+    expect(screen.queryByText('Run 1')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('이전 과정 보기'));
     expect(screen.getByText('Run 1')).toBeInTheDocument();
-    expect(screen.getByText('Run 2')).toBeInTheDocument();
-    expect(screen.getAllByText('첫 번째 실행')).toHaveLength(2);
-    expect(screen.getAllByText('두 번째 실행')).toHaveLength(2);
+    expect(screen.getByText('검색')).toBeInTheDocument();
+    expect(screen.getByText('Step 1')).toBeInTheDocument();
   });
 });

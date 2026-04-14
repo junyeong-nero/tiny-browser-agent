@@ -96,8 +96,8 @@ describe('App focus shortcuts', () => {
 
     fireEvent.keyDown(window, { altKey: true, key: '2' });
     await waitFor(() => {
-      expect(screen.getByText('패널 이동').closest('.verification-sidebar')).toHaveFocus();
-      expect(screen.getByText('패널 이동').closest('.verification-sidebar')).toHaveAttribute('data-focus-active', 'true');
+      expect(screen.getByText('지금 상태').closest('.verification-sidebar')).toHaveFocus();
+      expect(screen.getByText('지금 상태').closest('.verification-sidebar')).toHaveAttribute('data-focus-active', 'true');
     });
 
     fireEvent.keyDown(window, { altKey: true, key: '3' });

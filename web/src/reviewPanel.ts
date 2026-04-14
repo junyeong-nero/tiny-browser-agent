@@ -10,7 +10,7 @@ export interface StepGroup {
   steps: StepRecord[];
 }
 
-export interface RunGroup<TGroup extends StepGroup | VerificationGroup = StepGroup | VerificationGroup> {
+export interface RunGroup<TGroup extends StepGroup = StepGroup> {
   id: string;
   runId: string | null;
   label: string;
@@ -36,6 +36,22 @@ export function getRunSummary(snapshot: SessionSnapshot | null | undefined): str
   }
 
   return snapshot.run_summary ?? snapshot.final_reasoning ?? snapshot.last_reasoning ?? null;
+}
+
+export function getLatestActionStepSummary(
+  steps: StepRecord[],
+  groupedSteps?: VerificationGroup[] | null,
+): string | null {
+  const latestStepFromSteps = steps[steps.length - 1];
+  const latestGroup = groupedSteps?.[groupedSteps.length - 1];
+  const latestStepFromGroups = latestGroup?.steps[latestGroup.steps.length - 1];
+  const latestStep = latestStepFromSteps ?? latestStepFromGroups ?? null;
+
+  if (!latestStep) {
+    return null;
+  }
+
+  return latestStep.action_summary ?? latestStep.user_visible_label ?? null;
 }
 
 export function getFinalResultSummary(snapshot: SessionSnapshot | null | undefined): string | null {
@@ -119,7 +135,7 @@ export function groupStepsForDisplay(steps: StepRecord[]): StepGroup[] {
     groups.push({
       id: phaseId,
       run_id: step.run_id ?? null,
-      label: step.phase_label ?? step.user_visible_label ?? `Step ${step.step_id}`,
+      label: step.user_visible_label ?? step.action_summary ?? step.phase_label ?? `Step ${step.step_id}`,
       summary: step.phase_summary ?? null,
       steps: [step],
     });
@@ -131,9 +147,15 @@ export function groupStepsForDisplay(steps: StepRecord[]): StepGroup[] {
 export function getProcessGroups(
   groupedSteps: VerificationGroup[] | null | undefined,
   steps: StepRecord[],
-): Array<StepGroup | VerificationGroup> {
+): StepGroup[] {
   if (groupedSteps && groupedSteps.length > 0) {
-    return groupedSteps;
+    return groupedSteps.map((group) => ({
+      id: group.id,
+      run_id: group.run_id ?? null,
+      label: group.label,
+      summary: group.summary ?? null,
+      steps: group.steps,
+    }));
   }
   return groupStepsForDisplay(steps);
 }
@@ -151,17 +173,20 @@ function getRunLabel(runId: string | null, index: number): string {
 }
 
 export function groupProcessGroupsByRun(
-  groupedSteps: VerificationGroup[] | null | undefined,
-  steps: StepRecord[],
+  groupedSteps: VerificationGroup[] | StepGroup[] | null | undefined,
+  steps: StepRecord[] = [],
 ): RunGroup[] {
-  const groups = getProcessGroups(groupedSteps, steps);
+  const groups =
+    Array.isArray(groupedSteps) && groupedSteps.length > 0 && !('step_ids' in groupedSteps[0])
+      ? (groupedSteps as StepGroup[])
+      : getProcessGroups(groupedSteps as VerificationGroup[] | null | undefined, steps);
   if (groups.length === 0) {
     return [];
   }
 
   const runGroups: RunGroup[] = [];
   for (const group of groups) {
-    const runId = ('run_id' in group ? group.run_id : null) ?? group.steps[0]?.run_id ?? null;
+    const runId = group.run_id ?? group.steps[0]?.run_id ?? null;
     const previousRunGroup = runGroups[runGroups.length - 1];
     if (previousRunGroup && previousRunGroup.runId === runId) {
       previousRunGroup.groups.push(group);
