@@ -34,7 +34,7 @@ from action_review import (
     AmbiguityCandidate,
     detect_ambiguity_candidate,
 )
-from action_step_summarizer import OpenRouterActionStepSummarizer
+from action_step_summarizer import ActionStepSummarizer
 from computers import EnvState, Computer
 from llm import LLMClient
 from tool_calling import (
@@ -70,7 +70,7 @@ class BrowserAgent:
         verbose: bool = True,
         llm_client: Optional[LLMClient] = None,
         event_sink: Optional[Callable[[dict[str, Any]], None]] = None,
-        step_summarizer: OpenRouterActionStepSummarizer | None = _UNSET_STEP_SUMMARIZER,  # type: ignore[assignment]
+        step_summarizer: ActionStepSummarizer | None = _UNSET_STEP_SUMMARIZER,  # type: ignore[assignment]
     ):
         self._browser_computer = browser_computer
         self._query = query
@@ -83,7 +83,7 @@ class BrowserAgent:
         self._custom_functions = [multiply_numbers]
         self._step_review_metadata: dict[int, dict[str, Any]] = {}
         if step_summarizer is _UNSET_STEP_SUMMARIZER:
-            step_summarizer = OpenRouterActionStepSummarizer.from_env()
+            step_summarizer = ActionStepSummarizer.from_env()
         self._tool_executor = BrowserToolExecutor(
             browser_computer=self._browser_computer,
             custom_functions=self._custom_functions,

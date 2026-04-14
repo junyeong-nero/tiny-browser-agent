@@ -6,7 +6,8 @@ from unittest.mock import patch
 from google.genai import types
 
 from action_review import ActionReviewService
-from action_step_summarizer import ActionStepSummary, OpenRouterActionStepSummarizer
+from action_step_summarizer import ActionStepSummary, ActionStepSummarizer
+from llm.provider.openai import OpenAIProvider
 from llm.provider.openrouter import OpenRouterProvider
 
 
@@ -33,7 +34,7 @@ class TestOpenRouterProvider(unittest.TestCase):
 
         provider = OpenRouterProvider(api_key="test-key", timeout_seconds=3)
         text = provider.generate_text(
-            model="google/gemma-4-31b-it:free",
+            model="gpt-4o-mini",
             system_prompt="system",
             prompt="prompt",
             max_tokens=64,
@@ -47,10 +48,56 @@ class TestOpenRouterProvider(unittest.TestCase):
         )
         http_request = mock_urlopen.call_args.args[0]
         request_body = json.loads(http_request.data.decode("utf-8"))
-        self.assertEqual(request_body["model"], "google/gemma-4-31b-it:free")
+        self.assertEqual(request_body["model"], "gpt-4o-mini")
         self.assertEqual(request_body["messages"][0], {"role": "system", "content": "system"})
         self.assertEqual(request_body["messages"][1], {"role": "user", "content": "prompt"})
         self.assertEqual(request_body["response_format"], {"type": "json_object"})
+
+
+class TestOpenAIProvider(unittest.TestCase):
+    def test_openai_provider_requires_api_key(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "OPENAI_API_KEY"):
+                OpenAIProvider.from_env()
+
+    @patch("llm.provider.openai.request.urlopen")
+    def test_generate_text_builds_chat_completion_request(self, mock_urlopen):
+        response_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"action_summary":"검색창 클릭","reason":"검색어를 입력하려고 했습니다."}',
+                    }
+                }
+            ]
+        }
+        mock_urlopen.return_value.__enter__.return_value.read.return_value = json.dumps(
+            response_payload
+        ).encode("utf-8")
+
+        provider = OpenAIProvider(api_key="test-key", timeout_seconds=3)
+        text = provider.generate_text(
+            model="gpt-4o-mini",
+            system_prompt="system",
+            prompt="prompt",
+            max_tokens=64,
+            temperature=0,
+            response_format={"type": "json_schema", "json_schema": {"name": "summary", "schema": {}}},
+        )
+
+        self.assertEqual(
+            text,
+            '{"action_summary":"검색창 클릭","reason":"검색어를 입력하려고 했습니다."}',
+        )
+        http_request = mock_urlopen.call_args.args[0]
+        request_body = json.loads(http_request.data.decode("utf-8"))
+        self.assertEqual(request_body["model"], "gpt-4o-mini")
+        self.assertEqual(request_body["messages"][0], {"role": "system", "content": "system"})
+        self.assertEqual(request_body["messages"][1], {"role": "user", "content": "prompt"})
+        self.assertEqual(
+            request_body["response_format"],
+            {"type": "json_schema", "json_schema": {"name": "summary", "schema": {}}},
+        )
 
 
 class _FakeStepSummarizer:
@@ -137,23 +184,110 @@ class TestActionReviewServiceSummarizer(unittest.TestCase):
         self.assertEqual(persisted_metadata["summary_source"], "app_derived")
 
 
-class TestOpenRouterActionStepSummarizer(unittest.TestCase):
+class TestActionStepSummarizer(unittest.TestCase):
+    @patch("action_step_summarizer.OpenAIProvider.from_env")
     @patch("action_step_summarizer.OpenRouterProvider.from_env")
-    def test_from_env_returns_none_when_disabled(self, mock_provider_from_env):
+    def test_from_env_returns_none_when_disabled(
+        self,
+        mock_openrouter_provider_from_env,
+        mock_openai_provider_from_env,
+    ):
         with patch.dict(os.environ, {}, clear=True):
-            summarizer = OpenRouterActionStepSummarizer.from_env()
+            summarizer = ActionStepSummarizer.from_env()
 
         self.assertIsNone(summarizer)
-        mock_provider_from_env.assert_not_called()
+        mock_openrouter_provider_from_env.assert_not_called()
+        mock_openai_provider_from_env.assert_not_called()
 
+    @patch("action_step_summarizer.OpenAIProvider.from_env")
     @patch("action_step_summarizer.OpenRouterProvider.from_env")
-    def test_from_env_requires_supported_provider(self, mock_provider_from_env):
+    def test_from_env_requires_supported_provider(
+        self,
+        mock_openrouter_provider_from_env,
+        mock_openai_provider_from_env,
+    ):
         with patch.dict(
             os.environ,
             {"ACTION_SUMMARY_PROVIDER": "unsupported"},
             clear=True,
         ):
             with self.assertRaisesRegex(ValueError, "Unsupported ACTION_SUMMARY_PROVIDER"):
-                OpenRouterActionStepSummarizer.from_env()
+                ActionStepSummarizer.from_env()
 
-        mock_provider_from_env.assert_not_called()
+        mock_openrouter_provider_from_env.assert_not_called()
+        mock_openai_provider_from_env.assert_not_called()
+
+    @patch("action_step_summarizer.OpenAIProvider.from_env")
+    def test_from_env_uses_openai_provider(self, mock_provider_from_env):
+        provider = object()
+        mock_provider_from_env.return_value = provider
+
+        with patch.dict(
+            os.environ,
+            {
+                "ACTION_SUMMARY_PROVIDER": "openai",
+                "ACTION_SUMMARY_MODEL": "gpt-4o-mini",
+            },
+            clear=True,
+        ):
+            summarizer = ActionStepSummarizer.from_env()
+
+        if summarizer is None:
+            self.fail("Expected ActionStepSummarizer.from_env() to return a summarizer")
+        self.assertIs(summarizer._provider, provider)
+        self.assertEqual(summarizer._model, "gpt-4o-mini")
+        mock_provider_from_env.assert_called_once_with()
+
+    @patch("action_step_summarizer.OpenAIProvider.from_env")
+    @patch("action_step_summarizer.OpenRouterProvider.from_env")
+    def test_from_env_infers_openai_provider_from_api_key(
+        self,
+        mock_openrouter_provider_from_env,
+        mock_openai_provider_from_env,
+    ):
+        provider = object()
+        mock_openai_provider_from_env.return_value = provider
+
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "test-key",
+            },
+            clear=True,
+        ):
+            summarizer = ActionStepSummarizer.from_env()
+
+        if summarizer is None:
+            self.fail("Expected ActionStepSummarizer.from_env() to infer OpenAI from OPENAI_API_KEY")
+        self.assertIs(summarizer._provider, provider)
+        self.assertEqual(summarizer._model, "gpt-4o-mini")
+        self.assertEqual(summarizer._summary_source, "openai")
+        mock_openai_provider_from_env.assert_called_once_with()
+        mock_openrouter_provider_from_env.assert_not_called()
+
+    @patch("action_step_summarizer.OpenAIProvider.from_env")
+    @patch("action_step_summarizer.OpenRouterProvider.from_env")
+    def test_from_env_infers_openrouter_provider_from_api_key(
+        self,
+        mock_openrouter_provider_from_env,
+        mock_openai_provider_from_env,
+    ):
+        provider = object()
+        mock_openrouter_provider_from_env.return_value = provider
+
+        with patch.dict(
+            os.environ,
+            {
+                "OPENROUTER_API_KEY": "test-key",
+            },
+            clear=True,
+        ):
+            summarizer = ActionStepSummarizer.from_env()
+
+        if summarizer is None:
+            self.fail("Expected ActionStepSummarizer.from_env() to infer OpenRouter from OPENROUTER_API_KEY")
+        self.assertIs(summarizer._provider, provider)
+        self.assertEqual(summarizer._model, "gpt-4o-mini")
+        self.assertEqual(summarizer._summary_source, "openrouter")
+        mock_openrouter_provider_from_env.assert_called_once_with()
+        mock_openai_provider_from_env.assert_not_called()

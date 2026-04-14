@@ -3,7 +3,11 @@ from typing import Any, Optional
 
 from google.genai import types
 
-from action_step_summarizer import ActionStepSummary, OpenRouterActionStepSummarizer
+from action_step_summarizer import (
+    ActionStepSummary,
+    ActionStepSummarizer,
+    ActionStepSummarizerProtocol,
+)
 
 
 NAVIGATION_ACTION_NAMES = {
@@ -90,7 +94,7 @@ class ActionReviewService:
     def __init__(
         self,
         query: str,
-        step_summarizer: OpenRouterActionStepSummarizer | None = None,
+        step_summarizer: ActionStepSummarizerProtocol | None = None,
     ):
         self._query = query
         self._action_review_history: list[ActionReviewContext] = []
