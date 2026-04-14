@@ -45,6 +45,9 @@ export interface StepRecord {
   phase_id?: string | null;
   phase_label?: string | null;
   phase_summary?: string | null;
+  action_summary?: string | null;
+  reason?: string | null;
+  summary_source?: string | null;
   user_visible_label?: string | null;
   ambiguity_flag?: boolean | null;
   ambiguity_type?: string | null;

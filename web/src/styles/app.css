@@ -340,15 +340,70 @@ button:disabled {
 .step-header {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   margin-bottom: 8px;
   font-size: 14px;
   font-weight: 500;
 }
 
+.step-header-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.step-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background-color: #e5e7eb;
+  color: #374151;
+}
+
+.step-summary-badge.source-openrouter {
+  background-color: #ede9fe;
+  color: #6d28d9;
+}
+
+.step-summary-block {
+  margin-bottom: 8px;
+}
+
+.step-summary-label {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 .step-reasoning {
   font-size: 14px;
   color: #4b5563;
+  line-height: 1.5;
+}
+
+.step-raw-reasoning {
   margin-bottom: 8px;
+}
+
+.step-raw-reasoning summary {
+  cursor: pointer;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+.step-raw-reasoning-text {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 .step-actions {

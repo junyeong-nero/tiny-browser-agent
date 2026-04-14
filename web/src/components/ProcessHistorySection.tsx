@@ -43,6 +43,19 @@ export function ProcessHistorySection({
                         const stepMetadataPath = step.metadata_path ?? null;
                         const isSelected =
                           previewMode.kind === 'step' && previewMode.stepId === step.step_id;
+                        const displayedSummary =
+                          step.action_summary ?? step.user_visible_label ?? `Step ${step.step_id}`;
+                        const displayedReason = step.reason ?? step.reasoning ?? null;
+                        const rawReasoning =
+                          step.reason && step.reasoning && step.reason !== step.reasoning
+                            ? step.reasoning
+                            : null;
+                        const summarySourceLabel =
+                          step.summary_source === 'openrouter'
+                            ? 'OpenRouter 요약'
+                            : step.summary_source
+                              ? '기본 요약'
+                              : null;
 
                       return (
                         <article
@@ -50,12 +63,28 @@ export function ProcessHistorySection({
                           className={`step-item status-${step.status} ${isSelected ? 'selected' : ''}`}
                         >
                           <div className="step-header">
-                            <span className="step-id">
-                              {step.user_visible_label ?? `Step ${step.step_id}`}
-                            </span>
+                            <div className="step-header-main">
+                              <span className="step-id">{displayedSummary}</span>
+                              {summarySourceLabel && (
+                                <span className={`step-summary-badge source-${step.summary_source ?? 'fallback'}`}>
+                                  {summarySourceLabel}
+                                </span>
+                              )}
+                            </div>
                             <span className="step-status">{step.status}</span>
                           </div>
-                          {step.reasoning && <div className="step-reasoning">{step.reasoning}</div>}
+                          {displayedReason && (
+                            <div className="step-summary-block">
+                              <div className="step-summary-label">이유</div>
+                              <div className="step-reasoning">{displayedReason}</div>
+                            </div>
+                          )}
+                          {rawReasoning && (
+                            <details className="step-raw-reasoning">
+                              <summary>원문 reasoning 보기</summary>
+                              <div className="step-raw-reasoning-text">{rawReasoning}</div>
+                            </details>
+                          )}
                           {step.ambiguity_message && (
                             <div className="step-ambiguity">{step.ambiguity_message}</div>
                           )}

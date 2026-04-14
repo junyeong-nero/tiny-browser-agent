@@ -36,10 +36,11 @@ describe('ProcessHistorySection', () => {
     );
 
     expect(screen.getByText('전체 과정 보기')).toBeInTheDocument();
+    expect(screen.getByText('Step 1')).toBeInTheDocument();
     expect(screen.getByText('Opened the site')).toBeInTheDocument();
   });
 
-  it('preserves backend phase order and handles step preview actions', async () => {
+  it('foregrounds summarized reason text and tucks raw reasoning behind a disclosure', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({ ok: true, text: async () => '- link "Result"' }),
@@ -55,7 +56,7 @@ describe('ProcessHistorySection', () => {
               step_id: 2,
               run_id: 'run-0001',
               timestamp: 2,
-              reasoning: 'Selected a flight',
+              reasoning: '검색 결과를 검토한 뒤 원하는 항공편 카드의 CTA를 클릭했습니다.',
               function_calls: [{ name: 'click_at', args: {} }],
               url: 'https://example.com/flight',
               status: 'complete',
@@ -69,6 +70,9 @@ describe('ProcessHistorySection', () => {
               phase_id: 'phase-search',
               phase_label: '항공편 탐색',
               phase_summary: '검색 결과를 살펴봤습니다.',
+              action_summary: '항공편 선택',
+              reason: '원하는 항공편 상세 정보로 이동하기 위해 선택했습니다.',
+              summary_source: 'openrouter',
               user_visible_label: '항공편 선택',
             },
             {
@@ -86,6 +90,9 @@ describe('ProcessHistorySection', () => {
               phase_id: 'phase-review',
               phase_label: '요금 검토',
               phase_summary: '가격 조건을 검토했습니다.',
+              action_summary: '요금 검토',
+              reason: '선택한 항공편의 가격 조건을 확인했습니다.',
+              summary_source: 'openrouter',
               user_visible_label: '요금 검토',
             },
           ]}
@@ -98,7 +105,15 @@ describe('ProcessHistorySection', () => {
     const summaries = screen.getAllByText(/항공편 탐색|요금 검토/);
     expect(summaries[0]).toHaveTextContent('항공편 탐색');
     expect(summaries[1]).toHaveTextContent('요금 검토');
-    
+    expect(screen.getByText('항공편 선택')).toBeInTheDocument();
+    expect(screen.getAllByText('OpenRouter 요약')).toHaveLength(2);
+    expect(screen.getByText('원하는 항공편 상세 정보로 이동하기 위해 선택했습니다.')).toBeInTheDocument();
+    expect(screen.getByText('선택한 항공편의 가격 조건을 확인했습니다.')).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText('원문 reasoning 보기')[0]);
+    expect(
+      screen.getByText('검색 결과를 검토한 뒤 원하는 항공편 카드의 CTA를 클릭했습니다.'),
+    ).toBeInTheDocument();
+
     fireEvent.click(screen.getAllByRole('button', { name: '이 시점 보기' })[0]);
     expect(onSelectStepPreview).toHaveBeenCalledWith(2);
     fireEvent.click(screen.getByRole('button', { name: 'A11y 보기' }));
@@ -131,6 +146,9 @@ describe('ProcessHistorySection', () => {
                   html_path: null,
                   metadata_path: null,
                   error_message: null,
+                  action_summary: null,
+                  reason: null,
+                  summary_source: null,
                 },
               ],
             },
@@ -153,6 +171,9 @@ describe('ProcessHistorySection', () => {
                   html_path: null,
                   metadata_path: null,
                   error_message: null,
+                  action_summary: null,
+                  reason: null,
+                  summary_source: null,
                 },
               ],
             },
