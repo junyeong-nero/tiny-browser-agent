@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Literal, Optional
 from urllib import error, request
 
+from .artifact_logger import ArtifactLogger
 from .computer import Computer, EnvState
 
 
@@ -142,11 +143,7 @@ class ElectronSurfaceComputer(Computer):
         self._screen_size = screen_size
         self._initial_url = initial_url
         self._search_engine_url = search_engine_url
-        self._log_dir = Path(log_dir) if log_dir else None
-        self._history_dir = self._log_dir / "history" if self._log_dir else None
-        self._video_dir = self._log_dir / "video" if self._log_dir else None
-        self._history_step = 0
-        self._latest_artifact_metadata: dict[str, Any] | None = None
+        self._artifact_logger = ArtifactLogger(log_dir=log_dir)
 
         if bridge_client is not None:
             self._bridge_client = bridge_client
@@ -252,26 +249,26 @@ class ElectronSurfaceComputer(Computer):
         return self._env_state_from_payload(self._bridge_client.current_state())
 
     def latest_artifact_metadata(self) -> dict[str, Any] | None:
-        if self._latest_artifact_metadata is None:
-            return None
-        return dict(self._latest_artifact_metadata)
+        return self._artifact_logger.latest_artifact_metadata()
 
     def history_dir(self) -> Optional[Path]:
-        return self._history_dir
+        return self._artifact_logger.history_dir()
 
     def video_dir(self) -> Optional[Path]:
-        return self._video_dir
+        return self._artifact_logger.video_dir()
 
     def finalize_video_artifact(self) -> None:
-        if not self._history_dir or not self._video_dir:
+        history_dir = self.history_dir()
+        video_dir = self.video_dir()
+        if not history_dir or not video_dir:
             return
 
-        session_video_path = self._video_dir / "session.webm"
+        session_video_path = video_dir / "session.webm"
         if session_video_path.exists():
             return
 
-        screenshot_pattern = self._history_dir / "step-%04d.png"
-        first_screenshot = self._history_dir / "step-0001.png"
+        screenshot_pattern = history_dir / "step-%04d.png"
+        first_screenshot = history_dir / "step-0001.png"
         if not first_screenshot.exists():
             return
 
@@ -309,6 +306,8 @@ class ElectronSurfaceComputer(Computer):
             raise ValueError("Electron surface payload is missing screenshot/url.")
 
         screenshot_bytes = base64.b64decode(screenshot_b64)
+        if not screenshot_bytes:
+            raise ValueError("Electron surface payload contained an empty screenshot.")
         html = payload.get("html")
         if html is not None and not isinstance(html, str):
             html = None
@@ -337,10 +336,7 @@ class ElectronSurfaceComputer(Computer):
         return EnvState(screenshot=screenshot_bytes, url=url)
 
     def _prepare_log_dirs(self) -> None:
-        if not self._history_dir or not self._video_dir:
-            return
-        self._history_dir.mkdir(parents=True, exist_ok=True)
-        self._video_dir.mkdir(parents=True, exist_ok=True)
+        self._artifact_logger.prepare_log_dirs()
 
     def _write_history_snapshot(
         self,
@@ -353,36 +349,30 @@ class ElectronSurfaceComputer(Computer):
         a11y_capture_status: str,
         a11y_capture_error: str | None,
     ) -> None:
-        if not self._history_dir:
-            self._latest_artifact_metadata = None
+        history_dir = self.history_dir()
+        if not history_dir:
             return
 
-        self._history_step += 1
-        step_name = f"step-{self._history_step:04d}"
-        screenshot_path = self._history_dir / f"{step_name}.png"
-        html_path = self._history_dir / f"{step_name}.html"
-        metadata_path = self._history_dir / f"{step_name}.json"
-        a11y_path = self._history_dir / f"{step_name}.a11y.yaml"
+        next_step = 1
+        latest_metadata = self.latest_artifact_metadata()
+        if latest_metadata is not None:
+            next_step = int(latest_metadata["step"]) + 1
+        step_name = f"step-{next_step:04d}"
+        a11y_path = history_dir / f"{step_name}.a11y.yaml"
 
-        screenshot_path.write_bytes(screenshot_bytes)
-        if html is not None:
-            html_path.write_text(html, encoding="utf-8")
         persisted_a11y_path = None
         if a11y_text is not None:
             a11y_path.write_text(a11y_text, encoding="utf-8")
             persisted_a11y_path = a11y_path.name
 
-        metadata = {
-            "step": self._history_step,
-            "timestamp": time.time(),
-            "url": url,
-            "html_path": html_path.name if html is not None else None,
-            "screenshot_path": screenshot_path.name,
-            "a11y_path": persisted_a11y_path,
-            "a11y_source": a11y_source,
-            "a11y_capture_status": a11y_capture_status,
-            "a11y_capture_error": a11y_capture_error,
-            "metadata_path": metadata_path.name,
-        }
-        metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-        self._latest_artifact_metadata = metadata
+        self._artifact_logger.write_snapshot(
+            screenshot_bytes=screenshot_bytes,
+            url=url,
+            html=html,
+            a11y_path=persisted_a11y_path,
+            metadata_extra={
+                "a11y_source": a11y_source,
+                "a11y_capture_status": a11y_capture_status,
+                "a11y_capture_error": a11y_capture_error,
+            },
+        )

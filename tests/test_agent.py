@@ -397,6 +397,47 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(review_metadata["verification_items"], [{"id": "v1"}])
         self.assertEqual(review_metadata["phase_id"], "phase-input")
 
+    def test_build_review_metadata_for_action_creates_verification_item_for_typed_text_ambiguity(self):
+        review_metadata = self.agent._build_review_metadata_for_action(
+            step_id=1,
+            function_call_index=1,
+            function_call=types.FunctionCall(
+                name="type_text_at",
+                args={"x": 10, "y": 20, "text": "business class"},
+            ),
+            reasoning="I need to fill the seat class field.",
+            artifacts={
+                "a11y_path": "step-0001.a11y.yaml",
+                "url": "https://example.com/search",
+            },
+        )
+
+        self.assertTrue(review_metadata["ambiguity_flag"])
+        self.assertEqual(review_metadata["ambiguity_type"], "typed_text_not_in_query")
+        self.assertEqual(review_metadata["a11y_path"], "step-0001.a11y.yaml")
+        self.assertEqual(len(review_metadata["verification_items"]), 1)
+        verification_item = review_metadata["verification_items"][0]
+        self.assertEqual(verification_item["source_step_id"], 1)
+        self.assertEqual(verification_item["ambiguity_type"], "typed_text_not_in_query")
+        self.assertEqual(verification_item["a11y_path"], "step-0001.a11y.yaml")
+
+    def test_resolve_metadata_file_path_supports_relative_and_absolute_paths(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            history_dir = Path(tmp_dir)
+            absolute_metadata_path = history_dir / "absolute.json"
+            absolute_metadata_path.write_text("{}", encoding="utf-8")
+            self.mock_browser_computer.history_dir.return_value = history_dir
+
+            relative_path = self.agent._resolve_metadata_file_path(
+                {"metadata_path": "step-0001.json"}
+            )
+            absolute_path = self.agent._resolve_metadata_file_path(
+                {"metadata_path": str(absolute_metadata_path)}
+            )
+
+            self.assertEqual(relative_path, history_dir / "step-0001.json")
+            self.assertEqual(absolute_path, absolute_metadata_path)
+
     @patch("src.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_enriches_each_metadata_file_for_multiple_function_calls(
         self,

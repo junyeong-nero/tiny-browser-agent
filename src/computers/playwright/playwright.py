@@ -11,13 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import json
-import os
 import sys
 import time
 from pathlib import Path
 from typing import Any, Literal, Optional, cast
 import termcolor
+from ..artifact_logger import ArtifactLogger
 from ..computer import (
     Computer,
     EnvState,
@@ -95,11 +94,7 @@ class PlaywrightComputer(Computer):
         self._search_engine_url = search_engine_url
         self._highlight_mouse = highlight_mouse
         self._headless = headless
-        self._log_dir = Path(log_dir) if log_dir else None
-        self._history_dir = self._log_dir / "history" if self._log_dir else None
-        self._video_dir = self._log_dir / "video" if self._log_dir else None
-        self._history_step = 0
-        self._latest_artifact_metadata: Optional[dict] = None
+        self._artifact_logger = ArtifactLogger(log_dir=log_dir)
 
     def _handle_new_page(self, new_page: playwright.sync_api.Page):
         """The Computer Use model only supports a single tab at the moment.
@@ -142,8 +137,9 @@ class PlaywrightComputer(Computer):
             },
         )
         context_kwargs: dict[str, Any] = {"viewport": viewport_size}
-        if self._video_dir:
-            context_kwargs["record_video_dir"] = str(self._video_dir)
+        video_dir = self.video_dir()
+        if video_dir:
+            context_kwargs["record_video_dir"] = str(video_dir)
             context_kwargs["record_video_size"] = viewport_size
         self._context = self._browser.new_context(**context_kwargs)
         self._page = self._context.new_page()
@@ -156,8 +152,9 @@ class PlaywrightComputer(Computer):
             color="green",
             attrs=["bold"],
         )
-        if self._log_dir:
-            print(f"Logging Playwright history to {self._log_dir}")
+        history_dir = self.history_dir()
+        if history_dir:
+            print(f"Logging Playwright history to {history_dir.parent}")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -377,26 +374,21 @@ class PlaywrightComputer(Computer):
         time.sleep(1)
 
     def _prepare_log_dirs(self):
-        if not self._log_dir or self._history_dir is None or self._video_dir is None:
-            return
-        self._log_dir.mkdir(parents=True, exist_ok=True)
-        self._history_dir.mkdir(parents=True, exist_ok=True)
-        self._video_dir.mkdir(parents=True, exist_ok=True)
+        self._artifact_logger.prepare_log_dirs()
 
     def latest_artifact_metadata(self) -> Optional[dict]:
-        if not self._latest_artifact_metadata:
-            return None
-        return dict(self._latest_artifact_metadata)
+        return self._artifact_logger.latest_artifact_metadata()
 
     def history_dir(self) -> Optional[Path]:
-        return self._history_dir
+        return self._artifact_logger.history_dir()
 
     def video_dir(self) -> Optional[Path]:
-        return self._video_dir
+        return self._artifact_logger.video_dir()
 
     def _capture_a11y_snapshot(self, step_name: str) -> dict[str, Any]:
         a11y_source = "body_locator_aria_snapshot"
-        if not self._history_dir:
+        history_dir = self.history_dir()
+        if not history_dir:
             return {
                 "a11y_path": None,
                 "a11y_source": a11y_source,
@@ -404,7 +396,7 @@ class PlaywrightComputer(Computer):
                 "a11y_capture_error": None,
             }
 
-        a11y_path = self._history_dir / f"{step_name}.a11y.yaml"
+        a11y_path = history_dir / f"{step_name}.a11y.yaml"
         try:
             aria_snapshot = self._page.locator("body").aria_snapshot()
             a11y_path.write_text(aria_snapshot, encoding="utf-8")
@@ -424,40 +416,25 @@ class PlaywrightComputer(Computer):
         }
 
     def _write_history_snapshot(self, screenshot_bytes: bytes):
-        if not self._history_dir:
+        history_dir = self.history_dir()
+        if not history_dir:
             return
 
         self._prepare_log_dirs()
-        self._history_step += 1
-        step_name = f"step-{self._history_step:04d}"
-        screenshot_path = self._history_dir / f"{step_name}.png"
-        html_path = self._history_dir / f"{step_name}.html"
-        metadata_path = self._history_dir / f"{step_name}.json"
+        next_step = 1
+        latest_metadata = self.latest_artifact_metadata()
+        if latest_metadata is not None:
+            next_step = int(latest_metadata["step"]) + 1
+        step_name = f"step-{next_step:04d}"
         a11y_metadata = self._capture_a11y_snapshot(step_name)
-
-        screenshot_path.write_bytes(screenshot_bytes)
-        html_path.write_text(self._page.content(), encoding="utf-8")
-        metadata_path.write_text(
-            json.dumps(
-                {
-                    "step": self._history_step,
-                    "timestamp": time.time(),
-                    "url": self._page.url,
-                    "html_path": html_path.name,
-                    "screenshot_path": screenshot_path.name,
-                    **a11y_metadata,
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
+        self._artifact_logger.write_snapshot(
+            screenshot_bytes=screenshot_bytes,
+            url=self._page.url,
+            html=self._page.content(),
+            a11y_path=a11y_metadata["a11y_path"],
+            metadata_extra={
+                "a11y_source": a11y_metadata["a11y_source"],
+                "a11y_capture_status": a11y_metadata["a11y_capture_status"],
+                "a11y_capture_error": a11y_metadata["a11y_capture_error"],
+            },
         )
-        self._latest_artifact_metadata = {
-            "step": self._history_step,
-            "timestamp": time.time(),
-            "url": self._page.url,
-            "html_path": html_path.name,
-            "screenshot_path": screenshot_path.name,
-            "metadata_path": metadata_path.name,
-            "a11y_path": a11y_metadata["a11y_path"],
-        }

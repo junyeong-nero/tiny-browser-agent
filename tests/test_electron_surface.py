@@ -200,3 +200,25 @@ class TestElectronSurfaceComputer(unittest.TestCase):
             state = computer.wait_5_seconds()
 
         self.assertEqual(state.url, "https://example.com/current")
+
+    def test_empty_screenshot_payload_raises_clear_error(self):
+        bridge_client = FakeElectronBridgeClient()
+        bridge_client.current_state = lambda: {
+            "a11yCaptureError": None,
+            "a11yCaptureStatus": "captured",
+            "a11ySource": "dom_accessibility_outline",
+            "a11yText": "- body\n  - button: Continue",
+            "screenshotBase64": "",
+            "url": "https://example.com/current",
+            "html": "<html>current</html>",
+            "width": 1200,
+            "height": 800,
+        }
+
+        with ElectronSurfaceComputer(
+            screen_size=(1440, 900),
+            initial_url="https://example.com/start",
+            bridge_client=cast(ElectronCommandClient, bridge_client),
+        ) as computer:
+            with self.assertRaisesRegex(ValueError, "empty screenshot"):
+                computer.current_state()
