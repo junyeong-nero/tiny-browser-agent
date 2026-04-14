@@ -2,25 +2,25 @@ import { useCallback, useEffect, useState, type RefObject } from 'react';
 
 import { getFocusShortcutRegion, type FocusRegion } from '../focus/focusManager';
 
+const DESKTOP_FOCUS_REGION_EVENT = 'computer-use:focus-region';
+
 interface UseFocusRegionsOptions {
-  browserPaneRef: RefObject<HTMLDivElement>;
+  browserPaneRef: RefObject<HTMLElement>;
   verificationPanelRef: RefObject<HTMLDivElement>;
   chatInputRef: RefObject<HTMLInputElement>;
-  focusBrowserSurface: () => Promise<void>;
 }
 
 export function useFocusRegions({
   browserPaneRef,
   verificationPanelRef,
   chatInputRef,
-  focusBrowserSurface,
 }: UseFocusRegionsOptions) {
   const [focusedRegion, setFocusedRegion] = useState<FocusRegion | null>(null);
 
   const focusBrowserPane = useCallback(() => {
     setFocusedRegion('browser');
-    void focusBrowserSurface();
-  }, [focusBrowserSurface]);
+    browserPaneRef.current?.focus();
+  }, [browserPaneRef]);
 
   const focusVerificationPanel = useCallback(() => {
     setFocusedRegion('verification');
@@ -73,6 +73,28 @@ export function useFocusRegions({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [focusBrowserPane, focusChatInput, focusVerificationPanel]);
+
+  useEffect(() => {
+    const handleDesktopFocusRegion = (event: Event) => {
+      const region = (event as CustomEvent<FocusRegion>).detail;
+      if (region === 'browser') {
+        focusBrowserPane();
+        return;
+      }
+      if (region === 'verification') {
+        focusVerificationPanel();
+        return;
+      }
+      if (region === 'chat') {
+        focusChatInput();
+      }
+    };
+
+    window.addEventListener(DESKTOP_FOCUS_REGION_EVENT, handleDesktopFocusRegion as EventListener);
+    return () => {
+      window.removeEventListener(DESKTOP_FOCUS_REGION_EVENT, handleDesktopFocusRegion as EventListener);
+    };
   }, [focusBrowserPane, focusChatInput, focusVerificationPanel]);
 
   return {

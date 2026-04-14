@@ -82,6 +82,7 @@ class BrowserAgent:
         self._step_id = 0
         self._custom_functions = [multiply_numbers]
         self._step_review_metadata: dict[int, dict[str, Any]] = {}
+        self._latest_url: str | None = None
         if step_summarizer is _UNSET_STEP_SUMMARIZER:
             step_summarizer = ActionStepSummarizer.from_env()
         self._tool_executor = BrowserToolExecutor(
@@ -173,7 +174,7 @@ class BrowserAgent:
                 "verification_items",
                 [],
             ),
-            run_summary=reasoning,
+            run_summary=final_result_summary or reasoning,
             final_result_summary=final_result_summary,
             ambiguity_flag=step_review_metadata.get("ambiguity_flag"),
             ambiguity_type=step_review_metadata.get("ambiguity_type"),
@@ -226,11 +227,23 @@ class BrowserAgent:
 
     def get_text(self, candidate: Candidate) -> Optional[str]:
         """Extracts the text from the candidate."""
+        return self._collect_text(candidate, include_thoughts=True)
+
+    def get_visible_text(self, candidate: Candidate) -> Optional[str]:
+        """Extracts only user-visible text from the candidate."""
+        return self._collect_text(candidate, include_thoughts=False)
+
+    def _collect_text(
+        self,
+        candidate: Candidate,
+        *,
+        include_thoughts: bool,
+    ) -> Optional[str]:
         if not candidate.content or not candidate.content.parts:
             return None
         text = []
         for part in candidate.content.parts:
-            if part.text:
+            if part.text and (include_thoughts or not getattr(part, "thought", False)):
                 text.append(part.text)
         return " ".join(text) or None
 
@@ -272,7 +285,7 @@ class BrowserAgent:
         self,
         step_id: int,
         response: types.GenerateContentResponse,
-    ) -> tuple[Candidate, Optional[str], list[types.FunctionCall]]:
+    ) -> tuple[Candidate, Optional[str], Optional[str], list[types.FunctionCall]]:
         if not response.candidates:
             self._emit_event(
                 "step_error",
@@ -293,6 +306,7 @@ class BrowserAgent:
             self._contents.append(candidate.content)
 
         reasoning = self.get_text(candidate)
+        visible_text = self.get_visible_text(candidate)
         self._emit_event("reasoning_extracted", step_id=step_id, reasoning=reasoning)
         function_calls = self.extract_function_calls(candidate)
         self._emit_event(
@@ -306,7 +320,7 @@ class BrowserAgent:
                 for function_call in function_calls
             ],
         )
-        return candidate, reasoning, function_calls
+        return candidate, reasoning, visible_text, function_calls
 
     def _should_retry_malformed_function_call(
         self,
@@ -332,19 +346,25 @@ class BrowserAgent:
         self,
         step_id: int,
         reasoning: Optional[str],
+        visible_text: Optional[str],
     ) -> Literal["COMPLETE"]:
         print(f"Agent Loop Complete: {reasoning}")
-        self.final_reasoning = reasoning
+        final_reasoning = reasoning or visible_text
+        final_result_summary = self._review_service.build_final_result_summary(
+            final_response=visible_text or reasoning,
+            current_url=self._latest_url,
+        )
+        self.final_reasoning = final_reasoning
         self._emit_review_metadata(
             step_id=step_id,
             reasoning=reasoning,
-            final_result_summary=reasoning,
+            final_result_summary=final_result_summary,
         )
         self._emit_event(
             "step_complete",
             step_id=step_id,
             status="complete",
-            final_reasoning=reasoning,
+            final_reasoning=final_reasoning,
         )
         return "COMPLETE"
 
@@ -511,6 +531,7 @@ class BrowserAgent:
             ),
         )
         if is_env_state_result(fc_result):
+            self._latest_url = fc_result.url
             self._emit_event(
                 "action_executed",
                 step_id=step_id,
@@ -605,7 +626,7 @@ class BrowserAgent:
         if response is None:
             return "COMPLETE"
 
-        candidate, reasoning, function_calls = self._extract_candidate_turn(
+        candidate, reasoning, visible_text, function_calls = self._extract_candidate_turn(
             step_id,
             response,
         )
@@ -619,7 +640,7 @@ class BrowserAgent:
             return "CONTINUE"
 
         if not function_calls:
-            return self._complete_without_function_calls(step_id, reasoning)
+            return self._complete_without_function_calls(step_id, reasoning, visible_text)
 
         self._render_function_call_summary(reasoning, function_calls)
         batch_result = self._execute_function_calls(

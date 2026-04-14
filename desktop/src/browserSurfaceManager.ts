@@ -15,6 +15,16 @@ export interface ManagedBrowserSurfaceWindow {
   focus(): void;
 }
 
+export interface BrowserSurfaceBeforeInputEvent {
+  alt: boolean;
+  control: boolean;
+  key: string;
+  meta: boolean;
+  preventDefault(): void;
+  shift: boolean;
+  type: string;
+}
+
 
 type BrowserMouseEvent =
   | { type: 'mouseMove'; x: number; y: number }
@@ -38,6 +48,7 @@ export interface ManagedBrowserSurfaceWebContents {
   insertText(text: string): Promise<void> | void;
   loadURL(url: string): Promise<void>;
   observeTopLevelNavigations(listener: (url: string) => void): () => void;
+  observeBeforeInputEvents(listener: (event: BrowserSurfaceBeforeInputEvent) => void): () => void;
   runScript(code: string): Promise<unknown>;
   sendKeyEvent(event: BrowserKeyEvent): void;
   sendMouseEvent(event: BrowserMouseEvent): void;
@@ -112,6 +123,17 @@ export class BrowserSurfaceManager {
   async focus(): Promise<void> {
     this.browserSurfaceWindow?.focus();
     this.ensureView()?.webContents.focus();
+  }
+
+  observeBeforeInputEvents(
+    listener: (event: BrowserSurfaceBeforeInputEvent) => void,
+  ): () => void {
+    const browserSurfaceView = this.ensureView();
+    if (!browserSurfaceView) {
+      return () => {};
+    }
+
+    return browserSurfaceView.webContents.observeBeforeInputEvents(listener);
   }
 
   async setBounds(bounds: BrowserSurfaceBounds): Promise<void> {
@@ -383,6 +405,29 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
         return () => {
           browserSurfaceView.webContents.off('did-navigate', handleDidNavigate);
           browserSurfaceView.webContents.off('did-navigate-in-page', handleDidNavigateInPage);
+        };
+      },
+      observeBeforeInputEvents(listener) {
+        const handleBeforeInput = (
+          event: Electron.Event,
+          input: Electron.Input,
+        ) => {
+          listener({
+            alt: input.alt,
+            control: input.control,
+            key: input.key,
+            meta: input.meta,
+            preventDefault() {
+              event.preventDefault();
+            },
+            shift: input.shift,
+            type: input.type,
+          });
+        };
+
+        browserSurfaceView.webContents.on('before-input-event', handleBeforeInput);
+        return () => {
+          browserSurfaceView.webContents.off('before-input-event', handleBeforeInput);
         };
       },
       runScript(code) {

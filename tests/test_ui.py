@@ -318,6 +318,10 @@ class TestSessionController(unittest.TestCase):
                 "typed_text_not_in_query",
             )
             self.assertEqual([message.role for message in snapshot.messages], ["user", "assistant"])
+            self.assertEqual(
+                snapshot.messages[1].text,
+                "요청한 작업을 마쳤고 검토 항목 1개를 남겼습니다.",
+            )
             self.assertEqual(len(steps), 2)
             self.assertEqual(steps[0].run_id, "run-0001")
             self.assertEqual(steps[0].screenshot_path, "step-0001.png")
@@ -384,6 +388,10 @@ class TestSessionController(unittest.TestCase):
             self.assertEqual(snapshot.status, "waiting_for_input")
             self.assertEqual(snapshot.last_completed_run_id, "run-0002")
             self.assertEqual(snapshot.final_reasoning, "Handled follow up: follow up")
+            self.assertEqual(
+                snapshot.messages[-1].text,
+                "후속 요청을 처리했습니다: follow up",
+            )
             self.assertEqual(len(FakeComputer.instances), 1)
             self.assertEqual(FakeComputer.instances[0].enter_count, 1)
             self.assertEqual(FakeComputer.instances[0].exit_count, 0)
@@ -703,6 +711,10 @@ class TestSessionService(unittest.TestCase):
 
         self.assertEqual(snapshot.status, "waiting_for_input")
         self.assertEqual(snapshot.final_reasoning, "All done.")
+        self.assertEqual(
+            snapshot.messages[-1].text,
+            "요청한 작업을 마쳤고 검토 항목 1개를 남겼습니다.",
+        )
         self.assertEqual(len(steps), 2)
         self.assertEqual(len(verification.grouped_steps), 2)
         self.assertTrue(artifact_path.exists())

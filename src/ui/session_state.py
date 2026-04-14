@@ -99,8 +99,9 @@ class SessionState:
     def finalize_run(self, final_reasoning: str | None) -> None:
         if final_reasoning:
             self._latest_snapshot.final_reasoning = final_reasoning
-            if not self._assistant_message_emitted:
-                self._append_message("assistant", final_reasoning)
+            assistant_text = self._assistant_response_text(final_reasoning)
+            if assistant_text and not self._assistant_message_emitted:
+                self._append_message("assistant", assistant_text)
                 self._assistant_message_emitted = True
         self._touch_snapshot()
 
@@ -162,11 +163,12 @@ class SessionState:
             final_reasoning = event.get("final_reasoning")
             if final_reasoning:
                 self._latest_snapshot.final_reasoning = final_reasoning
-                self._latest_snapshot.run_summary = final_reasoning
                 if not self._latest_snapshot.final_result_summary:
                     self._latest_snapshot.final_result_summary = final_reasoning
-                if not self._assistant_message_emitted:
-                    self._append_message("assistant", final_reasoning)
+                self._latest_snapshot.run_summary = self._assistant_response_text(final_reasoning)
+                assistant_text = self._assistant_response_text(final_reasoning)
+                if assistant_text and not self._assistant_message_emitted:
+                    self._append_message("assistant", assistant_text)
                     self._assistant_message_emitted = True
         elif event_type == "step_error":
             step = self._get_step(step_id)
@@ -196,6 +198,9 @@ class SessionState:
         if screenshot is not None:
             self._latest_snapshot.latest_screenshot_b64 = encode_screenshot_base64(screenshot)
         self._resolve_verification_items()
+
+    def _assistant_response_text(self, final_reasoning: str | None = None) -> str | None:
+        return self._latest_snapshot.final_result_summary or final_reasoning
 
     def _append_message(
         self,

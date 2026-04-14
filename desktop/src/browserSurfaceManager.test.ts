@@ -20,8 +20,18 @@ function createMockEnvironment(currentUrl = 'about:blank') {
   const addedViews: Array<ManagedBrowserSurfaceView | ManagedBrowserSurfaceView['nativeView']> = [];
   const recordedBounds: Array<{ x: number; y: number; width: number; height: number }> = [];
   const loadedUrls: string[] = [];
+  const beforeInputListeners = new Set<(event: {
+    alt: boolean;
+    control: boolean;
+    key: string;
+    meta: boolean;
+    preventDefault(): void;
+    shift: boolean;
+    type: string;
+  }) => void>();
   const topLevelNavigationListeners = new Set<(url: string) => void>();
   let focused = 0;
+  let prevented = 0;
   let windowFocused = 0;
   let closed = 0;
   let url = currentUrl;
@@ -54,6 +64,12 @@ function createMockEnvironment(currentUrl = 'about:blank') {
       topLevelNavigationListeners.add(listener);
       return () => {
         topLevelNavigationListeners.delete(listener);
+      };
+    },
+    observeBeforeInputEvents(listener) {
+      beforeInputListeners.add(listener);
+      return () => {
+        beforeInputListeners.delete(listener);
       };
     },
     sendKeyEvent() {
@@ -91,10 +107,26 @@ function createMockEnvironment(currentUrl = 'about:blank') {
     focused: () => focused,
     loadedUrls,
     manager: new BrowserSurfaceManager(() => view),
+    emitBeforeInput(input: { alt?: boolean; control?: boolean; key: string; meta?: boolean; shift?: boolean; type?: string }) {
+      beforeInputListeners.forEach((listener) =>
+        listener({
+          alt: input.alt ?? false,
+          control: input.control ?? false,
+          key: input.key,
+          meta: input.meta ?? false,
+          preventDefault() {
+            prevented += 1;
+          },
+          shift: input.shift ?? false,
+          type: input.type ?? 'keyDown',
+        }),
+      );
+    },
     navigateTo(nextUrl: string) {
       url = nextUrl;
       topLevelNavigationListeners.forEach((listener) => listener(nextUrl));
     },
+    prevented: () => prevented,
     recordedBounds,
     view,
     window,
@@ -144,6 +176,28 @@ test('BrowserSurfaceManager focuses the hosted browser surface and window', asyn
 
   assert.equal(environment.windowFocused(), 1);
   assert.equal(environment.focused(), 1);
+});
+
+
+test('BrowserSurfaceManager forwards before-input events from the hosted browser surface', async () => {
+  const environment = createMockEnvironment();
+  let observedKey: string | null = null;
+
+  await environment.manager.attachWindow(environment.window);
+  const stopObserving = environment.manager.observeBeforeInputEvents((event) => {
+    observedKey = event.key;
+    event.preventDefault();
+  });
+
+  environment.emitBeforeInput({ control: true, key: '2' });
+
+  assert.equal(observedKey, '2');
+  assert.equal(environment.prevented(), 1);
+
+  stopObserving();
+  observedKey = null;
+  environment.emitBeforeInput({ control: true, key: '3' });
+  assert.equal(observedKey, null);
 });
 
 

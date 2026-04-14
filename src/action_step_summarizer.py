@@ -39,6 +39,14 @@ class ActionStepSummarizerProtocol(Protocol):
         current_url: str | None,
     ) -> ActionStepSummary | None: ...
 
+    def summarize_final_result(
+        self,
+        *,
+        query: str,
+        final_response: str | None,
+        current_url: str | None,
+    ) -> str | None: ...
+
 
 class ActionStepSummarizer:
     def __init__(
@@ -162,3 +170,65 @@ class ActionStepSummarizer:
             reason=" ".join(reason.split()),
             summary_source=self._summary_source,
         )
+
+    def summarize_final_result(
+        self,
+        *,
+        query: str,
+        final_response: str | None,
+        current_url: str | None,
+    ) -> str | None:
+        prompt_payload = {
+            "user_request": query,
+            "model_final_response": final_response,
+            "current_url": current_url,
+        }
+
+        try:
+            raw_response = self._provider.generate_text(
+                model=self._model,
+                system_prompt=(
+                    "You rewrite the browser agent's final outcome for end users. "
+                    "Return strict JSON only. "
+                    "Never mention internal deliberation, screenshots, waiting, or that you are an agent unless the user explicitly asked for that. "
+                    "Answer the user's request directly in concise Korean."
+                ),
+                prompt=(
+                    "Rewrite the final browser task outcome as the answer shown in chat.\n"
+                    "Return JSON with key final_result_summary.\n"
+                    "- final_result_summary: one concise Korean answer for the user's request.\n"
+                    "Do not narrate the browser process.\n"
+                    "If the model response is vague, infer conservatively from the request and visible result only.\n\n"
+                    f"{json.dumps(prompt_payload, ensure_ascii=False)}"
+                ),
+                max_tokens=120,
+                temperature=0,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "final_result_summary",
+                        "strict": True,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "final_result_summary": {"type": "string"},
+                            },
+                            "required": ["final_result_summary"],
+                            "additionalProperties": False,
+                        },
+                    },
+                },
+            )
+        except Exception:
+            return None
+
+        try:
+            parsed = json.loads(raw_response)
+        except json.JSONDecodeError:
+            return None
+
+        final_result_summary = parsed.get("final_result_summary")
+        if not isinstance(final_result_summary, str) or not final_result_summary.strip():
+            return None
+
+        return " ".join(final_result_summary.split())

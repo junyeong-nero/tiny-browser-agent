@@ -690,6 +690,83 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(events[-2]["phase_id"], "phase-complete")
 
     @patch("src.agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_builds_final_result_summary_for_chat(self, mock_get_model_response):
+        events = []
+        step_summarizer = MagicMock()
+        step_summarizer.summarize_final_result.return_value = (
+            "EXAONE 4.5 Hugging Face 페이지를 찾았습니다."
+        )
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="exaone 4.5 huggingface 찾아줘",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=step_summarizer,
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [
+                types.Part(
+                    text="I have evaluated the screenshot. Waiting again worked!",
+                    thought=True,
+                ),
+                types.Part(
+                    text=(
+                        "I have found the page for exaone 4.5 "
+                        "(LGAI-EXAONE/EXAONE-4.5-33B) on Hugging Face."
+                    )
+                ),
+            ]
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "COMPLETE")
+        review_event = next(
+            event for event in events if event["type"] == "review_metadata_extracted"
+        )
+        self.assertEqual(
+            review_event["final_result_summary"],
+            "EXAONE 4.5 Hugging Face 페이지를 찾았습니다.",
+        )
+        step_summarizer.summarize_final_result.assert_called_once()
+
+    @patch("src.agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_final_result_summary_falls_back_to_visible_text(
+        self,
+        mock_get_model_response,
+    ):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="exaone 4.5 huggingface 찾아줘",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [
+                types.Part(
+                    text="I have evaluated the screenshot. Waiting again worked!",
+                    thought=True,
+                ),
+                types.Part(text="EXAONE 4.5 Hugging Face 페이지를 찾았습니다."),
+            ]
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "COMPLETE")
+        review_event = next(
+            event for event in events if event["type"] == "review_metadata_extracted"
+        )
+        self.assertEqual(
+            review_event["final_result_summary"],
+            "EXAONE 4.5 Hugging Face 페이지를 찾았습니다.",
+        )
+
+    @patch("src.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_emits_runtime_phase_metadata_for_action_steps(
         self,
         mock_get_model_response,

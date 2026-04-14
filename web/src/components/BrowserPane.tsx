@@ -5,24 +5,24 @@ import type { StepRecord } from '../types/api';
 
 interface BrowserPaneProps {
   currentScreenshotB64: string | null | undefined;
-  currentUpdatedAt: number | null | undefined;
   selectedStep: StepRecord | null | undefined;
   sessionId: string | null | undefined;
   status: string | undefined;
   hasBrowserSurfaceBridge?: boolean;
   isFocused?: boolean;
-  paneRef?: Ref<HTMLDivElement>;
+  paneRef?: Ref<HTMLElement>;
+  surfaceRef?: Ref<HTMLDivElement>;
 }
 
 export function BrowserPane({
   currentScreenshotB64,
-  currentUpdatedAt,
   selectedStep,
   sessionId,
   status,
   hasBrowserSurfaceBridge = false,
   isFocused = false,
   paneRef,
+  surfaceRef,
 }: BrowserPaneProps) {
   const artifactClient = useArtifactClient();
   const [stepScreenshotB64, setStepScreenshotB64] = useState<string | null>(null);
@@ -79,8 +79,10 @@ export function BrowserPane({
   if (!isStepPreview && !currentPreviewSrc && !hasBrowserSurfaceBridge) {
     return (
       <section
+        ref={paneRef}
         className="browser-pane empty"
         tabIndex={-1}
+        role="region"
         aria-label="Browser surface"
         data-browser-surface-host="true"
         data-browser-surface-connected={hasBrowserSurfaceBridge ? 'true' : 'false'}
@@ -93,23 +95,30 @@ export function BrowserPane({
 
   return (
     <section
+      ref={paneRef}
       className="browser-pane"
       tabIndex={-1}
+      role="region"
       aria-label="Browser surface"
       data-browser-surface-host="true"
       data-browser-surface-connected={hasBrowserSurfaceBridge ? 'true' : 'false'}
       data-focus-active={isFocused ? 'true' : 'false'}
     >
       <div className="browser-pane-content">
-        <div className="browser-preview-label">
-          {isStepPreview ? `Inspection mode · Step ${selectedStep?.step_id}` : 'Live browser surface'}
-        </div>
+        {isStepPreview && (
+          <div className="browser-preview-label">
+            {`Inspection mode · Step ${selectedStep?.step_id}`}
+          </div>
+        )}
         {!isStepPreview && (
           <>
-            <div ref={paneRef} className="browser-surface-host" data-browser-surface-live={hasBrowserSurfaceBridge ? 'true' : 'false'} />
-            {hasBrowserSurfaceBridge ? (
-              <div className="browser-step-meta">Live surface connected through the desktop bridge.</div>
-            ) : currentPreviewSrc ? (
+            <div
+              ref={surfaceRef}
+              className="browser-surface-host"
+              data-browser-surface-live={hasBrowserSurfaceBridge ? 'true' : 'false'}
+              tabIndex={-1}
+            />
+            {!hasBrowserSurfaceBridge && currentPreviewSrc ? (
               <>
                 <img
                   src={currentPreviewSrc}
@@ -121,11 +130,6 @@ export function BrowserPane({
             ) : (
               <div className="browser-step-meta">
                 {status === 'running' ? 'Waiting for browser...' : 'No browser preview available'}
-              </div>
-            )}
-            {currentUpdatedAt != null && currentPreviewSrc && (
-              <div className="browser-updated-at">
-                Updated {new Date(currentUpdatedAt * 1000).toLocaleTimeString()}
               </div>
             )}
           </>

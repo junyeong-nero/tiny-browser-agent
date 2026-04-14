@@ -5,12 +5,23 @@ interface FocusShortcutEvent {
   altKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
+  shiftKey?: boolean;
   key: string;
 }
 
 
 export function getFocusShortcutRegion(event: FocusShortcutEvent): FocusRegion | null {
-  if (event.ctrlKey || event.metaKey || !event.altKey) {
+  const usesPrimaryModifier =
+    !event.altKey &&
+    !event.shiftKey &&
+    ((event.ctrlKey && !event.metaKey) || (!event.ctrlKey && event.metaKey));
+  const usesLegacyAltModifier =
+    event.altKey &&
+    !event.shiftKey &&
+    !event.ctrlKey &&
+    !event.metaKey;
+
+  if (!usesPrimaryModifier && !usesLegacyAltModifier) {
     return null;
   }
 

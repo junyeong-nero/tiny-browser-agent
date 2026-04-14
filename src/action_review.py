@@ -101,6 +101,23 @@ class ActionReviewService:
         self._step_summarizer = step_summarizer
         self._step_summary_cache: dict[tuple[int, int], ActionStepSummary] = {}
 
+    def build_final_result_summary(
+        self,
+        *,
+        final_response: str | None,
+        current_url: str | None,
+    ) -> str | None:
+        fallback_summary = self.clean_reasoning_text(final_response)
+        if self._step_summarizer is None:
+            return fallback_summary
+
+        summarized = self._step_summarizer.summarize_final_result(
+            query=self._query,
+            final_response=final_response,
+            current_url=current_url,
+        )
+        return summarized or fallback_summary
+
     def build_action_summary(self, function_call: types.FunctionCall) -> str:
         action_name = function_call.name or "action"
         action_args = dict(function_call.args or {})

@@ -54,6 +54,8 @@ export function VerificationSidebar({
       className="sidebar-content verification-sidebar"
       data-preview-mode={previewMode.kind}
       data-focus-active={isFocused ? 'true' : 'false'}
+      role="region"
+      aria-label="Verification pane"
       ref={sidebarRef}
       tabIndex={-1}
     >

@@ -103,4 +103,78 @@ describe('VerificationSidebar', () => {
 
     expect(screen.getByText('[알림] 실행이 중단되었습니다. 같은 세션에서 이어서 요청할 수 있습니다.')).toBeInTheDocument();
   });
+
+  it('does not show a running banner while work is in progress', () => {
+    render(
+      <VerificationSidebar
+        snapshot={{
+          session_id: 'ses_test',
+          status: 'running',
+          current_url: 'https://example.com',
+          latest_screenshot_b64: 'Zm9v',
+          latest_step_id: 2,
+          last_reasoning: '진행 중',
+          last_actions: [],
+          messages: [],
+          final_reasoning: null,
+          request_text: '테스트',
+          run_summary: null,
+          verification_items: [],
+          final_result_summary: null,
+          error_message: null,
+          updated_at: 2,
+        }}
+        steps={[]}
+        error={null}
+        previewMode={{ kind: 'current' }}
+        verificationPayload={null}
+        onSelectStepPreview={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText('[알림] 태스크를 진행 중입니다.')).not.toBeInTheDocument();
+  });
+
+  it('does not show a completion banner while waiting for follow-up input', () => {
+    render(
+      <VerificationSidebar
+        snapshot={{
+          session_id: 'ses_test',
+          status: 'waiting_for_input',
+          waiting_reason: 'follow_up',
+          last_run_status: 'complete',
+          expires_at: Date.now() / 1000 + 60,
+          current_url: 'https://example.com',
+          latest_screenshot_b64: 'Zm9v',
+          latest_step_id: 2,
+          last_reasoning: '완료 직후 상태',
+          last_actions: [],
+          messages: [],
+          final_reasoning: null,
+          request_text: '테스트',
+          run_summary: '완료 직후 상태',
+          verification_items: [
+            {
+              id: 'verify-1',
+              message: '확인 필요',
+              source_step_id: 1,
+              status: 'needs_review',
+            },
+          ],
+          final_result_summary: null,
+          error_message: null,
+          updated_at: 2,
+        }}
+        steps={[]}
+        error={null}
+        previewMode={{ kind: 'current' }}
+        verificationPayload={null}
+        onSelectStepPreview={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.queryByText('[알림] 작업이 완료되었습니다. 같은 세션에서 이어서 요청할 수 있습니다 (확인 필요 1개).'),
+    ).not.toBeInTheDocument();
+  });
 });

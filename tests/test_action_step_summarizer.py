@@ -1,7 +1,7 @@
 import json
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from google.genai import types
 
@@ -103,6 +103,7 @@ class TestOpenAIProvider(unittest.TestCase):
 class _FakeStepSummarizer:
     def __init__(self):
         self.calls: list[dict[str, object]] = []
+        self.final_result_calls: list[dict[str, object]] = []
 
     def summarize_action(self, **kwargs) -> ActionStepSummary | None:
         self.calls.append(kwargs)
@@ -112,9 +113,17 @@ class _FakeStepSummarizer:
             summary_source="openrouter",
         )
 
+    def summarize_final_result(self, **kwargs) -> str | None:
+        self.final_result_calls.append(kwargs)
+        return "예시 페이지를 찾았습니다."
+
 
 class _FailingStepSummarizer:
     def summarize_action(self, **kwargs) -> ActionStepSummary | None:
+        del kwargs
+        return None
+
+    def summarize_final_result(self, **kwargs) -> str | None:
         del kwargs
         return None
 
@@ -155,6 +164,23 @@ class TestActionReviewServiceSummarizer(unittest.TestCase):
         self.assertEqual(persisted_metadata["summary_source"], "openrouter")
         self.assertEqual(len(summarizer.calls), 1)
 
+    def test_build_final_result_summary_uses_step_summarizer(self):
+        summarizer = _FakeStepSummarizer()
+        review_service = ActionReviewService(
+            query="예시 페이지를 찾아줘",
+            step_summarizer=summarizer,
+        )
+
+        final_result_summary = review_service.build_final_result_summary(
+            final_response=(
+                "I have found the page for EXAONE 4.5 on Hugging Face."
+            ),
+            current_url="https://huggingface.co/LGAI-EXAONE/EXAONE-4.5-33B",
+        )
+
+        self.assertEqual(final_result_summary, "예시 페이지를 찾았습니다.")
+        self.assertEqual(len(summarizer.final_result_calls), 1)
+
     def test_build_persisted_metadata_falls_back_when_summarizer_is_unavailable(self):
         review_service = ActionReviewService(
             query="예시 페이지로 이동해줘",
@@ -182,6 +208,19 @@ class TestActionReviewServiceSummarizer(unittest.TestCase):
             "Needed to open https://example.com.",
         )
         self.assertEqual(persisted_metadata["summary_source"], "app_derived")
+
+    def test_build_final_result_summary_falls_back_when_summarizer_is_unavailable(self):
+        review_service = ActionReviewService(
+            query="예시 페이지를 찾아줘",
+            step_summarizer=_FailingStepSummarizer(),
+        )
+
+        final_result_summary = review_service.build_final_result_summary(
+            final_response="예시 페이지를 찾았습니다.",
+            current_url="https://example.com",
+        )
+
+        self.assertEqual(final_result_summary, "예시 페이지를 찾았습니다.")
 
 
 class TestActionStepSummarizer(unittest.TestCase):
@@ -291,3 +330,26 @@ class TestActionStepSummarizer(unittest.TestCase):
         self.assertEqual(summarizer._summary_source, "openrouter")
         mock_openrouter_provider_from_env.assert_called_once_with()
         mock_openai_provider_from_env.assert_not_called()
+
+    def test_summarize_final_result_parses_provider_response(self):
+        provider = MagicMock()
+        provider.generate_text.return_value = json.dumps(
+            {"final_result_summary": "EXAONE 4.5 Hugging Face 페이지를 찾았습니다."},
+            ensure_ascii=False,
+        )
+        summarizer = ActionStepSummarizer(
+            provider=provider,
+            model="gpt-4o-mini",
+            summary_source="openai",
+        )
+
+        summary = summarizer.summarize_final_result(
+            query="exaone 4.5 huggingface 찾아줘",
+            final_response=(
+                "I have evaluated the screenshot. "
+                "I found the page for EXAONE 4.5 on Hugging Face."
+            ),
+            current_url="https://huggingface.co/LGAI-EXAONE/EXAONE-4.5-33B",
+        )
+
+        self.assertEqual(summary, "EXAONE 4.5 Hugging Face 페이지를 찾았습니다.")

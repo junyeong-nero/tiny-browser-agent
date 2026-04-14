@@ -12,6 +12,7 @@ import {
   ELECTRON_RENDERER_URL,
   WEB_DIST_INDEX
 } from './config';
+import { getFocusShortcutRegion, type FocusRegion } from './focusShortcuts';
 import { createDesktopMainWindow } from './mainLifecycle';
 import { startPythonRuntime, type PythonRuntime } from './python';
 import { MAIN_WINDOW_WEB_PREFERENCES } from './windowConfig';
@@ -20,10 +21,13 @@ import { MAIN_WINDOW_WEB_PREFERENCES } from './windowConfig';
 let mainWindow: BrowserWindow | null = null;
 let pythonRuntime: PythonRuntime | null = null;
 let browserCommandServer: BrowserCommandServer | null = null;
+let stopObservingBrowserSurfaceShortcuts: (() => void) | null = null;
+let stopObservingRendererShortcuts: (() => void) | null = null;
 
 const browserSurfaceManager = new BrowserSurfaceManager(() => {
   return createElectronBrowserSurfaceView();
 });
+const DESKTOP_FOCUS_REGION_EVENT = 'computer-use:focus-region';
 
 
 function getBridgeClientOrThrow() {
@@ -155,6 +159,70 @@ function registerBridgeHandlers(): void {
   handlers.forEach(registerBridgeHandler);
 }
 
+function focusRendererRegion(region: FocusRegion): void {
+  const currentMainWindow = mainWindow;
+  if (!currentMainWindow) {
+    return;
+  }
+
+  currentMainWindow.focus();
+  void currentMainWindow.webContents.executeJavaScript(
+    `window.dispatchEvent(new CustomEvent(${JSON.stringify(DESKTOP_FOCUS_REGION_EVENT)}, { detail: ${JSON.stringify(region)} }));`,
+  ).catch((error) => {
+    console.error('Failed to dispatch desktop focus region.', error);
+  });
+}
+
+function routeBrowserSurfaceShortcut(region: FocusRegion): void {
+  focusRendererRegion(region);
+}
+
+function observeBrowserSurfaceFocusShortcuts(): void {
+  stopObservingBrowserSurfaceShortcuts?.();
+  stopObservingBrowserSurfaceShortcuts = browserSurfaceManager.observeBeforeInputEvents((event) => {
+    const region = getFocusShortcutRegion(event);
+    if (!region) {
+      return;
+    }
+
+    event.preventDefault();
+    routeBrowserSurfaceShortcut(region);
+  });
+}
+
+function observeRendererFocusShortcuts(): void {
+  stopObservingRendererShortcuts?.();
+  const currentMainWindow = mainWindow;
+  if (!currentMainWindow) {
+    return;
+  }
+
+  const handleBeforeInput = (
+    event: Electron.Event,
+    input: Electron.Input,
+  ) => {
+    const region = getFocusShortcutRegion({
+      alt: input.alt,
+      control: input.control,
+      key: input.key,
+      meta: input.meta,
+      shift: input.shift,
+      type: input.type,
+    });
+    if (!region) {
+      return;
+    }
+
+    event.preventDefault();
+    focusRendererRegion(region);
+  };
+
+  currentMainWindow.webContents.on('before-input-event', handleBeforeInput);
+  stopObservingRendererShortcuts = () => {
+    currentMainWindow.webContents.off('before-input-event', handleBeforeInput);
+  };
+}
+
 
 async function createMainWindow(): Promise<void> {
   mainWindow = await createDesktopMainWindow({
@@ -168,6 +236,8 @@ async function createMainWindow(): Promise<void> {
     rendererUrl: ELECTRON_RENDERER_URL,
     webDistIndex: WEB_DIST_INDEX,
   });
+  observeBrowserSurfaceFocusShortcuts();
+  observeRendererFocusShortcuts();
 }
 
 
@@ -195,6 +265,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  stopObservingBrowserSurfaceShortcuts?.();
+  stopObservingBrowserSurfaceShortcuts = null;
+  stopObservingRendererShortcuts?.();
+  stopObservingRendererShortcuts = null;
   void browserCommandServer?.stop();
   browserSurfaceManager.destroy();
   pythonRuntime?.stop();

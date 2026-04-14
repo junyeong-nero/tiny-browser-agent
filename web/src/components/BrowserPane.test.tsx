@@ -16,7 +16,6 @@ describe('BrowserPane', () => {
       <ArtifactClientProvider client={httpArtifactClient}>
         <BrowserPane
           currentScreenshotB64="Zm9v"
-          currentUpdatedAt={1700000000}
           selectedStep={null}
           sessionId="ses_test"
           status="complete"
@@ -24,7 +23,6 @@ describe('BrowserPane', () => {
       </ArtifactClientProvider>,
     );
 
-    expect(screen.getByText('Live browser surface')).toBeInTheDocument();
     expect(screen.getByLabelText('Browser surface')).toHaveAttribute(
       'data-browser-surface-connected',
       'false',
@@ -34,6 +32,8 @@ describe('BrowserPane', () => {
       'data:image/png;base64,Zm9v',
     );
     expect(screen.getByText('Live surface unavailable. Showing screenshot fallback.')).toBeInTheDocument();
+    expect(screen.queryByText('Live browser surface')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Updated /)).not.toBeInTheDocument();
   });
 
   it('renders the selected step preview from artifact bytes and open actions', async () => {
@@ -46,7 +46,6 @@ describe('BrowserPane', () => {
       <ArtifactClientProvider client={httpArtifactClient}>
         <BrowserPane
           currentScreenshotB64="Zm9v"
-          currentUpdatedAt={1700000000}
           sessionId="ses_test"
           selectedStep={{
             step_id: 12,
@@ -75,6 +74,7 @@ describe('BrowserPane', () => {
       'data-browser-surface-connected',
       'true',
     );
+    expect(screen.queryByText('Live surface connected through the desktop bridge.')).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByAltText('Step 12 browser preview')).toHaveAttribute(

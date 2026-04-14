@@ -11,7 +11,8 @@ import { useFocusRegions } from './hooks/useFocusRegions';
 import './styles/app.css';
 
 function App() {
-  const browserPaneRef = useRef<HTMLDivElement | null>(null);
+  const browserPaneRef = useRef<HTMLElement | null>(null);
+  const browserSurfaceHostRef = useRef<HTMLDivElement | null>(null);
   const verificationPanelRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLInputElement | null>(null);
   const {
@@ -39,9 +40,8 @@ function App() {
     handleCloseSession,
   } = useAppSessionRuntime();
   const {
-    focusBrowserSurface,
     hasBrowserSurfaceBridge,
-  } = useBrowserSurfaceHost(browserPaneRef, {
+  } = useBrowserSurfaceHost(browserSurfaceHostRef, {
     isVisible: previewMode.kind === 'current',
   });
   const {
@@ -50,7 +50,6 @@ function App() {
     browserPaneRef,
     verificationPanelRef,
     chatInputRef,
-    focusBrowserSurface,
   });
 
   return (
@@ -73,8 +72,8 @@ function App() {
       browserPane={
         <BrowserPane
           paneRef={browserPaneRef}
+          surfaceRef={browserSurfaceHostRef}
           currentScreenshotB64={displaySnapshot?.latest_screenshot_b64}
-          currentUpdatedAt={displaySnapshot?.updated_at}
           selectedStep={selectedStep}
           sessionId={displaySnapshot?.session_id}
           status={displaySnapshot?.status}
