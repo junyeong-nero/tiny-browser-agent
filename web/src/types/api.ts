@@ -116,6 +116,7 @@ export interface CreateSessionResponse {
 
 export interface StartSessionRequest {
   query: string;
+  model_name?: string;
 }
 
 export interface SendMessageRequest {

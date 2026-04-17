@@ -180,7 +180,7 @@ class SessionController:
         self._close_requested = False
         self._interrupt_requested = False
 
-    def start(self, query: str) -> None:
+    def start(self, query: str, model_name: str | None = None) -> None:
         with self._lock:
             if self._thread and self._thread.is_alive():
                 raise ValueError("Session is already running.")
@@ -189,9 +189,10 @@ class SessionController:
             self._close_requested = False
             self._interrupt_requested = False
             self._state.prepare_start(query)
+            effective_model = model_name if model_name is not None else self._model_name
             self._thread = threading.Thread(
                 target=self._run_session,
-                args=(query,),
+                args=(query, effective_model),
                 daemon=True,
                 name=f"session-{self.session_id}",
             )
@@ -252,7 +253,7 @@ class SessionController:
                 return candidate
         raise FileNotFoundError(name)
 
-    def _run_session(self, query: str) -> None:
+    def _run_session(self, query: str, model_name: str) -> None:
         browser_computer: Computer | None = None
         try:
             with self._computer_factory(
@@ -265,7 +266,7 @@ class SessionController:
                 agent = self._agent_factory(
                     browser_computer=browser_computer,
                     query=query,
-                    model_name=self._model_name,
+                    model_name=model_name,
                     event_sink=self._handle_agent_event,
                 )
                 with self._lock:

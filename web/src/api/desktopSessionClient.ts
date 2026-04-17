@@ -9,7 +9,7 @@ export function createDesktopSessionClient(bridge: DesktopBridge): SessionClient
       return bridge.sessions.createSession();
     },
     startSession(sessionId, req) {
-      return bridge.sessions.startSession(sessionId, req.query);
+      return bridge.sessions.startSession(sessionId, req.query, req.model_name);
     },
     stopSession(sessionId) {
       return bridge.sessions.stopSession(sessionId);

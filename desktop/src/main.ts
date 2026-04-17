@@ -60,8 +60,8 @@ function registerBridgeHandlers(): void {
     {
       channel: BRIDGE_CHANNELS.startSession,
       async handle(payload) {
-        const { query, sessionId } = payload as { query: string; sessionId: string };
-        await getBridgeClientOrThrow().startSession(sessionId, query);
+        const { modelName, query, sessionId } = payload as { modelName?: string; query: string; sessionId: string };
+        await getBridgeClientOrThrow().startSession(sessionId, query, modelName);
         return null;
       },
     },

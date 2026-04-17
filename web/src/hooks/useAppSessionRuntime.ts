@@ -99,10 +99,10 @@ export function useAppSessionRuntime() {
   }, [resetInteractiveState, resetSteps, sessionClient]);
 
   const handleStartSession = useCallback(
-    async (query: string) => {
+    async (query: string, modelName?: string) => {
       try {
         setBridgeError(null);
-        await startSession(query);
+        await startSession(query, modelName);
         await refreshSessionResources();
         resetInteractiveState();
       } catch (error) {

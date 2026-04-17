@@ -52,8 +52,8 @@ export class PythonBridgeClient {
     return this.call('createSession');
   }
 
-  startSession(sessionId: string, query: string): Promise<unknown> {
-    return this.call('startSession', { query, sessionId });
+  startSession(sessionId: string, query: string, modelName?: string): Promise<unknown> {
+    return this.call('startSession', { modelName, query, sessionId });
   }
 
   stopSession(sessionId: string): Promise<unknown> {

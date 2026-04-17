@@ -96,6 +96,15 @@ def _read_string(payload: dict[str, Any], key: str) -> str:
     return value
 
 
+def _read_optional_string(payload: dict[str, Any], key: str) -> str | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Expected string field '{key}'.")
+    return value
+
+
 def _read_optional_int(payload: dict[str, Any], key: str) -> int | None:
     value = payload.get(key)
     if value is None:
@@ -112,6 +121,7 @@ def _build_method_handlers(service: SessionService) -> dict[str, Any]:
         "startSession": lambda params: service.start_session(
             _read_string(params, "sessionId"),
             _read_string(params, "query"),
+            model_name=_read_optional_string(params, "modelName"),
         ),
         "stopSession": lambda params: service.stop_session(_read_string(params, "sessionId")),
         "interruptSession": lambda params: service.interrupt_session(_read_string(params, "sessionId")),

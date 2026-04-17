@@ -29,7 +29,7 @@ export interface DesktopBrowserSurfaceBridge {
 
 export interface DesktopSessionBridge {
   createSession(): Promise<CreateSessionResponse>;
-  startSession(sessionId: string, query: string): Promise<void>;
+  startSession(sessionId: string, query: string, modelName?: string): Promise<void>;
   stopSession(sessionId: string): Promise<void>;
   interruptSession(sessionId: string): Promise<void>;
   closeSession(sessionId: string): Promise<void>;

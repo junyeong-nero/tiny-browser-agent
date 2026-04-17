@@ -290,6 +290,38 @@ button:disabled {
   text-transform: capitalize;
 }
 
+.model-selector-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 15px;
+  border-top: 1px solid var(--border-color);
+  background-color: #f9fafb;
+}
+
+.model-selector-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.model-selector {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 13px;
+  background-color: #ffffff;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.model-selector:focus {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+}
+
 .chat-input-form {
   display: flex;
   padding: 15px;

@@ -8,8 +8,8 @@ contextBridge.exposeInMainWorld('__COMPUTER_USE_DESKTOP_HOST__', true);
 contextBridge.exposeInMainWorld('__COMPUTER_USE_DESKTOP_BRIDGE__', {
   sessions: {
     createSession: () => ipcRenderer.invoke(BRIDGE_CHANNELS.createSession),
-    startSession: (sessionId: string, query: string) =>
-      ipcRenderer.invoke(BRIDGE_CHANNELS.startSession, { sessionId, query }),
+    startSession: (sessionId: string, query: string, modelName?: string) =>
+      ipcRenderer.invoke(BRIDGE_CHANNELS.startSession, { sessionId, query, modelName }),
     stopSession: (sessionId: string) =>
       ipcRenderer.invoke(BRIDGE_CHANNELS.stopSession, { sessionId }),
     interruptSession: (sessionId: string) =>

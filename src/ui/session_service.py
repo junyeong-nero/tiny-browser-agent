@@ -13,9 +13,9 @@ class SessionService:
         snapshot = session.get_snapshot()
         return CreatedSession(session_id=session.session_id, snapshot=snapshot)
 
-    def start_session(self, session_id: str, query: str) -> SessionSnapshot:
+    def start_session(self, session_id: str, query: str, model_name: str | None = None) -> SessionSnapshot:
         session = self._require_session(session_id)
-        session.start(query)
+        session.start(query, model_name=model_name)
         return session.get_snapshot()
 
     def send_message(self, session_id: str, text: str) -> SessionSnapshot:

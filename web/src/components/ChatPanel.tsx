@@ -3,10 +3,17 @@ import { type Ref, useState } from 'react';
 import type { ChatMessage } from '../types/api';
 import type { SessionStatus } from '../types/api';
 
+const SUPPORTED_MODELS = [
+  { id: 'gemini-2.5-computer-use-preview-10-2025', label: 'Gemini 2.5 Computer Use' },
+  { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview' },
+] as const;
+
+const DEFAULT_MODEL = SUPPORTED_MODELS[0].id;
+
 interface ChatPanelProps {
   messages: ChatMessage[];
   onSendMessage: (text: string) => void;
-  onStartSession: (query: string) => void;
+  onStartSession: (query: string, modelName: string) => void;
   isSessionActive: boolean;
   hasSession: boolean;
   isBusy: boolean;
@@ -27,6 +34,8 @@ export function ChatPanel({
   isFocused = false,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
+  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL);
+  const isBeforeStart = hasSession && status === 'idle' && !isSessionActive && messages.length === 0;
   const canSubmit =
     hasSession && !isBusy && (status === 'idle' || status === 'running' || status === 'waiting_for_input');
 
@@ -34,8 +43,8 @@ export function ChatPanel({
     event.preventDefault();
     if (!input.trim()) return;
 
-    if (status === 'idle' && !isSessionActive && hasSession && messages.length === 0) {
-      onStartSession(input);
+    if (isBeforeStart) {
+      onStartSession(input, selectedModel);
     } else {
       onSendMessage(input);
     }
@@ -52,6 +61,23 @@ export function ChatPanel({
           </div>
         ))}
       </div>
+      {isBeforeStart && (
+        <div className="model-selector-bar">
+          <label className="model-selector-label" htmlFor="model-select">Model</label>
+          <select
+            id="model-select"
+            className="model-selector"
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+          >
+            {SUPPORTED_MODELS.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <form className="chat-input-form" onSubmit={handleSubmit}>
         <input
           ref={inputRef}

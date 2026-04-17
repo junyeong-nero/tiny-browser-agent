@@ -15,13 +15,13 @@ export function useSessionControls(sessionId: string | null) {
   const [isClosing, setIsClosing] = useState(false);
 
   const startSession = useCallback(
-    async (query: string) => {
+    async (query: string, modelName?: string) => {
       if (!sessionId) {
         return;
       }
       setIsStarting(true);
       try {
-        await sessionClient.startSession(sessionId, { query });
+        await sessionClient.startSession(sessionId, { query, model_name: modelName });
         setError(null);
       } catch (startError) {
         const message = getErrorMessage(startError, 'Failed to start session');
