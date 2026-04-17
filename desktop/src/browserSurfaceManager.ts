@@ -8,6 +8,15 @@ import { captureBrowserSurfaceState } from './browserSurfaceCapture';
 import { attachSameTabPopupHandling, createSameTabWindowOpenHandler } from './browserSurfacePopups';
 
 
+export const FIXED_BROWSER_SURFACE_WIDTH = 1920;
+export const FIXED_BROWSER_SURFACE_HEIGHT = 1080;
+
+// Position the view below the visible window area so it does not cover renderer
+// UI. Chromium still renders the attached WebContentsView at its bound size, so
+// captures return the full 1920x1080 frame.
+const OFFSCREEN_BROWSER_SURFACE_Y_OFFSET = 4000;
+
+
 export interface ManagedBrowserSurfaceWindow {
   contentView: {
     addChildView(view: View | ManagedBrowserSurfaceView): void;
@@ -104,11 +113,9 @@ const MODIFIER_KEY_MAP: Record<string, string> = {
 };
 
 export class BrowserSurfaceManager {
-  private browserSurfaceBounds: BrowserSurfaceBounds | null = null;
   private browserSurfaceUrl: string | null = null;
   private browserSurfaceView: ManagedBrowserSurfaceView | null = null;
   private browserSurfaceWindow: ManagedBrowserSurfaceWindow | null = null;
-  private lastVisibleBrowserSurfaceBounds: BrowserSurfaceBounds | null = null;
   private stopObservingTopLevelNavigations: (() => void) | null = null;
 
   constructor(
@@ -136,11 +143,11 @@ export class BrowserSurfaceManager {
     return browserSurfaceView.webContents.observeBeforeInputEvents(listener);
   }
 
-  async setBounds(bounds: BrowserSurfaceBounds): Promise<void> {
-    this.browserSurfaceBounds = bounds;
-    if (bounds.width > 0 && bounds.height > 0) {
-      this.lastVisibleBrowserSurfaceBounds = bounds;
-    }
+  async setBounds(_bounds: BrowserSurfaceBounds): Promise<void> {
+    // The hosted browser surface is fixed at 1920x1080 so that the agent
+    // always operates against a stable viewport. Renderer-reported bounds are
+    // ignored; the desktop app shows a scaled screenshot instead of the live
+    // native overlay.
     await this.sync();
   }
 
@@ -150,17 +157,15 @@ export class BrowserSurfaceManager {
   }
 
   getScreenSize(): { width: number; height: number } {
-    const bounds = this.lastVisibleBrowserSurfaceBounds ?? this.browserSurfaceBounds;
-    if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
-      return { width: 0, height: 0 };
-    }
-    return { width: bounds.width, height: bounds.height };
+    return {
+      width: FIXED_BROWSER_SURFACE_WIDTH,
+      height: FIXED_BROWSER_SURFACE_HEIGHT,
+    };
   }
 
   async captureState(): Promise<BrowserSurfaceState> {
     const browserSurfaceView = this.getViewOrThrow();
-    const { width, height } = this.getScreenSize();
-    const state = await captureBrowserSurfaceState(browserSurfaceView, { width, height });
+    const state = await captureBrowserSurfaceState(browserSurfaceView, this.getScreenSize());
     this.browserSurfaceUrl = state.url;
     return state;
   }
@@ -284,10 +289,9 @@ export class BrowserSurfaceManager {
       return;
     }
 
-    const browserSurfaceBounds = this.browserSurfaceBounds;
     const browserSurfaceUrl = this.browserSurfaceUrl;
 
-    if (shouldHideBrowserSurface(browserSurfaceBounds, browserSurfaceUrl)) {
+    if (shouldHideBrowserSurface(browserSurfaceUrl)) {
       browserSurfaceView.setBounds(getHiddenBrowserSurfaceBounds());
       if (browserSurfaceView.webContents.getURL() !== 'about:blank') {
         await browserSurfaceView.webContents.loadURL('about:blank').catch(ignoreAbortedNavigation);
@@ -295,13 +299,9 @@ export class BrowserSurfaceManager {
       return;
     }
 
-    if (browserSurfaceBounds == null || browserSurfaceUrl == null) {
-      return;
-    }
-
-    browserSurfaceView.setBounds(browserSurfaceBounds);
+    browserSurfaceView.setBounds(getFixedBrowserSurfaceBounds());
     if (browserSurfaceView.webContents.getURL() !== browserSurfaceUrl) {
-      await browserSurfaceView.webContents.loadURL(browserSurfaceUrl).catch(ignoreAbortedNavigation);
+      await browserSurfaceView.webContents.loadURL(browserSurfaceUrl!).catch(ignoreAbortedNavigation);
     }
   }
 
@@ -312,8 +312,6 @@ export class BrowserSurfaceManager {
       this.browserSurfaceView.webContents.close();
     }
 
-    this.browserSurfaceBounds = null;
-    this.lastVisibleBrowserSurfaceBounds = null;
     this.browserSurfaceUrl = null;
     this.browserSurfaceView = null;
     this.browserSurfaceWindow = null;
@@ -355,6 +353,7 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
       sandbox: true,
     },
   });
+  browserSurfaceView.webContents.setBackgroundThrottling(false);
   const popupSupport = attachSameTabPopupHandling(browserSurfaceView);
 
   return {
@@ -365,7 +364,11 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
     webContents: {
       async captureScreenshot() {
         const screenshot = await browserSurfaceView.webContents.capturePage();
-        return screenshot.toPNG();
+        const normalized = screenshot.resize({
+          width: FIXED_BROWSER_SURFACE_WIDTH,
+          height: FIXED_BROWSER_SURFACE_HEIGHT,
+        });
+        return normalized.toPNG();
       },
       close() {
         popupSupport.closeAllPopupProxies();
@@ -465,16 +468,20 @@ export function getHiddenBrowserSurfaceBounds(): BrowserSurfaceBounds {
 }
 
 
+export function getFixedBrowserSurfaceBounds(): BrowserSurfaceBounds {
+  return {
+    x: 0,
+    y: OFFSCREEN_BROWSER_SURFACE_Y_OFFSET,
+    width: FIXED_BROWSER_SURFACE_WIDTH,
+    height: FIXED_BROWSER_SURFACE_HEIGHT,
+  };
+}
+
+
 export function shouldHideBrowserSurface(
-  browserSurfaceBounds: BrowserSurfaceBounds | null,
   browserSurfaceUrl: string | null,
 ): boolean {
-  return (
-    browserSurfaceBounds == null ||
-    browserSurfaceBounds.width <= 0 ||
-    browserSurfaceBounds.height <= 0 ||
-    !browserSurfaceUrl
-  );
+  return !browserSurfaceUrl;
 }
 
 

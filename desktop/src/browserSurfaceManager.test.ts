@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   BrowserSurfaceManager,
+  FIXED_BROWSER_SURFACE_HEIGHT,
+  FIXED_BROWSER_SURFACE_WIDTH,
   createSameTabWindowOpenHandler,
+  getFixedBrowserSurfaceBounds,
   getHiddenBrowserSurfaceBounds,
   getManagedBrowserSurfaceAttachmentTarget,
   shouldHideBrowserSurface,
@@ -147,7 +150,7 @@ function createMockEnvironmentWithA11y(currentUrl = 'about:blank') {
 }
 
 
-test('BrowserSurfaceManager hides the view until both bounds and URL exist', async () => {
+test('BrowserSurfaceManager hides the view until a URL is set and ignores renderer bounds', async () => {
   const environment = createMockEnvironment();
 
   await environment.manager.attachWindow(environment.window);
@@ -163,8 +166,23 @@ test('BrowserSurfaceManager hides the view until both bounds and URL exist', asy
 
   await environment.manager.setUrl('https://example.com');
 
-  assert.deepEqual(environment.recordedBounds.at(-1), { x: 10, y: 20, width: 300, height: 200 });
+  assert.deepEqual(environment.recordedBounds.at(-1), getFixedBrowserSurfaceBounds());
+  assert.equal(environment.recordedBounds.at(-1)?.width, FIXED_BROWSER_SURFACE_WIDTH);
+  assert.equal(environment.recordedBounds.at(-1)?.height, FIXED_BROWSER_SURFACE_HEIGHT);
   assert.deepEqual(environment.loadedUrls, ['https://example.com']);
+});
+
+
+test('BrowserSurfaceManager reports the fixed browser surface size regardless of renderer bounds', async () => {
+  const environment = createMockEnvironment();
+
+  await environment.manager.attachWindow(environment.window);
+  await environment.manager.setBounds({ x: 0, y: 0, width: 640, height: 480 });
+
+  assert.deepEqual(environment.manager.getScreenSize(), {
+    width: FIXED_BROWSER_SURFACE_WIDTH,
+    height: FIXED_BROWSER_SURFACE_HEIGHT,
+  });
 });
 
 
@@ -230,11 +248,10 @@ test('BrowserSurfaceManager attaches the native Electron view when available', a
 });
 
 
-test('shouldHideBrowserSurface handles missing URL and zero-sized bounds', () => {
-  assert.equal(shouldHideBrowserSurface(null, 'https://example.com'), true);
-  assert.equal(shouldHideBrowserSurface({ x: 0, y: 0, width: 0, height: 100 }, 'https://example.com'), true);
-  assert.equal(shouldHideBrowserSurface({ x: 0, y: 0, width: 100, height: 100 }, null), true);
-  assert.equal(shouldHideBrowserSurface({ x: 0, y: 0, width: 100, height: 100 }, 'https://example.com'), false);
+test('shouldHideBrowserSurface hides when the URL is missing', () => {
+  assert.equal(shouldHideBrowserSurface(null), true);
+  assert.equal(shouldHideBrowserSurface(''), true);
+  assert.equal(shouldHideBrowserSurface('https://example.com'), false);
 });
 
 
