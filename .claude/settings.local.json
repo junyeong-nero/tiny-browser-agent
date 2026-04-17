@@ -8,7 +8,19 @@
       "Bash(pip3 show:*)",
       "Bash(.venv/bin/python -m pytest tests/test_agent.py tests/test_ui.py tests/test_playwright_logging.py -x -q)",
       "Bash(git add:*)",
-      "Bash(git commit -m ':*)"
+      "Bash(git commit -m ':*)",
+      "Bash(uv run *)",
+      "Bash(ffmpeg -version)",
+      "Bash(ffmpeg -y -framerate 1 -i history/step-%04d.png -c:v libvpx-vp9 -pix_fmt yuv420p video/session.webm)",
+      "Bash([ -f \"$d/history/step-0001.png\" ])",
+      "Bash([ ! -f \"$d/video/session.webm\" ])",
+      "Bash(ffmpeg -y -framerate 1 -i __TRACKED_VAR__/history/step-%04d.png -c:v libvpx-vp9 -pix_fmt yuv420p __TRACKED_VAR__/video/session.webm)",
+      "Bash([ -f \"$d/video/session.webm\" ])",
+      "Bash([ ! -f \"$d/video/session.mp4\" ])",
+      "Bash(ffmpeg -y -i __TRACKED_VAR__/video/session.webm -c:v libx264 -pix_fmt yuv420p __TRACKED_VAR__/video/session.mp4)",
+      "Bash(python3 -c \"from PIL import Image; im=Image.open\\('history/step-0001.png'\\); print\\(im.size\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(npm test *)"
     ]
   }
 }
