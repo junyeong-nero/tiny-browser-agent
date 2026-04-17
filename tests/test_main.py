@@ -132,7 +132,7 @@ class TestMain(unittest.TestCase):
             initial_url='test_url',
             highlight_mouse=True,
             headless=True,
-            artifacts_root=main.LOGS_DIR / 'ui',
+            artifacts_root=main.DESKTOP_LOGS_DIR,
         )
 
 if __name__ == '__main__':

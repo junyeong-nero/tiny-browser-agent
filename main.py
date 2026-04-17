@@ -11,8 +11,9 @@ from agent import BrowserAgent
 from computers import BrowserbaseComputer, PlaywrightComputer
 
 
-PLAYWRIGHT_SCREEN_SIZE = (1440, 900)
+PLAYWRIGHT_SCREEN_SIZE = (1600, 900)
 LOGS_DIR = Path(__file__).resolve().parent / "logs" / "history"
+DESKTOP_LOGS_DIR = Path(__file__).resolve().parent / "logs" / "desktop"
 
 
 def parse_bool(value: str) -> bool:
@@ -88,7 +89,7 @@ def main() -> int:
             initial_url=args.initial_url,
             highlight_mouse=args.highlight_mouse,
             headless=args.headless,
-            artifacts_root=LOGS_DIR / "ui",
+            artifacts_root=DESKTOP_LOGS_DIR,
         )
         return 0
 
