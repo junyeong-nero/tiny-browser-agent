@@ -48,6 +48,10 @@ from tool_calling import (
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 _UNSET_STEP_SUMMARIZER: object = object()
 
+MODEL_REQUEST_MAX_ATTEMPTS = 4
+MODEL_REQUEST_BASE_DELAY_SECONDS = 1.0
+MODEL_REQUEST_MAX_DELAY_SECONDS = 16.0
+
 
 console = Console()
 
@@ -270,16 +274,60 @@ class BrowserAgent:
     def _request_model_response_once(
         self, step_id: int
     ) -> Optional[types.GenerateContentResponse]:
-        try:
-            return self.get_model_response()
-        except Exception as e:
-            self._emit_event(
-                "step_error",
-                step_id=step_id,
-                error_message=str(e),
-            )
-            print(e)
-            return None
+        last_error: Optional[Exception] = None
+        for attempt in range(1, MODEL_REQUEST_MAX_ATTEMPTS + 1):
+            try:
+                return self.get_model_response()
+            except Exception as e:
+                last_error = e
+                if not self._should_retry_model_request(e) or attempt == MODEL_REQUEST_MAX_ATTEMPTS:
+                    break
+                delay = min(
+                    MODEL_REQUEST_BASE_DELAY_SECONDS * (2 ** (attempt - 1)),
+                    MODEL_REQUEST_MAX_DELAY_SECONDS,
+                )
+                self._emit_event(
+                    "model_request_retry",
+                    step_id=step_id,
+                    attempt=attempt,
+                    delay_seconds=delay,
+                    error_message=str(e),
+                )
+                print(f"Gemini request failed (attempt {attempt}/{MODEL_REQUEST_MAX_ATTEMPTS}): {e}. Retrying in {delay:.1f}s...")
+                time.sleep(delay)
+        self._emit_event(
+            "step_error",
+            step_id=step_id,
+            error_message=str(last_error),
+        )
+        print(last_error)
+        return None
+
+    @staticmethod
+    def _should_retry_model_request(error: Exception) -> bool:
+        message = str(error).lower()
+        status_code = getattr(error, "code", None) or getattr(error, "status_code", None)
+        if isinstance(status_code, int) and status_code in {408, 429, 500, 502, 503, 504}:
+            return True
+        retryable_markers = (
+            "timeout",
+            "timed out",
+            "temporarily unavailable",
+            "temporarily_unavailable",
+            "service unavailable",
+            "unavailable",
+            "internal error",
+            "deadline exceeded",
+            "rate limit",
+            "resource_exhausted",
+            "resource exhausted",
+            "connection reset",
+            "connection aborted",
+            "connection error",
+            "broken pipe",
+            "retry",
+        )
+        return any(marker in message for marker in retryable_markers)
 
     def _extract_candidate_turn(
         self,
