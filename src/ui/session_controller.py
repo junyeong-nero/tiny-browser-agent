@@ -1,3 +1,7 @@
+import json
+import os
+import shutil
+import subprocess
 import threading
 import time
 from contextlib import AbstractContextManager
@@ -242,13 +246,14 @@ class SessionController:
         if candidate_name != name:
             raise ValueError("Invalid artifact name.")
 
-        for directory in (self._log_dir / "history", self._log_dir / "video"):
+        for directory in (self._log_dir, self._log_dir / "history", self._log_dir / "video"):
             candidate = directory / candidate_name
             if candidate.exists() and candidate.is_file():
                 return candidate
         raise FileNotFoundError(name)
 
     def _run_session(self, query: str) -> None:
+        browser_computer: Computer | None = None
         try:
             with self._computer_factory(
                 screen_size=self._screen_size,
@@ -318,11 +323,22 @@ class SessionController:
                     agent.append_user_message(message)
                     with self._lock:
                         self._state.begin_run()
-            self._finalize_video_artifact(browser_computer)
         except Exception as exc:
             with self._lock:
                 self._state.mark_error(str(exc))
         finally:
+            try:
+                self._finalize_video_artifact(browser_computer)
+            except Exception:
+                pass
+            try:
+                self._write_actions_log()
+            except Exception:
+                pass
+            try:
+                self._convert_video_to_mp4()
+            except Exception:
+                pass
             with self._lock:
                 if self._close_requested:
                     self._state.mark_stopped()
@@ -358,3 +374,67 @@ class SessionController:
         if not candidates:
             return
         candidates[0].replace(session_video_path)
+
+    def _write_actions_log(self) -> None:
+        if not self._log_dir.exists():
+            return
+        with self._lock:
+            snapshot = self._state.snapshot_copy()
+            steps = self._state.steps_copy()
+
+        payload = {
+            "session_id": self.session_id,
+            "exported_at": time.time(),
+            "request_text": snapshot.request_text,
+            "status": snapshot.status,
+            "final_reasoning": snapshot.final_reasoning,
+            "final_result_summary": snapshot.final_result_summary,
+            "run_summary": snapshot.run_summary,
+            "messages": [message.model_dump(mode="json") for message in snapshot.messages],
+            "steps": [step.model_dump(mode="json") for step in steps],
+        }
+        try:
+            self._log_dir.mkdir(parents=True, exist_ok=True)
+            actions_path = self._log_dir / "actions.json"
+            actions_path.write_text(
+                json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+
+    def _convert_video_to_mp4(self) -> None:
+        video_dir = self._log_dir / "video"
+        source = video_dir / "session.webm"
+        if not source.exists():
+            return
+        target = video_dir / "session.mp4"
+        if target.exists():
+            return
+
+        ffmpeg_command = os.getenv("ELECTRON_FFMPEG_COMMAND") or shutil.which("ffmpeg")
+        if not ffmpeg_command:
+            return
+
+        command = [
+            ffmpeg_command,
+            "-y",
+            "-i",
+            str(source),
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(target),
+        ]
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return
