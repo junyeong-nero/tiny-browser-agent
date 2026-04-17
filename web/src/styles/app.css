@@ -204,13 +204,13 @@ button:disabled {
   padding: 16px;
 }
 
-.browser-surface-host {
+.browser-screenshot-fixed {
   width: 100%;
-  flex: 1;
-  min-height: 240px;
-  border: 1px dashed #93c5fd;
+  aspect-ratio: 16 / 9;
+  max-height: 100%;
+  object-fit: contain;
+  background: rgba(15, 23, 42, 0.85);
   border-radius: 12px;
-  background: rgba(219, 234, 254, 0.35);
 }
 
 .browser-preview-label {

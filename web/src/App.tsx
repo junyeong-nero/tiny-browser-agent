@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 
-import { useBrowserSurfaceHost } from './api/browserSurfaceBridge';
+import { getBrowserSurfaceBridge } from './api/browserSurfaceBridge';
 import { BrowserPane } from './components/BrowserPane';
 import { ChatPanel } from './components/ChatPanel';
 import { Layout } from './components/Layout';
@@ -12,9 +12,9 @@ import './styles/app.css';
 
 function App() {
   const browserPaneRef = useRef<HTMLElement | null>(null);
-  const browserSurfaceHostRef = useRef<HTMLDivElement | null>(null);
   const verificationPanelRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLInputElement | null>(null);
+  const hasBrowserSurfaceBridge = getBrowserSurfaceBridge() !== null;
   const {
     sessionId,
     displaySnapshot,
@@ -39,11 +39,6 @@ function App() {
     handleInterruptSession,
     handleCloseSession,
   } = useAppSessionRuntime();
-  const {
-    hasBrowserSurfaceBridge,
-  } = useBrowserSurfaceHost(browserSurfaceHostRef, {
-    isVisible: previewMode.kind === 'current',
-  });
   const {
     focusedRegion,
   } = useFocusRegions({
@@ -72,7 +67,6 @@ function App() {
       browserPane={
         <BrowserPane
           paneRef={browserPaneRef}
-          surfaceRef={browserSurfaceHostRef}
           currentScreenshotB64={displaySnapshot?.latest_screenshot_b64}
           selectedStep={selectedStep}
           sessionId={displaySnapshot?.session_id}

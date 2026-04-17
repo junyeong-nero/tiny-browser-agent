@@ -31,7 +31,7 @@ describe('BrowserPane', () => {
       'src',
       'data:image/png;base64,Zm9v',
     );
-    expect(screen.getByText('Live surface unavailable. Showing screenshot fallback.')).toBeInTheDocument();
+    expect(screen.queryByText('Live surface unavailable. Showing screenshot fallback.')).not.toBeInTheDocument();
     expect(screen.queryByText('Live browser surface')).not.toBeInTheDocument();
     expect(screen.queryByText(/Updated /)).not.toBeInTheDocument();
   });

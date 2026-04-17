@@ -11,7 +11,6 @@ interface BrowserPaneProps {
   hasBrowserSurfaceBridge?: boolean;
   isFocused?: boolean;
   paneRef?: Ref<HTMLElement>;
-  surfaceRef?: Ref<HTMLDivElement>;
 }
 
 export function BrowserPane({
@@ -22,7 +21,6 @@ export function BrowserPane({
   hasBrowserSurfaceBridge = false,
   isFocused = false,
   paneRef,
-  surfaceRef,
 }: BrowserPaneProps) {
   const artifactClient = useArtifactClient();
   const [stepScreenshotB64, setStepScreenshotB64] = useState<string | null>(null);
@@ -76,7 +74,7 @@ export function BrowserPane({
     };
   }, [artifactClient, selectedStep?.screenshot_path, sessionId]);
 
-  if (!isStepPreview && !currentPreviewSrc && !hasBrowserSurfaceBridge) {
+  if (!isStepPreview && !currentPreviewSrc) {
     return (
       <section
         ref={paneRef}
@@ -110,29 +108,17 @@ export function BrowserPane({
             {`Inspection mode · Step ${selectedStep?.step_id}`}
           </div>
         )}
-        {!isStepPreview && (
-          <>
-            <div
-              ref={surfaceRef}
-              className="browser-surface-host"
-              data-browser-surface-live={hasBrowserSurfaceBridge ? 'true' : 'false'}
-              tabIndex={-1}
-            />
-            {!hasBrowserSurfaceBridge && currentPreviewSrc ? (
-              <>
-                <img
-                  src={currentPreviewSrc}
-                  alt="Current browser preview"
-                  className="browser-screenshot"
-                />
-                <div className="browser-step-meta">Live surface unavailable. Showing screenshot fallback.</div>
-              </>
-            ) : (
-              <div className="browser-step-meta">
-                {status === 'running' ? 'Waiting for browser...' : 'No browser preview available'}
-              </div>
-            )}
-          </>
+        {!isStepPreview && currentPreviewSrc && (
+          <img
+            src={currentPreviewSrc}
+            alt="Current browser preview"
+            className="browser-screenshot browser-screenshot-fixed"
+          />
+        )}
+        {!isStepPreview && !currentPreviewSrc && (
+          <div className="browser-step-meta">
+            {status === 'running' ? 'Waiting for browser...' : 'No browser preview available'}
+          </div>
         )}
         {isStepPreview && selectedStep && (
           <>
