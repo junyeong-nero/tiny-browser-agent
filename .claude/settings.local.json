@@ -25,7 +25,16 @@
       "Bash(npm run *)",
       "Bash(npm audit *)",
       "Bash(npm list *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(python -m pytest tests/test_tool_calling.py -x)",
+      "Bash(python3 -m pytest tests/test_tool_calling.py -x)",
+      "Bash(.venv/bin/python -m pytest tests/test_tool_calling.py -x)",
+      "Bash(.venv/bin/python -m pytest tests/)",
+      "Bash(.venv/bin/python -m pytest tests/test_agent.py::TestBrowserAgent::test_generate_content_config_tools_match_expected_structure -x)",
+      "Bash(.venv/bin/python -m pytest tests/test_tool_calling.py tests/test_agent.py tests/test_electron_surface.py tests/test_desktop_bridge.py)",
+      "Bash(.venv/bin/python -m pytest tests/test_tool_calling.py tests/test_agent.py tests/test_electron_surface.py tests/test_playwright_logging.py -v)",
+      "Bash(.venv/bin/python -m pytest tests/test_tool_calling.py tests/test_agent.py tests/test_electron_surface.py)",
+      "Bash(.venv/bin/python -m pytest tests/test_tool_calling.py tests/test_agent.py tests/test_electron_surface.py tests/test_playwright_logging.py)"
     ]
   }
 }
