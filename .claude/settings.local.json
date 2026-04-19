@@ -34,7 +34,11 @@
       "Bash(.venv/bin/python -m pytest tests/test_tool_calling.py tests/test_agent.py tests/test_electron_surface.py tests/test_desktop_bridge.py)",
       "Bash(.venv/bin/python -m pytest tests/test_tool_calling.py tests/test_agent.py tests/test_electron_surface.py tests/test_playwright_logging.py -v)",
       "Bash(.venv/bin/python -m pytest tests/test_tool_calling.py tests/test_agent.py tests/test_electron_surface.py)",
-      "Bash(.venv/bin/python -m pytest tests/test_tool_calling.py tests/test_agent.py tests/test_electron_surface.py tests/test_playwright_logging.py)"
+      "Bash(.venv/bin/python -m pytest tests/test_tool_calling.py tests/test_agent.py tests/test_electron_surface.py tests/test_playwright_logging.py)",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)",
+      "Bash(git remote *)",
+      "Bash(git push *)"
     ]
   }
 }
