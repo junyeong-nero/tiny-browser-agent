@@ -8,7 +8,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from agent import BrowserAgent
-from computers import BrowserbaseComputer, PlaywrightComputer
+from computers import PlaywrightComputer
 
 
 PLAYWRIGHT_SCREEN_SIZE = (1600, 900)
@@ -42,7 +42,7 @@ def main() -> int:
     parser.add_argument(
         "--env",
         type=str,
-        choices=("playwright", "browserbase"),
+        choices=("playwright",),
         default="playwright",
         help="The computer use environment to use.",
     )
@@ -93,29 +93,18 @@ def main() -> int:
         )
         return 0
 
-    if args.log and args.env != "playwright":
-        raise ValueError("--log is only supported with --env playwright.")
-
     log_dir = None
     if args.log:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         log_dir = str(LOGS_DIR / timestamp)
 
-    if args.env == "playwright":
-        env = PlaywrightComputer(
-            screen_size=PLAYWRIGHT_SCREEN_SIZE,
-            initial_url=args.initial_url,
-            highlight_mouse=args.highlight_mouse,
-            headless=args.headless,
-            log_dir=log_dir,
-        )
-    elif args.env == "browserbase":
-        env = BrowserbaseComputer(
-            screen_size=PLAYWRIGHT_SCREEN_SIZE,
-            initial_url=args.initial_url,
-        )
-    else:
-        raise ValueError("Unknown environment: ", args.env)
+    env = PlaywrightComputer(
+        screen_size=PLAYWRIGHT_SCREEN_SIZE,
+        initial_url=args.initial_url,
+        highlight_mouse=args.highlight_mouse,
+        headless=args.headless,
+        log_dir=log_dir,
+    )
 
     with env as browser_computer:
         agent = BrowserAgent(

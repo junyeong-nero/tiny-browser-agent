@@ -34,23 +34,6 @@ wheels = [
 ]
 
 [[package]]
-name = "browserbase"
-version = "1.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "anyio" },
-    { name = "distro" },
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "sniffio" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/71/df/17ac5e1116ab8f1264c6a9718f935358d20bdcd8ae0e3d1f18fd580cd871/browserbase-1.4.0.tar.gz", hash = "sha256:e2ed36f513c8630b94b826042c4bb9f497c333f3bd28e5b76cb708c65b4318a0", size = 122103, upload-time = "2025-05-16T20:50:40.802Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/58/13/4191423982a2ec69dc8c10a1c4b94a50a0861f49be81ffc19621b75841bc/browserbase-1.4.0-py3-none-any.whl", hash = "sha256:ea9f1fb4a88921975b8b9606835c441a59d8ce82ce00313a6d48bbe8e30f79fb", size = 98044, upload-time = "2025-05-16T20:50:39.331Z" },
-]
-
-[[package]]
 name = "certifi"
 version = "2026.2.25"
 source = { registry = "https://pypi.org/simple" }
@@ -133,7 +116,6 @@ name = "computer-use-preview"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "browserbase" },
     { name = "fastapi" },
     { name = "google-genai" },
     { name = "playwright" },
@@ -150,7 +132,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "browserbase", specifier = "==1.4.0" },
     { name = "fastapi", specifier = ">=0.115.0,<1.0.0" },
     { name = "google-genai", specifier = ">=1.40.0" },
     { name = "playwright", specifier = "==1.55.0" },
