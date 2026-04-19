@@ -4,7 +4,7 @@ import {
 } from 'electron';
 
 import type { BrowserSurfaceBounds } from './bridge/channels';
-import { captureBrowserSurfaceState } from './browserSurfaceCapture';
+import { captureAccessibilitySnapshot, captureBrowserSurfaceState } from './browserSurfaceCapture';
 import { attachSameTabPopupHandling, createSameTabWindowOpenHandler } from './browserSurfacePopups';
 
 
@@ -61,6 +61,7 @@ export interface ManagedBrowserSurfaceWebContents {
   runScript(code: string): Promise<unknown>;
   sendKeyEvent(event: BrowserKeyEvent): void;
   sendMouseEvent(event: BrowserMouseEvent): void;
+  setFileInputAtLocation(x: number, y: number, paths: string[]): Promise<void>;
   setWindowOpenHandler(handler: (details: { url: string }) => { action: 'allow' | 'deny' }): void;
 }
 
@@ -170,6 +171,24 @@ export class BrowserSurfaceManager {
     return state;
   }
 
+  async captureAccessibilityTree(): Promise<{
+    tree: string | null;
+    url: string;
+    source: string;
+    status: 'captured' | 'error';
+    error: string | null;
+  }> {
+    const browserSurfaceView = this.getViewOrThrow();
+    const snapshot = await captureAccessibilitySnapshot(browserSurfaceView);
+    return {
+      tree: snapshot.text,
+      url: browserSurfaceView.webContents.getURL(),
+      source: snapshot.source,
+      status: snapshot.status,
+      error: snapshot.error,
+    };
+  }
+
   async navigate(url: string): Promise<void> {
     await this.setUrl(url);
   }
@@ -182,6 +201,11 @@ export class BrowserSurfaceManager {
   async goForward(): Promise<void> {
     const browserSurfaceView = this.getViewOrThrow();
     await browserSurfaceView.webContents.runScript('window.history.forward()');
+  }
+
+  async reloadPage(): Promise<void> {
+    const browserSurfaceView = this.getViewOrThrow();
+    await browserSurfaceView.webContents.runScript('location.reload()');
   }
 
   async clickAt(x: number, y: number): Promise<void> {
@@ -268,6 +292,18 @@ export class BrowserSurfaceManager {
 
     browserSurfaceView.webContents.sendKeyEvent({ keyCode: finalKey, modifiers, type: 'keyDown' });
     browserSurfaceView.webContents.sendKeyEvent({ keyCode: finalKey, modifiers, type: 'keyUp' });
+  }
+
+  async uploadFile(
+    x: number,
+    y: number,
+    paths: string[],
+  ): Promise<void> {
+    if (paths.length === 0) {
+      throw new Error('uploadFile requires at least one file path');
+    }
+    const browserSurfaceView = this.getViewOrThrow();
+    await browserSurfaceView.webContents.setFileInputAtLocation(x, y, paths);
   }
 
   async dragAndDrop(
@@ -458,6 +494,29 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
       },
       sendMouseEvent(event) {
         browserSurfaceView.webContents.sendInputEvent(event);
+      },
+      async setFileInputAtLocation(x, y, paths) {
+        const dbg = browserSurfaceView.webContents.debugger;
+        const detachAfter = !dbg.isAttached();
+        if (detachAfter) {
+          dbg.attach('1.3');
+        }
+        try {
+          await dbg.sendCommand('DOM.enable');
+          const { backendNodeId } = (await dbg.sendCommand('DOM.getNodeForLocation', {
+            x,
+            y,
+            includeUserAgentShadowDOM: true,
+          })) as { backendNodeId: number };
+          await dbg.sendCommand('DOM.setFileInputFiles', {
+            backendNodeId,
+            files: paths,
+          });
+        } finally {
+          if (detachAfter && dbg.isAttached()) {
+            dbg.detach();
+          }
+        }
       },
       setWindowOpenHandler(handler) {
         browserSurfaceView.webContents.setWindowOpenHandler(handler);

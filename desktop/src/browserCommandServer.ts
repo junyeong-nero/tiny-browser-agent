@@ -71,6 +71,33 @@ export function createBrowserCommandRoutes(
     },
     {
       method: 'POST',
+      path: '/computer/reload-page',
+      async handle() {
+        await browserSurfaceManager.reloadPage();
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/accessibility-tree',
+      async handle() {
+        return browserSurfaceManager.captureAccessibilityTree();
+      },
+    },
+    {
+      method: 'POST',
+      path: '/computer/upload-file',
+      async handle(payload) {
+        await browserSurfaceManager.uploadFile(
+          readNumber(payload, 'x'),
+          readNumber(payload, 'y'),
+          readStringArray(payload, 'paths'),
+        );
+        return captureState();
+      },
+    },
+    {
+      method: 'POST',
       path: '/computer/click-at',
       async handle(payload) {
         await browserSurfaceManager.clickAt(readNumber(payload, 'x'), readNumber(payload, 'y'));

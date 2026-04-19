@@ -54,7 +54,7 @@ async function safeReadHtml(browserSurfaceView: ManagedBrowserSurfaceView): Prom
   }
 }
 
-async function captureAccessibilitySnapshot(
+export async function captureAccessibilitySnapshot(
   browserSurfaceView: ManagedBrowserSurfaceView,
 ): Promise<{
   text: string | null;
