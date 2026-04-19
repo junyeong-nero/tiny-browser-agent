@@ -1,4 +1,4 @@
-import uuid
+from datetime import datetime
 from pathlib import Path
 from threading import RLock
 from typing import Optional
@@ -30,7 +30,7 @@ class SessionStore:
         self._lock = RLock()
 
     def create_session(self) -> SessionController:
-        session_id = f"ses_{uuid.uuid4().hex[:12]}"
+        session_id = f"ses_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
         kwargs = {}
         if self._computer_factory is not None:
             kwargs["computer_factory"] = self._computer_factory
