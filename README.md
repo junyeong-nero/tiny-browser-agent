@@ -5,15 +5,13 @@ Browser agent for Gemini Computer Use. Runs as a CLI or an Electron desktop shel
 Backends:
 
 - `playwright`: local Chromium
-- `browserbase`: remote Browserbase session
 - `electron_surface`: hosted `WebContentsView` in the desktop shell
 
 ## Requirements
 
 - Python `>=3.12,<3.13`
 - `uv`
-- Gemini API key or Vertex AI credentials
-- Browserbase: `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`
+- Gemini API key
 
 ## Quick Start
 
@@ -70,43 +68,27 @@ Note: browser mode in the standalone web renderer is not a supported runtime pat
 export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
 ```
 
-### Vertex AI
-
-```bash
-export USE_VERTEXAI=true
-export VERTEXAI_PROJECT="YOUR_PROJECT_ID"
-export VERTEXAI_LOCATION="YOUR_LOCATION"
-```
-
 ### Action-step summarizer (optional)
 
-Gemini/Vertex still drives actions; the summarizer only rewrites executed steps into short user-facing text. Auto-enables from `OPENAI_API_KEY` or `OPENROUTER_API_KEY`; falls back to built-in summaries on failure.
+Gemini drives actions; the summarizer only rewrites executed steps into short user-facing text. Auto-enables from `OPENAI_API_KEY` or `OPENROUTER_API_KEY`; falls back to built-in summaries on failure.
 
 ```bash
 export OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
 export ACTION_SUMMARY_MODEL="gpt-4o-mini"  # optional
 ```
 
-### Browserbase
-
-```bash
-export BROWSERBASE_API_KEY="YOUR_BROWSERBASE_API_KEY"
-export BROWSERBASE_PROJECT_ID="YOUR_BROWSERBASE_PROJECT_ID"
-```
-
 ## Usage
 
 ```bash
-uv run python main.py --env playwright --query "Open Example Domain and summarize the page"
-uv run python main.py --env playwright --initial_url "https://example.com" --query "Summarize this page"
-uv run python main.py --env playwright --headless True --query "Summarize this page"
-uv run python main.py --env playwright --highlight_mouse --query "Click the first link"
-uv run python main.py --env browserbase --query "Open Example Domain and summarize the page"
+uv run python main.py --query "Open Example Domain and summarize the page"
+uv run python main.py --initial_url "https://example.com" --query "Summarize this page"
+uv run python main.py --headless True --query "Summarize this page"
+uv run python main.py --highlight_mouse --query "Click the first link"
 ```
 
 ### Session logging
 
-`--log` (Playwright only) writes artifacts under `logs/history/<timestamp>/`:
+`--log` writes artifacts under `logs/history/<timestamp>/`:
 
 ```text
 history/step-*.png   # screenshot per step
@@ -121,7 +103,6 @@ video/               # Playwright recording
 | - | - | - |
 | `--query` | Agent instruction. Required unless `--desktop_bridge`. | — |
 | `--desktop_bridge` | Run the stdio desktop bridge. | `False` |
-| `--env` | `playwright` or `browserbase`. | `playwright` |
 | `--initial_url` | Starting page. | `https://www.google.com` |
 | `--highlight_mouse` | Highlight cursor in screenshots. | `False` |
 | `--headless` | Launch Playwright headless. | `False` |
@@ -133,15 +114,12 @@ video/               # Playwright recording
 | Variable | Description |
 | - | - |
 | `GEMINI_API_KEY` | Gemini Developer API key. |
-| `USE_VERTEXAI` | `true`/`1` to use Vertex AI. |
-| `VERTEXAI_PROJECT` / `VERTEXAI_LOCATION` | Vertex AI project / location. |
 | `ACTION_SUMMARY_PROVIDER` | `openai` or `openrouter`. Inferred from the matching API key if omitted. |
 | `ACTION_SUMMARY_MODEL` | Summarizer model (default `gpt-4o-mini`). |
 | `ACTION_SUMMARY_TIMEOUT_SECONDS` | Summarizer timeout (default `15`). |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | OpenAI key and optional base URL. |
 | `OPENROUTER_API_KEY` / `OPENROUTER_BASE_URL` | OpenRouter key and optional base URL. |
 | `OPENROUTER_HTTP_REFERER` / `OPENROUTER_TITLE` | Optional OpenRouter headers. |
-| `BROWSERBASE_API_KEY` / `BROWSERBASE_PROJECT_ID` | Browserbase credentials. |
 
 ## Project Layout
 
@@ -150,22 +128,18 @@ video/               # Playwright recording
 - `src/llm/` — LLM client, provider bootstrap, retry
 - `src/computers/computer.py` — `Computer` interface and `EnvState`
 - `src/computers/playwright/playwright.py` — Playwright backend
-- `src/computers/browserbase/browserbase.py` — Browserbase backend
 - `src/computers/electron_surface.py` — Electron hosted-surface backend
 - `src/browser_actions.py` — custom actions registered alongside Computer Use
 - `tests/` — pytest suite
 
 ## Agent Pipeline
 
-`main.py` selects a backend, builds a `BrowserAgent`, and loops until the model stops issuing actions.
+`main.py` builds a `BrowserAgent` with the Playwright backend and loops until the model stops issuing actions.
 
 ```mermaid
 flowchart TD
-    A[main.py] --> B{Backend}
-    B -->|playwright| D[PlaywrightComputer]
-    B -->|browserbase| E[BrowserbaseComputer]
+    A[main.py] --> D[PlaywrightComputer]
     D --> F[BrowserAgent]
-    E --> F
     F --> G[agent_loop]
     G --> H[run_one_iteration]
     H --> I[Call Gemini]

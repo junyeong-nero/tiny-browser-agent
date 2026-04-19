@@ -1,11 +1,10 @@
-import os
 import time
 from collections.abc import Callable
 
 import termcolor
 from google.genai import types
 
-from .provider import BaseProvider, GeminiApiProvider, VertexAIProvider
+from .provider import BaseProvider, GeminiApiProvider
 
 
 class LLMError(Exception):
@@ -29,11 +28,7 @@ class LLMClient:
 
     @classmethod
     def from_env(cls) -> "LLMClient":
-        use_vertexai = os.environ.get("USE_VERTEXAI", "0").lower() in ["true", "1"]
-        provider = (
-            VertexAIProvider.from_env() if use_vertexai else GeminiApiProvider.from_env()
-        )
-        return cls(provider=provider)
+        return cls(provider=GeminiApiProvider.from_env())
 
     @property
     def provider_name(self) -> str:
