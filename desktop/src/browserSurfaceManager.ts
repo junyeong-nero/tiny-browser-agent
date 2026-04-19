@@ -350,10 +350,21 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      offscreen: true,
       sandbox: true,
     },
   });
   browserSurfaceView.webContents.setBackgroundThrottling(false);
+  try {
+    browserSurfaceView.webContents.setFrameRate(30);
+  } catch {
+    // setFrameRate is only valid for offscreen-rendered contents; ignore if
+    // the runtime rejects it.
+  }
+  // Offscreen-rendered WebContents still need a non-zero viewport for the
+  // compositor to produce frames. Keeping the native view at the fixed
+  // 1920x1080 size (via setBounds in sync()) ensures capturePage() returns a
+  // populated buffer even though the view is not visible to the user.
   const popupSupport = attachSameTabPopupHandling(browserSurfaceView);
 
   return {
@@ -363,7 +374,13 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
     },
     webContents: {
       async captureScreenshot() {
-        const screenshot = await browserSurfaceView.webContents.capturePage();
+        // stayHidden keeps the compositor rendering the page even though the
+        // WebContentsView is positioned offscreen; otherwise capturePage()
+        // returns an empty buffer for fully clipped views.
+        const screenshot = await browserSurfaceView.webContents.capturePage(
+          undefined,
+          { stayHidden: true, stayAwake: true },
+        );
         const normalized = screenshot.resize({
           width: FIXED_BROWSER_SURFACE_WIDTH,
           height: FIXED_BROWSER_SURFACE_HEIGHT,
