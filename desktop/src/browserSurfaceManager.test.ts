@@ -81,6 +81,9 @@ function createMockEnvironment(currentUrl = 'about:blank') {
     sendMouseEvent() {
       return undefined;
     },
+    async setFileInputAtLocation() {
+      return undefined;
+    },
     setWindowOpenHandler() {
       return undefined;
     },

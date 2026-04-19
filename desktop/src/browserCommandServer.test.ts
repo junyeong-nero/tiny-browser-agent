@@ -25,6 +25,15 @@ function createMockManager() {
     getScreenSize: () => ({ width: 640, height: 480 }),
     goBack: async () => undefined,
     goForward: async () => undefined,
+    reloadPage: async () => undefined,
+    captureAccessibilityTree: async () => ({
+      tree: '- body',
+      url: 'https://example.com',
+      source: 'dom_accessibility_outline',
+      status: 'captured' as const,
+      error: null,
+    }),
+    uploadFile: async () => undefined,
     hoverAt: async () => undefined,
     keyCombination: async () => undefined,
     navigate: async () => undefined,
@@ -64,6 +73,59 @@ test('BrowserCommandServer returns current state after navigation commands', asy
   assert.deepEqual(navigateCalls, ['https://example.com/tasks']);
   assert.deepEqual(response, { status: 200, payload: state });
 });
+
+test('BrowserCommandServer invokes reloadPage and returns current state', async () => {
+  const { manager, state } = createMockManager();
+  let reloadCalls = 0;
+  manager.reloadPage = async () => {
+    reloadCalls += 1;
+  };
+
+  const response = await handleBrowserCommandRequest(manager, 'POST', '/computer/reload-page');
+
+  assert.equal(reloadCalls, 1);
+  assert.deepEqual(response, { status: 200, payload: state });
+});
+
+
+test('BrowserCommandServer returns accessibility tree without a screenshot', async () => {
+  const { manager } = createMockManager();
+
+  const response = await handleBrowserCommandRequest(
+    manager,
+    'POST',
+    '/computer/accessibility-tree',
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.payload, {
+    tree: '- body',
+    url: 'https://example.com',
+    source: 'dom_accessibility_outline',
+    status: 'captured',
+    error: null,
+  });
+});
+
+
+test('BrowserCommandServer forwards upload_file payload to the manager', async () => {
+  const { manager, state } = createMockManager();
+  const uploadCalls: Array<{ x: number; y: number; paths: string[] }> = [];
+  manager.uploadFile = async (x: number, y: number, paths: string[]) => {
+    uploadCalls.push({ x, y, paths });
+  };
+
+  const response = await handleBrowserCommandRequest(
+    manager,
+    'POST',
+    '/computer/upload-file',
+    { x: 10, y: 20, paths: ['/tmp/a.txt'] },
+  );
+
+  assert.deepEqual(uploadCalls, [{ x: 10, y: 20, paths: ['/tmp/a.txt'] }]);
+  assert.deepEqual(response, { status: 200, payload: state });
+});
+
 
 test('BrowserCommandServer returns 404 for unknown routes', async () => {
   const { manager } = createMockManager();

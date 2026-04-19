@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from google.genai import types
 
 from src.agent import multiply_numbers
+from src.browser_actions import build_browser_action_functions
 from src.computers.computer import EnvState
 from src.tool_calling import BrowserToolExecutor, prune_old_screenshot_parts
 
@@ -20,7 +21,10 @@ class TestBrowserToolExecutor(unittest.TestCase):
         }
         self.executor = BrowserToolExecutor(
             browser_computer=self.mock_browser_computer,
-            custom_functions=[multiply_numbers],
+            custom_functions=[
+                multiply_numbers,
+                *build_browser_action_functions(self.mock_browser_computer),
+            ],
         )
 
     def get_inline_data(
@@ -106,6 +110,59 @@ class TestBrowserToolExecutor(unittest.TestCase):
         self.mock_browser_computer.key_combination.assert_called_once_with(
             ["Meta", "Shift", "P"]
         )
+
+    def test_execute_press_key_delegates_to_key_combination(self):
+        env_state = EnvState(screenshot=b"screenshot", url="https://example.com")
+        self.mock_browser_computer.key_combination.return_value = env_state
+
+        result = self.executor.execute(
+            types.FunctionCall(name="press_key", args={"key": "Escape"})
+        )
+
+        self.mock_browser_computer.key_combination.assert_called_once_with(["Escape"])
+        self.assertEqual(result, env_state)
+
+    def test_execute_reload_page_delegates_to_browser_computer(self):
+        env_state = EnvState(screenshot=b"screenshot", url="https://example.com")
+        self.mock_browser_computer.reload_page.return_value = env_state
+
+        result = self.executor.execute(types.FunctionCall(name="reload_page", args={}))
+
+        self.mock_browser_computer.reload_page.assert_called_once_with()
+        self.assertEqual(result, env_state)
+
+    def test_execute_upload_file_denormalizes_coordinates(self):
+        env_state = EnvState(screenshot=b"screenshot", url="https://example.com")
+        self.mock_browser_computer.upload_file.return_value = env_state
+
+        result = self.executor.execute(
+            types.FunctionCall(
+                name="upload_file",
+                args={"x": 100, "y": 200, "path": "/tmp/file.txt"},
+            )
+        )
+
+        self.mock_browser_computer.upload_file.assert_called_once_with(
+            x=200, y=800, path="/tmp/file.txt"
+        )
+        self.assertEqual(result, env_state)
+
+    def test_execute_get_accessibility_tree_returns_dict(self):
+        tree_payload = {
+            "tree": "- body\n  - button: Continue",
+            "url": "https://example.com",
+            "source": "dom_accessibility_outline",
+            "status": "captured",
+            "error": None,
+        }
+        self.mock_browser_computer.get_accessibility_tree.return_value = tree_payload
+
+        result = self.executor.execute(
+            types.FunctionCall(name="get_accessibility_tree", args={})
+        )
+
+        self.mock_browser_computer.get_accessibility_tree.assert_called_once_with()
+        self.assertEqual(result, tree_payload)
 
     def test_execute_drag_and_drop(self):
         self.executor.execute(

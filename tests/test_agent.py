@@ -35,17 +35,12 @@ class TestBrowserAgent(unittest.TestCase):
         }
         self.mock_browser_computer.history_dir.return_value = None
         self.mock_llm_client = MagicMock(spec=LLMClient)
-        self.mock_llm_client.build_function_declaration.return_value = types.FunctionDeclaration(
-            name=multiply_numbers.__name__,
-            description=multiply_numbers.__doc__,
-            parameters_json_schema={
-                "type": "object",
-                "properties": {
-                    "x": {"type": "number"},
-                    "y": {"type": "number"},
-                },
-                "required": ["x", "y"],
-            },
+        self.mock_llm_client.build_function_declaration.side_effect = (
+            lambda callable_: types.FunctionDeclaration(
+                name=callable_.__name__,
+                description=callable_.__doc__,
+                parameters_json_schema={"type": "object", "properties": {}},
+            )
         )
         self.agent = BrowserAgent(
             browser_computer=self.mock_browser_computer,
@@ -152,7 +147,13 @@ class TestBrowserAgent(unittest.TestCase):
         )
         self.assertEqual(
             [declaration.name for declaration in second_tool.function_declarations],
-            [multiply_numbers.__name__],
+            [
+                multiply_numbers.__name__,
+                "press_key",
+                "reload_page",
+                "get_accessibility_tree",
+                "upload_file",
+            ],
         )
 
     def test_get_model_response_calls_llm_client(self):
