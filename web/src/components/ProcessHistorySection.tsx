@@ -246,6 +246,7 @@ function StepCard({
   const isSelected = previewMode.kind === 'step' && previewMode.stepId === step.step_id;
   const displayedSummary = getStepTitle(step);
   const displayedReason = getStepReason(step);
+  const primaryAction = getPrimaryAction(step);
   const rawReasoning = getRawReasoning(step);
   const summarySourceLabel = getSummarySourceLabel(step);
   const stepHtmlPath = step.html_path;
@@ -264,6 +265,9 @@ function StepCard({
       <div className="step-header">
         <div className="step-header-main">
           <span className="step-id">{compact ? displayedSummary : `Step ${step.step_id}`}</span>
+          {primaryAction && (
+            <code className="step-action-name">{primaryAction.name}</code>
+          )}
         </div>
         <span className="step-status">{step.status}</span>
       </div>
@@ -381,7 +385,16 @@ export function ProcessHistorySection({
   const allSteps = visibleGroups.flatMap((group) => group.steps);
   const latestStep = allSteps[allSteps.length - 1] ?? null;
   const historyGroups = trimLatestStepFromGroups(visibleGroups);
-  const historyRunGroups = groupProcessGroupsByRun(historyGroups);
+  const historyRunGroups = groupProcessGroupsByRun(historyGroups)
+    .slice()
+    .reverse()
+    .map((runGroup) => ({
+      ...runGroup,
+      groups: runGroup.groups
+        .slice()
+        .reverse()
+        .map((group) => ({ ...group, steps: group.steps.slice().reverse() })),
+    }));
   const allRunGroups = groupProcessGroupsByRun(visibleGroups);
   const showRunLabels = allRunGroups.length > 1;
 
