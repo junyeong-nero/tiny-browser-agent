@@ -39,6 +39,19 @@ class ElectronCommandClient:
     def go_forward(self) -> dict[str, Any]:
         return self._request_json("POST", "/computer/go-forward")
 
+    def reload_page(self) -> dict[str, Any]:
+        return self._request_json("POST", "/computer/reload-page")
+
+    def accessibility_tree(self) -> dict[str, Any]:
+        return self._request_json("POST", "/computer/accessibility-tree")
+
+    def upload_file(self, x: int, y: int, paths: list[str]) -> dict[str, Any]:
+        return self._request_json(
+            "POST",
+            "/computer/upload-file",
+            {"x": x, "y": y, "paths": paths},
+        )
+
     def click_at(self, x: int, y: int) -> dict[str, Any]:
         return self._request_json("POST", "/computer/click-at", {"x": x, "y": y})
 
@@ -219,6 +232,23 @@ class ElectronSurfaceComputer(Computer):
 
     def go_forward(self) -> EnvState:
         return self._env_state_from_payload(self._bridge_client.go_forward())
+
+    def reload_page(self) -> EnvState:
+        return self._env_state_from_payload(self._bridge_client.reload_page())
+
+    def get_accessibility_tree(self) -> dict[str, Any]:
+        return self._bridge_client.accessibility_tree()
+
+    def upload_file(self, x: int, y: int, path: str) -> EnvState:
+        resolved_path = Path(path)
+        if not resolved_path.is_absolute():
+            raise ValueError(f"upload_file requires an absolute path; got: {path}")
+        if not resolved_path.exists():
+            raise FileNotFoundError(f"upload_file target does not exist: {path}")
+
+        return self._env_state_from_payload(
+            self._bridge_client.upload_file(x=x, y=y, paths=[str(resolved_path)])
+        )
 
     def search(self) -> EnvState:
         return self.navigate(self._search_engine_url)

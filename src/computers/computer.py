@@ -13,7 +13,7 @@
 # limitations under the License.
 import abc
 import pydantic
-from typing import Literal
+from typing import Any, Literal
 
 
 class EnvState(pydantic.BaseModel):
@@ -123,3 +123,31 @@ class Computer(abc.ABC):
     @abc.abstractmethod
     def current_state(self) -> EnvState:
         """Returns the current state of the current webpage."""
+
+    @abc.abstractmethod
+    def reload_page(self) -> EnvState:
+        """Reloads the current webpage.
+
+        Useful when the page appears stuck, a resource failed to load, or an
+        SPA needs to be reset to recover from an error state.
+        """
+
+    @abc.abstractmethod
+    def upload_file(self, x: int, y: int, path: str) -> EnvState:
+        """Uploads a local file to a file input at the given coordinate.
+
+        The 'x' and 'y' values target a <input type="file"> element (or its
+        surrounding dropzone). The 'path' must be an absolute path to an
+        existing local file.
+        """
+
+    @abc.abstractmethod
+    def get_accessibility_tree(self) -> dict[str, Any]:
+        """Returns a serialized accessibility tree for the current webpage.
+
+        Useful for disambiguating elements that look similar in the screenshot
+        or for locating text that is not visible due to layout.
+
+        Returns a dict with keys: tree (str | None), url, source, status,
+        error (optional).
+        """

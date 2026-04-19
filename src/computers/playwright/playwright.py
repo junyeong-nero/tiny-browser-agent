@@ -296,6 +296,45 @@ class PlaywrightComputer(Computer):
         self._page.wait_for_load_state()
         return self.current_state()
 
+    def reload_page(self) -> EnvState:
+        self._page.reload()
+        self._page.wait_for_load_state()
+        return self.current_state()
+
+    def upload_file(self, x: int, y: int, path: str) -> EnvState:
+        resolved_path = Path(path)
+        if not resolved_path.is_absolute():
+            raise ValueError(f"upload_file requires an absolute path; got: {path}")
+        if not resolved_path.exists():
+            raise FileNotFoundError(f"upload_file target does not exist: {path}")
+
+        with self._page.expect_file_chooser() as file_chooser_info:
+            self._page.mouse.click(x, y)
+        file_chooser_info.value.set_files(str(resolved_path))
+        return self.current_state()
+
+    def get_accessibility_tree(self) -> dict[str, Any]:
+        source = "body_locator_aria_snapshot"
+        url = self._page.url
+        try:
+            tree = self._page.locator("body").aria_snapshot()
+        except Exception as exc:
+            return {
+                "tree": None,
+                "url": url,
+                "source": source,
+                "status": "error",
+                "error": str(exc),
+            }
+
+        return {
+            "tree": tree,
+            "url": url,
+            "source": source,
+            "status": "captured",
+            "error": None,
+        }
+
     def key_combination(self, keys: list[str]) -> EnvState:
         # Normalize all keys to the Playwright compatible version.
         keys = [PLAYWRIGHT_KEY_MAP.get(k.lower(), k) for k in keys]

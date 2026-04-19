@@ -35,6 +35,7 @@ from action_review import (
     detect_ambiguity_candidate,
 )
 from action_step_summarizer import ActionStepSummarizer
+from browser_actions import build_browser_action_functions
 from computers import EnvState, Computer
 from llm import LLMClient
 from tool_calling import (
@@ -84,7 +85,10 @@ class BrowserAgent:
         self._llm_client = llm_client or LLMClient.from_env()
         self._event_sink = event_sink
         self._step_id = 0
-        self._custom_functions = [multiply_numbers]
+        self._custom_functions = [
+            multiply_numbers,
+            *build_browser_action_functions(browser_computer),
+        ]
         self._step_review_metadata: dict[int, dict[str, Any]] = {}
         self._latest_url: str | None = None
         if step_summarizer is _UNSET_STEP_SUMMARIZER:
