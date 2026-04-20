@@ -10,7 +10,6 @@ import {
 import {
   BRIDGE_CHANNELS,
   type BrowserSurfaceBounds,
-  type BrowserSurfaceFrame,
 } from './bridge/channels';
 import {
   ELECTRON_RENDERER_URL,
@@ -27,9 +26,6 @@ let pythonRuntime: PythonRuntime | null = null;
 let browserCommandServer: BrowserCommandServer | null = null;
 let stopObservingBrowserSurfaceShortcuts: (() => void) | null = null;
 let stopObservingRendererShortcuts: (() => void) | null = null;
-let stopStreamingBrowserSurfaceFrames: (() => void) | null = null;
-const BROWSER_SURFACE_FRAME_INTERVAL_MS = 100;
-const BROWSER_SURFACE_FRAME_JPEG_QUALITY = 70;
 
 const browserSurfaceManager = new BrowserSurfaceManager(() => {
   return createElectronBrowserSurfaceView();
@@ -245,28 +241,6 @@ async function createMainWindow(): Promise<void> {
   });
   observeBrowserSurfaceFocusShortcuts();
   observeRendererFocusShortcuts();
-  startBrowserSurfaceFrameStream();
-}
-
-
-function startBrowserSurfaceFrameStream(): void {
-  stopStreamingBrowserSurfaceFrames?.();
-  stopStreamingBrowserSurfaceFrames = browserSurfaceManager.startFrameStream(
-    (frame) => {
-      const currentMainWindow = mainWindow;
-      if (!currentMainWindow || currentMainWindow.isDestroyed()) {
-        return;
-      }
-      const payload: BrowserSurfaceFrame = {
-        url: frame.url,
-        mimeType: 'image/jpeg',
-        base64: frame.base64,
-      };
-      currentMainWindow.webContents.send(BRIDGE_CHANNELS.browserSurfaceFrame, payload);
-    },
-    BROWSER_SURFACE_FRAME_INTERVAL_MS,
-    BROWSER_SURFACE_FRAME_JPEG_QUALITY,
-  );
 }
 
 app.whenReady().then(async () => {
@@ -293,8 +267,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  stopStreamingBrowserSurfaceFrames?.();
-  stopStreamingBrowserSurfaceFrames = null;
   stopObservingBrowserSurfaceShortcuts?.();
   stopObservingBrowserSurfaceShortcuts = null;
   stopObservingRendererShortcuts?.();

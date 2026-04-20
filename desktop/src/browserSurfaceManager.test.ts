@@ -3,10 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   BrowserSurfaceManager,
-  FIXED_BROWSER_SURFACE_HEIGHT,
-  FIXED_BROWSER_SURFACE_WIDTH,
+  FALLBACK_BROWSER_SURFACE_HEIGHT,
+  FALLBACK_BROWSER_SURFACE_WIDTH,
   createSameTabWindowOpenHandler,
-  getFixedBrowserSurfaceBounds,
   getHiddenBrowserSurfaceBounds,
   getManagedBrowserSurfaceAttachmentTarget,
   shouldHideBrowserSurface,
@@ -153,7 +152,7 @@ function createMockEnvironmentWithA11y(currentUrl = 'about:blank') {
 }
 
 
-test('BrowserSurfaceManager hides the view until a URL is set and ignores renderer bounds', async () => {
+test('BrowserSurfaceManager hides the view until both bounds and URL are set', async () => {
   const environment = createMockEnvironment();
 
   await environment.manager.attachWindow(environment.window);
@@ -164,27 +163,37 @@ test('BrowserSurfaceManager hides the view until a URL is set and ignores render
 
   await environment.manager.setBounds({ x: 10, y: 20, width: 300, height: 200 });
 
+  // Bounds alone do not reveal the view; URL is still missing.
   assert.deepEqual(environment.recordedBounds.at(-1), getHiddenBrowserSurfaceBounds());
   assert.deepEqual(environment.loadedUrls, []);
 
   await environment.manager.setUrl('https://example.com');
 
-  assert.deepEqual(environment.recordedBounds.at(-1), getFixedBrowserSurfaceBounds());
-  assert.equal(environment.recordedBounds.at(-1)?.width, FIXED_BROWSER_SURFACE_WIDTH);
-  assert.equal(environment.recordedBounds.at(-1)?.height, FIXED_BROWSER_SURFACE_HEIGHT);
+  assert.deepEqual(environment.recordedBounds.at(-1), { x: 10, y: 20, width: 300, height: 200 });
   assert.deepEqual(environment.loadedUrls, ['https://example.com']);
 });
 
 
-test('BrowserSurfaceManager reports the fixed browser surface size regardless of renderer bounds', async () => {
+test('BrowserSurfaceManager reports the renderer-provided pane size to the agent', async () => {
   const environment = createMockEnvironment();
 
   await environment.manager.attachWindow(environment.window);
   await environment.manager.setBounds({ x: 0, y: 0, width: 640, height: 480 });
 
   assert.deepEqual(environment.manager.getScreenSize(), {
-    width: FIXED_BROWSER_SURFACE_WIDTH,
-    height: FIXED_BROWSER_SURFACE_HEIGHT,
+    width: 640,
+    height: 480,
+  });
+});
+
+
+test('BrowserSurfaceManager falls back to a default screen size before bounds arrive', async () => {
+  const environment = createMockEnvironment();
+  await environment.manager.attachWindow(environment.window);
+
+  assert.deepEqual(environment.manager.getScreenSize(), {
+    width: FALLBACK_BROWSER_SURFACE_WIDTH,
+    height: FALLBACK_BROWSER_SURFACE_HEIGHT,
   });
 });
 

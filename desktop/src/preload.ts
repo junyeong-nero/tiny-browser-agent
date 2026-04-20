@@ -1,9 +1,8 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 
 import {
   BRIDGE_CHANNELS,
   type BrowserSurfaceBounds,
-  type BrowserSurfaceFrame,
 } from './bridge/channels';
 
 
@@ -40,15 +39,6 @@ contextBridge.exposeInMainWorld('__COMPUTER_USE_DESKTOP_BRIDGE__', {
   browserSurface: {
     focus: () => ipcRenderer.invoke(BRIDGE_CHANNELS.focusBrowserSurface),
     setBounds: (bounds: BrowserSurfaceBounds) =>
-      ipcRenderer.invoke(BRIDGE_CHANNELS.setBrowserSurfaceBounds, { bounds }),
-    onFrame: (listener: (frame: BrowserSurfaceFrame) => void) => {
-      const handler = (_event: IpcRendererEvent, frame: BrowserSurfaceFrame) => {
-        listener(frame);
-      };
-      ipcRenderer.on(BRIDGE_CHANNELS.browserSurfaceFrame, handler);
-      return () => {
-        ipcRenderer.off(BRIDGE_CHANNELS.browserSurfaceFrame, handler);
-      };
-    }
+      ipcRenderer.invoke(BRIDGE_CHANNELS.setBrowserSurfaceBounds, { bounds })
   }
 });

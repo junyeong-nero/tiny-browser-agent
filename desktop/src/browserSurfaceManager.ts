@@ -8,13 +8,11 @@ import { captureAccessibilitySnapshot, captureBrowserSurfaceState } from './brow
 import { attachSameTabPopupHandling, createSameTabWindowOpenHandler } from './browserSurfacePopups';
 
 
-export const FIXED_BROWSER_SURFACE_WIDTH = 1920;
-export const FIXED_BROWSER_SURFACE_HEIGHT = 1080;
-
-// Position the view below the visible window area so it does not cover renderer
-// UI. Chromium still renders the attached WebContentsView at its bound size, so
-// captures return the full 1920x1080 frame.
-const OFFSCREEN_BROWSER_SURFACE_Y_OFFSET = 4000;
+// Fallback viewport size used when the renderer has not reported pane bounds
+// yet. Once bounds arrive, the hosted page is laid out at those exact bounds
+// and the agent operates on the same coordinate space the user sees.
+export const FALLBACK_BROWSER_SURFACE_WIDTH = 1280;
+export const FALLBACK_BROWSER_SURFACE_HEIGHT = 800;
 
 
 export interface ManagedBrowserSurfaceWindow {
@@ -51,7 +49,6 @@ interface BrowserKeyEvent {
 
 export interface ManagedBrowserSurfaceWebContents {
   captureScreenshot(): Promise<Buffer>;
-  captureFrameJpeg?(quality: number): Promise<Buffer>;
   close(): void;
   focus(): void;
   getURL(): string;
@@ -114,19 +111,13 @@ const MODIFIER_KEY_MAP: Record<string, string> = {
   shift: 'shift',
 };
 
-export interface BrowserSurfaceFramePayload {
-  url: string;
-  base64: string;
-}
 
 export class BrowserSurfaceManager {
   private browserSurfaceUrl: string | null = null;
   private browserSurfaceView: ManagedBrowserSurfaceView | null = null;
   private browserSurfaceWindow: ManagedBrowserSurfaceWindow | null = null;
   private stopObservingTopLevelNavigations: (() => void) | null = null;
-  private frameStreamTimer: ReturnType<typeof setInterval> | null = null;
-  private frameStreamBusy = false;
-  private lastFrameBuffer: Buffer | null = null;
+  private displayBounds: BrowserSurfaceBounds | null = null;
 
   constructor(
     private readonly createView: () => ManagedBrowserSurfaceView,
@@ -153,11 +144,8 @@ export class BrowserSurfaceManager {
     return browserSurfaceView.webContents.observeBeforeInputEvents(listener);
   }
 
-  async setBounds(_bounds: BrowserSurfaceBounds): Promise<void> {
-    // The hosted browser surface is fixed at 1920x1080 so that the agent
-    // always operates against a stable viewport. Renderer-reported bounds are
-    // ignored; the desktop app shows a scaled screenshot instead of the live
-    // native overlay.
+  async setBounds(bounds: BrowserSurfaceBounds): Promise<void> {
+    this.displayBounds = bounds;
     await this.sync();
   }
 
@@ -167,9 +155,13 @@ export class BrowserSurfaceManager {
   }
 
   getScreenSize(): { width: number; height: number } {
+    const bounds = this.displayBounds;
+    if (bounds && bounds.width > 0 && bounds.height > 0) {
+      return { width: Math.round(bounds.width), height: Math.round(bounds.height) };
+    }
     return {
-      width: FIXED_BROWSER_SURFACE_WIDTH,
-      height: FIXED_BROWSER_SURFACE_HEIGHT,
+      width: FALLBACK_BROWSER_SURFACE_WIDTH,
+      height: FALLBACK_BROWSER_SURFACE_HEIGHT,
     };
   }
 
@@ -335,8 +327,9 @@ export class BrowserSurfaceManager {
     }
 
     const browserSurfaceUrl = this.browserSurfaceUrl;
+    const bounds = this.displayBounds;
 
-    if (shouldHideBrowserSurface(browserSurfaceUrl)) {
+    if (shouldHideBrowserSurface(browserSurfaceUrl) || !bounds || bounds.width <= 0 || bounds.height <= 0) {
       browserSurfaceView.setBounds(getHiddenBrowserSurfaceBounds());
       if (browserSurfaceView.webContents.getURL() !== 'about:blank') {
         await browserSurfaceView.webContents.loadURL('about:blank').catch(ignoreAbortedNavigation);
@@ -344,70 +337,13 @@ export class BrowserSurfaceManager {
       return;
     }
 
-    browserSurfaceView.setBounds(getFixedBrowserSurfaceBounds());
+    browserSurfaceView.setBounds(bounds);
     if (browserSurfaceView.webContents.getURL() !== browserSurfaceUrl) {
       await browserSurfaceView.webContents.loadURL(browserSurfaceUrl!).catch(ignoreAbortedNavigation);
     }
   }
 
-  startFrameStream(
-    onFrame: (frame: BrowserSurfaceFramePayload) => void,
-    intervalMs = 100,
-    jpegQuality = 70,
-  ): () => void {
-    this.stopFrameStream();
-
-    const tick = async () => {
-      if (this.frameStreamBusy) {
-        return;
-      }
-      const view = this.browserSurfaceView;
-      if (!view) {
-        return;
-      }
-      const url = view.webContents.getURL();
-      if (!url || url === 'about:blank') {
-        return;
-      }
-      const { captureFrameJpeg } = view.webContents;
-      if (!captureFrameJpeg) {
-        return;
-      }
-
-      this.frameStreamBusy = true;
-      try {
-        const buffer = await captureFrameJpeg.call(view.webContents, jpegQuality);
-        if (buffer.length === 0 || this.lastFrameBuffer?.equals(buffer)) {
-          return;
-        }
-        this.lastFrameBuffer = buffer;
-        onFrame({ url, base64: buffer.toString('base64') });
-      } catch {
-        // ignored
-      } finally {
-        this.frameStreamBusy = false;
-      }
-    };
-
-    this.frameStreamTimer = setInterval(() => {
-      void tick();
-    }, intervalMs);
-
-    return () => {
-      this.stopFrameStream();
-    };
-  }
-
-  stopFrameStream(): void {
-    if (this.frameStreamTimer) {
-      clearInterval(this.frameStreamTimer);
-      this.frameStreamTimer = null;
-    }
-    this.lastFrameBuffer = null;
-  }
-
   destroy(): void {
-    this.stopFrameStream();
     this.stopObservingTopLevelNavigations?.();
     this.stopObservingTopLevelNavigations = null;
     if (this.browserSurfaceView) {
@@ -417,6 +353,7 @@ export class BrowserSurfaceManager {
     this.browserSurfaceUrl = null;
     this.browserSurfaceView = null;
     this.browserSurfaceWindow = null;
+    this.displayBounds = null;
   }
 
   private ensureView(): ManagedBrowserSurfaceView | null {
@@ -452,21 +389,9 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
-      offscreen: true,
       sandbox: true,
     },
   });
-  browserSurfaceView.webContents.setBackgroundThrottling(false);
-  try {
-    browserSurfaceView.webContents.setFrameRate(30);
-  } catch {
-    // setFrameRate is only valid for offscreen-rendered contents; ignore if
-    // the runtime rejects it.
-  }
-  // Offscreen-rendered WebContents still need a non-zero viewport for the
-  // compositor to produce frames. Keeping the native view at the fixed
-  // 1920x1080 size (via setBounds in sync()) ensures capturePage() returns a
-  // populated buffer even though the view is not visible to the user.
   const popupSupport = attachSameTabPopupHandling(browserSurfaceView);
 
   return {
@@ -476,28 +401,11 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
     },
     webContents: {
       async captureScreenshot() {
-        // stayHidden keeps the compositor rendering the page even though the
-        // WebContentsView is positioned offscreen; otherwise capturePage()
-        // returns an empty buffer for fully clipped views.
-        const screenshot = await browserSurfaceView.webContents.capturePage(
-          undefined,
-          { stayHidden: true, stayAwake: true },
-        );
-        const normalized = screenshot.resize({
-          width: FIXED_BROWSER_SURFACE_WIDTH,
-          height: FIXED_BROWSER_SURFACE_HEIGHT,
-        });
-        return normalized.toPNG();
-      },
-      async captureFrameJpeg(quality) {
-        const frame = await browserSurfaceView.webContents.capturePage(
-          undefined,
-          { stayHidden: true, stayAwake: true },
-        );
-        if (frame.isEmpty()) {
+        const screenshot = await browserSurfaceView.webContents.capturePage();
+        if (screenshot.isEmpty()) {
           return Buffer.alloc(0);
         }
-        return frame.toJPEG(quality);
+        return screenshot.toPNG();
       },
       close() {
         popupSupport.closeAllPopupProxies();
@@ -617,16 +525,6 @@ export function getManagedBrowserSurfaceAttachmentTarget(
 
 export function getHiddenBrowserSurfaceBounds(): BrowserSurfaceBounds {
   return { x: 0, y: 0, width: 0, height: 0 };
-}
-
-
-export function getFixedBrowserSurfaceBounds(): BrowserSurfaceBounds {
-  return {
-    x: 0,
-    y: OFFSCREEN_BROWSER_SURFACE_Y_OFFSET,
-    width: FIXED_BROWSER_SURFACE_WIDTH,
-    height: FIXED_BROWSER_SURFACE_HEIGHT,
-  };
 }
 
 
