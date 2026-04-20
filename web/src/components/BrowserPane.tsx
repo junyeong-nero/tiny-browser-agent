@@ -5,6 +5,7 @@ import type { StepRecord } from '../types/api';
 
 interface BrowserPaneProps {
   currentScreenshotB64: string | null | undefined;
+  liveFrameDataUrl?: string | null;
   selectedStep: StepRecord | null | undefined;
   sessionId: string | null | undefined;
   status: string | undefined;
@@ -15,6 +16,7 @@ interface BrowserPaneProps {
 
 export function BrowserPane({
   currentScreenshotB64,
+  liveFrameDataUrl = null,
   selectedStep,
   sessionId,
   status,
@@ -29,7 +31,8 @@ export function BrowserPane({
   const isStepPreview = !!selectedStep;
   const selectedStepHtmlPath = selectedStep?.html_path ?? null;
   const selectedStepMetadataPath = selectedStep?.metadata_path ?? null;
-  const currentPreviewSrc = currentScreenshotB64 ? `data:image/png;base64,${currentScreenshotB64}` : null;
+  const snapshotPreviewSrc = currentScreenshotB64 ? `data:image/png;base64,${currentScreenshotB64}` : null;
+  const currentPreviewSrc = liveFrameDataUrl ?? snapshotPreviewSrc;
   const stepPreviewSrc = stepScreenshotB64 ? `data:image/png;base64,${stepScreenshotB64}` : null;
 
   useEffect(() => {

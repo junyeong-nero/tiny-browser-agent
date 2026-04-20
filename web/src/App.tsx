@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 
-import { getBrowserSurfaceBridge } from './api/browserSurfaceBridge';
+import { getBrowserSurfaceBridge, useLiveBrowserSurfaceFrame } from './api/browserSurfaceBridge';
 import { BrowserPane } from './components/BrowserPane';
 import { ChatPanel } from './components/ChatPanel';
 import { Layout } from './components/Layout';
@@ -15,6 +15,10 @@ function App() {
   const verificationPanelRef = useRef<HTMLDivElement | null>(null);
   const chatInputRef = useRef<HTMLInputElement | null>(null);
   const hasBrowserSurfaceBridge = getBrowserSurfaceBridge() !== null;
+  const liveFrame = useLiveBrowserSurfaceFrame();
+  const liveFrameDataUrl = liveFrame
+    ? `data:${liveFrame.mimeType};base64,${liveFrame.base64}`
+    : null;
   const {
     sessionId,
     displaySnapshot,
@@ -68,6 +72,7 @@ function App() {
         <BrowserPane
           paneRef={browserPaneRef}
           currentScreenshotB64={displaySnapshot?.latest_screenshot_b64}
+          liveFrameDataUrl={liveFrameDataUrl}
           selectedStep={selectedStep}
           sessionId={displaySnapshot?.session_id}
           status={displaySnapshot?.status}

@@ -21,9 +21,17 @@ export interface BrowserSurfaceBounds {
 }
 
 
+export interface BrowserSurfaceFrame {
+  url: string;
+  mimeType: 'image/jpeg';
+  base64: string;
+}
+
+
 export interface DesktopBrowserSurfaceBridge {
   focus(): Promise<void> | void;
   setBounds(bounds: BrowserSurfaceBounds): Promise<void> | void;
+  onFrame?(listener: (frame: BrowserSurfaceFrame) => void): () => void;
 }
 
 
