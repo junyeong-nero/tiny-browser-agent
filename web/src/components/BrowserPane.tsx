@@ -1,11 +1,10 @@
-import { useEffect, useState, type Ref } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
 
 import { useArtifactClient } from '../api/ArtifactClientContext';
 import type { StepRecord } from '../types/api';
 
 interface BrowserPaneProps {
   currentScreenshotB64: string | null | undefined;
-  liveFrameDataUrl?: string | null;
   selectedStep: StepRecord | null | undefined;
   sessionId: string | null | undefined;
   status: string | undefined;
@@ -16,7 +15,6 @@ interface BrowserPaneProps {
 
 export function BrowserPane({
   currentScreenshotB64,
-  liveFrameDataUrl = null,
   selectedStep,
   sessionId,
   status,
@@ -25,6 +23,7 @@ export function BrowserPane({
   paneRef,
 }: BrowserPaneProps) {
   const artifactClient = useArtifactClient();
+  const internalPaneRef = useRef<HTMLElement | null>(null);
   const [stepScreenshotB64, setStepScreenshotB64] = useState<string | null>(null);
   const [stepScreenshotError, setStepScreenshotError] = useState<string | null>(null);
   const [isLoadingStepScreenshot, setIsLoadingStepScreenshot] = useState(false);
@@ -32,7 +31,6 @@ export function BrowserPane({
   const selectedStepHtmlPath = selectedStep?.html_path ?? null;
   const selectedStepMetadataPath = selectedStep?.metadata_path ?? null;
   const snapshotPreviewSrc = currentScreenshotB64 ? `data:image/png;base64,${currentScreenshotB64}` : null;
-  const currentPreviewSrc = liveFrameDataUrl ?? snapshotPreviewSrc;
   const stepPreviewSrc = stepScreenshotB64 ? `data:image/png;base64,${stepScreenshotB64}` : null;
 
   useEffect(() => {
@@ -77,10 +75,19 @@ export function BrowserPane({
     };
   }, [artifactClient, selectedStep?.screenshot_path, sessionId]);
 
-  if (!isStepPreview && !currentPreviewSrc) {
+  const assignPaneRef = (node: HTMLElement | null) => {
+    internalPaneRef.current = node;
+    if (typeof paneRef === 'function') {
+      paneRef(node);
+    } else if (paneRef) {
+      (paneRef as { current: HTMLElement | null }).current = node;
+    }
+  };
+
+  if (!isStepPreview && !snapshotPreviewSrc) {
     return (
       <section
-        ref={paneRef}
+        ref={assignPaneRef}
         className="browser-pane empty"
         tabIndex={-1}
         role="region"
@@ -96,7 +103,7 @@ export function BrowserPane({
 
   return (
     <section
-      ref={paneRef}
+      ref={assignPaneRef}
       className="browser-pane"
       tabIndex={-1}
       role="region"
@@ -111,17 +118,12 @@ export function BrowserPane({
             {`Inspection mode · Step ${selectedStep?.step_id}`}
           </div>
         )}
-        {!isStepPreview && currentPreviewSrc && (
+        {!isStepPreview && snapshotPreviewSrc && (
           <img
-            src={currentPreviewSrc}
+            src={snapshotPreviewSrc}
             alt="Current browser preview"
             className="browser-screenshot browser-screenshot-fixed"
           />
-        )}
-        {!isStepPreview && !currentPreviewSrc && (
-          <div className="browser-step-meta">
-            {status === 'running' ? 'Waiting for browser...' : 'No browser preview available'}
-          </div>
         )}
         {isStepPreview && selectedStep && (
           <>

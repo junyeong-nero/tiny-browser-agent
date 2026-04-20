@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useState, type RefObject } from 'react';
+import { useCallback, useEffect, type RefObject } from 'react';
 
 import {
   getDesktopBridge,
   type BrowserSurfaceBounds,
-  type BrowserSurfaceFrame,
   type DesktopBrowserSurfaceBridge,
 } from './desktopBridge';
 
@@ -113,21 +112,3 @@ export function useBrowserSurfaceHost<T extends HTMLElement>(
 }
 
 
-export function useLiveBrowserSurfaceFrame(): BrowserSurfaceFrame | null {
-  const [frame, setFrame] = useState<BrowserSurfaceFrame | null>(null);
-
-  useEffect(() => {
-    const browserSurfaceBridge = getBrowserSurfaceBridge();
-    if (!browserSurfaceBridge?.onFrame) {
-      return undefined;
-    }
-
-    const unsubscribe = browserSurfaceBridge.onFrame(setFrame);
-
-    return () => {
-      unsubscribe();
-    };
-  }, []);
-
-  return frame;
-}
