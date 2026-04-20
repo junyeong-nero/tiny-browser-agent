@@ -51,6 +51,7 @@ interface BrowserKeyEvent {
 
 export interface ManagedBrowserSurfaceWebContents {
   captureScreenshot(): Promise<Buffer>;
+  captureFrameJpeg?(quality: number): Promise<Buffer>;
   close(): void;
   focus(): void;
   getURL(): string;
@@ -113,11 +114,19 @@ const MODIFIER_KEY_MAP: Record<string, string> = {
   shift: 'shift',
 };
 
+export interface BrowserSurfaceFramePayload {
+  url: string;
+  base64: string;
+}
+
 export class BrowserSurfaceManager {
   private browserSurfaceUrl: string | null = null;
   private browserSurfaceView: ManagedBrowserSurfaceView | null = null;
   private browserSurfaceWindow: ManagedBrowserSurfaceWindow | null = null;
   private stopObservingTopLevelNavigations: (() => void) | null = null;
+  private frameStreamTimer: ReturnType<typeof setInterval> | null = null;
+  private frameStreamBusy = false;
+  private lastFrameBuffer: Buffer | null = null;
 
   constructor(
     private readonly createView: () => ManagedBrowserSurfaceView,
@@ -341,7 +350,64 @@ export class BrowserSurfaceManager {
     }
   }
 
+  startFrameStream(
+    onFrame: (frame: BrowserSurfaceFramePayload) => void,
+    intervalMs = 100,
+    jpegQuality = 70,
+  ): () => void {
+    this.stopFrameStream();
+
+    const tick = async () => {
+      if (this.frameStreamBusy) {
+        return;
+      }
+      const view = this.browserSurfaceView;
+      if (!view) {
+        return;
+      }
+      const url = view.webContents.getURL();
+      if (!url || url === 'about:blank') {
+        return;
+      }
+      const { captureFrameJpeg } = view.webContents;
+      if (!captureFrameJpeg) {
+        return;
+      }
+
+      this.frameStreamBusy = true;
+      try {
+        const buffer = await captureFrameJpeg.call(view.webContents, jpegQuality);
+        if (buffer.length === 0 || this.lastFrameBuffer?.equals(buffer)) {
+          return;
+        }
+        this.lastFrameBuffer = buffer;
+        onFrame({ url, base64: buffer.toString('base64') });
+      } catch {
+        // ignored
+      } finally {
+        this.frameStreamBusy = false;
+      }
+    };
+
+    this.frameStreamTimer = setInterval(() => {
+      void tick();
+    }, intervalMs);
+
+    return () => {
+      this.stopFrameStream();
+    };
+  }
+
+  stopFrameStream(): void {
+    if (this.frameStreamTimer) {
+      clearInterval(this.frameStreamTimer);
+      this.frameStreamTimer = null;
+    }
+    this.lastFrameBuffer = null;
+  }
+
   destroy(): void {
+    this.stopFrameStream();
     this.stopObservingTopLevelNavigations?.();
     this.stopObservingTopLevelNavigations = null;
     if (this.browserSurfaceView) {
@@ -422,6 +488,16 @@ export function createElectronBrowserSurfaceView(): ManagedBrowserSurfaceView {
           height: FIXED_BROWSER_SURFACE_HEIGHT,
         });
         return normalized.toPNG();
+      },
+      async captureFrameJpeg(quality) {
+        const frame = await browserSurfaceView.webContents.capturePage(
+          undefined,
+          { stayHidden: true, stayAwake: true },
+        );
+        if (frame.isEmpty()) {
+          return Buffer.alloc(0);
+        }
+        return frame.toJPEG(quality);
       },
       close() {
         popupSupport.closeAllPopupProxies();

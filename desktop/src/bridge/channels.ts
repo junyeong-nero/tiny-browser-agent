@@ -12,8 +12,15 @@ export const BRIDGE_CHANNELS = {
   getArtifactBinary: 'computer-use:artifacts:get-binary',
   openArtifact: 'computer-use:artifacts:open',
   focusBrowserSurface: 'computer-use:browser-surface:focus',
-  setBrowserSurfaceBounds: 'computer-use:browser-surface:set-bounds'
+  setBrowserSurfaceBounds: 'computer-use:browser-surface:set-bounds',
+  browserSurfaceFrame: 'computer-use:browser-surface:frame'
 } as const;
+
+export interface BrowserSurfaceFrame {
+  url: string;
+  mimeType: 'image/jpeg';
+  base64: string;
+}
 
 export interface BrowserSurfaceBounds {
   x: number;
