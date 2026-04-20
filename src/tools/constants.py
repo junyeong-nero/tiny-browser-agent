@@ -1,0 +1,15 @@
+PREDEFINED_COMPUTER_USE_FUNCTIONS = [
+    "open_web_browser",
+    "click_at",
+    "hover_at",
+    "type_text_at",
+    "scroll_document",
+    "scroll_at",
+    "wait_5_seconds",
+    "go_back",
+    "go_forward",
+    "search",
+    "navigate",
+    "key_combination",
+    "drag_and_drop",
+]

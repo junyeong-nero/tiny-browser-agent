@@ -7,7 +7,7 @@ from .models import (
     StepRecord,
 )
 from .desktop_bridge import DesktopBridgeServer, run_desktop_bridge
-from .runtime import create_session_service, create_session_store, resolve_default_computer_factory
+from .runtime import create_session_service, create_session_store
 from .session_controller import SessionController
 from .session_service import SessionService
 from .session_store import SessionStore
@@ -25,6 +25,5 @@ __all__ = [
     "StepRecord",
     "create_session_service",
     "create_session_store",
-    "resolve_default_computer_factory",
     "run_desktop_bridge",
 ]

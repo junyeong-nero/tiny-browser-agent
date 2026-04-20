@@ -9,8 +9,8 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, Callable, Literal, Optional
 
-from agent import BrowserAgent
-from computers import Computer, PlaywrightComputer
+from agents.actor_agent import BrowserAgent
+from browser import PlaywrightBrowser
 
 from collections import Counter
 
@@ -25,7 +25,7 @@ from .session_state import SessionState
 
 SESSION_IDLE_TIMEOUT_SECONDS = 15 * 60
 
-ComputerFactory = Callable[..., AbstractContextManager[Computer]]
+ComputerFactory = Callable[..., AbstractContextManager[PlaywrightBrowser]]
 AgentFactory = Callable[..., BrowserAgent]
 
 
@@ -155,7 +155,7 @@ class SessionController:
         headless: bool,
         artifacts_root: Path,
         idle_timeout_seconds: float = SESSION_IDLE_TIMEOUT_SECONDS,
-        computer_factory: ComputerFactory = PlaywrightComputer,
+        computer_factory: ComputerFactory = PlaywrightBrowser,
         agent_factory: AgentFactory = BrowserAgent,
     ):
         self.session_id = session_id
@@ -254,7 +254,7 @@ class SessionController:
         raise FileNotFoundError(name)
 
     def _run_session(self, query: str, model_name: str) -> None:
-        browser_computer: Computer | None = None
+        browser_computer: PlaywrightBrowser | None = None
         try:
             with self._computer_factory(
                 screen_size=self._screen_size,
@@ -357,7 +357,7 @@ class SessionController:
         with self._lock:
             self._state.handle_agent_event(event)
 
-    def _finalize_video_artifact(self, browser_computer: Computer | None = None) -> None:
+    def _finalize_video_artifact(self, browser_computer: PlaywrightBrowser | None = None) -> None:
         finalize_video = getattr(browser_computer, "finalize_video_artifact", None)
         if callable(finalize_video):
             try:

@@ -27,24 +27,16 @@ from google.genai.types import (
 from rich.console import Console
 from rich.table import Table
 
-from action_metadata import ActionMetadataWriter
-from action_review import (
-    ActionReviewContext,
+from agents.post_summary_agent import (
+    ActionMetadataWriter,
     ActionReviewService,
     AmbiguityCandidate,
-    detect_ambiguity_candidate,
+    ActionStepSummarizer,
 )
-from action_step_summarizer import ActionStepSummarizer
-from browser_actions import build_browser_action_functions
-from computers import EnvState, Computer
+from browser import build_browser_action_functions, EnvState, PlaywrightBrowser
 from llm import LLMClient
-from tool_calling import (
-    BrowserToolExecutor,
-    ToolBatchResult,
-    ToolResult,
-    is_env_state_result,
-    prune_old_screenshot_parts,
-)
+from tool_executor import BrowserToolExecutor, prune_old_screenshot_parts
+from tools.types import ToolBatchResult, ToolResult, is_env_state_result
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 _UNSET_STEP_SUMMARIZER: object = object()
@@ -69,7 +61,7 @@ def multiply_numbers(x: float, y: float) -> dict:
 class BrowserAgent:
     def __init__(
         self,
-        browser_computer: Computer,
+        browser_computer: PlaywrightBrowser,
         query: str,
         model_name: str,
         verbose: bool = True,

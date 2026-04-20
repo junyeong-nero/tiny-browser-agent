@@ -1,48 +1,42 @@
-# Copyright 2025 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+import os
+import shutil
+import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Literal, Optional, cast
+
+import pydantic
 import termcolor
-from ..artifact_logger import ArtifactLogger
-from ..computer import (
-    Computer,
-    EnvState,
-)
 import playwright.sync_api
 from playwright.sync_api import sync_playwright
+
+from .artifact_logger import ArtifactLogger
+
+FRAME_CAPTURE_FPS = 60
+
+
+class EnvState(pydantic.BaseModel):
+    screenshot: bytes
+    url: str
+
 
 PLAYWRIGHT_INSTALL_HINT = (
     "Playwright browser binaries are missing. Run "
     "`uv run playwright install chromium` and retry."
 )
 
-# Define a mapping from the user-friendly key names to Playwright's expected key names.
-# Playwright is generally good with case-insensitivity for these, but it's best to be canonical.
-# See: https://playwright.dev/docs/api/class-keyboard#keyboard-press
-# Keys like 'a', 'b', '1', '$' are passed directly.
 PLAYWRIGHT_KEY_MAP = {
     "backspace": "Backspace",
     "tab": "Tab",
-    "return": "Enter",  # Playwright uses 'Enter'
+    "return": "Enter",
     "enter": "Enter",
     "shift": "Shift",
     "control": "ControlOrMeta",
     "alt": "Alt",
     "escape": "Escape",
-    "space": "Space",  # Can also just be " "
+    "space": "Space",
     "pageup": "PageUp",
     "pagedown": "PageDown",
     "end": "End",
@@ -53,14 +47,14 @@ PLAYWRIGHT_KEY_MAP = {
     "down": "ArrowDown",
     "insert": "Insert",
     "delete": "Delete",
-    "semicolon": ";",  # For actual character ';'
-    "equals": "=",  # For actual character '='
-    "multiply": "Multiply",  # NumpadMultiply
-    "add": "Add",  # NumpadAdd
-    "separator": "Separator",  # Numpad specific
-    "subtract": "Subtract",  # NumpadSubtract, or just '-' for character
-    "decimal": "Decimal",  # NumpadDecimal, or just '.' for character
-    "divide": "Divide",  # NumpadDivide, or just '/' for character
+    "semicolon": ";",
+    "equals": "=",
+    "multiply": "Multiply",
+    "add": "Add",
+    "separator": "Separator",
+    "subtract": "Subtract",
+    "decimal": "Decimal",
+    "divide": "Divide",
     "f1": "F1",
     "f2": "F2",
     "f3": "F3",
@@ -73,12 +67,12 @@ PLAYWRIGHT_KEY_MAP = {
     "f10": "F10",
     "f11": "F11",
     "f12": "F12",
-    "command": "Meta",  # 'Meta' is Command on macOS, Windows key on Windows
+    "command": "Meta",
 }
 
 
-class PlaywrightComputer(Computer):
-    """Connects to a local Playwright instance."""
+class PlaywrightBrowser:
+    """Controls a local Chromium browser via Playwright."""
 
     def __init__(
         self,
@@ -95,13 +89,13 @@ class PlaywrightComputer(Computer):
         self._highlight_mouse = highlight_mouse
         self._headless = headless
         self._artifact_logger = ArtifactLogger(log_dir=log_dir)
+        self._frame_buffer: bytes | None = None
+        self._frame_lock = threading.Lock()
+        self._frame_thread: Optional[threading.Thread] = None
+        self._frame_stop = threading.Event()
+        self._ffmpeg_proc: Optional[subprocess.Popen] = None
 
     def _handle_new_page(self, new_page: playwright.sync_api.Page):
-        """The Computer Use model only supports a single tab at the moment.
-
-        Some websites, however, try to open links in a new tab.
-        For those situations, we intercept the page-opening behavior, and instead overwrite the current page.
-        """
         new_url = new_page.url
         new_page.close()
         self._page.goto(new_url)
@@ -120,7 +114,6 @@ class PlaywrightComputer(Computer):
                     "--disable-background-networking",
                     "--disable-default-apps",
                     "--disable-sync",
-                    # No '--no-sandbox' arg means the sandbox is on.
                 ],
                 headless=self._headless,
             )
@@ -144,45 +137,35 @@ class PlaywrightComputer(Computer):
         self._context = self._browser.new_context(**context_kwargs)
         self._page = self._context.new_page()
         self._page.goto(self._initial_url)
-
         self._context.on("page", self._handle_new_page)
-
-        termcolor.cprint(
-            f"Started local playwright.",
-            color="green",
-            attrs=["bold"],
-        )
+        termcolor.cprint("Started local playwright.", color="green", attrs=["bold"])
         history_dir = self.history_dir()
         if history_dir:
             print(f"Logging Playwright history to {history_dir.parent}")
+        self._start_frame_stream()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self._stop_frame_stream()
         if self._context:
             self._context.close()
         try:
             self._browser.close()
         except Exception as e:
-            # Browser was already shut down because of SIGINT or such.
-            if "Browser.close: Connection closed while reading from the driver" in str(
-                e
-            ):
-                pass
-            else:
+            if "Browser.close: Connection closed while reading from the driver" not in str(e):
                 raise
-
         self._playwright.stop()
 
     def open_web_browser(self) -> EnvState:
         return self.current_state()
 
-    def click_at(self, x: int, y: int):
+    def click_at(self, x: int, y: int) -> EnvState:
         self.highlight_mouse(x, y)
         self._page.mouse.click(x, y)
         self._page.wait_for_load_state()
         return self.current_state()
 
-    def hover_at(self, x: int, y: int):
+    def hover_at(self, x: int, y: int) -> EnvState:
         self.highlight_mouse(x, y)
         self._page.mouse.move(x, y)
         self._page.wait_for_load_state()
@@ -215,24 +198,14 @@ class PlaywrightComputer(Computer):
         self._page.wait_for_load_state()
         return self.current_state()
 
-    def _horizontal_document_scroll(
-        self, direction: Literal["left", "right"]
-    ) -> EnvState:
-        # Scroll by 50% of the viewport size.
+    def _horizontal_document_scroll(self, direction: Literal["left", "right"]) -> EnvState:
         horizontal_scroll_amount = self.screen_size()[0] // 2
-        if direction == "left":
-            sign = "-"
-        else:
-            sign = ""
-        scroll_argument = f"{sign}{horizontal_scroll_amount}"
-        # Scroll using JS.
-        self._page.evaluate(f"window.scrollBy({scroll_argument}, 0); ")
+        sign = "" if direction == "right" else "-"
+        self._page.evaluate(f"window.scrollBy({sign}{horizontal_scroll_amount}, 0); ")
         self._page.wait_for_load_state()
         return self.current_state()
 
-    def scroll_document(
-        self, direction: Literal["up", "down", "left", "right"]
-    ) -> EnvState:
+    def scroll_document(self, direction: Literal["up", "down", "left", "right"]) -> EnvState:
         if direction == "down":
             return self.key_combination(["PageDown"])
         elif direction == "up":
@@ -250,7 +223,6 @@ class PlaywrightComputer(Computer):
         magnitude: int = 800,
     ) -> EnvState:
         self.highlight_mouse(x, y)
-
         self._page.mouse.move(x, y)
         self._page.wait_for_load_state()
 
@@ -289,9 +261,7 @@ class PlaywrightComputer(Computer):
         return self.navigate(self._search_engine_url)
 
     def navigate(self, url: str) -> EnvState:
-        normalized_url = url
-        if not normalized_url.startswith(("http://", "https://")):
-            normalized_url = "https://" + normalized_url
+        normalized_url = url if url.startswith(("http://", "https://")) else "https://" + url
         self._page.goto(normalized_url)
         self._page.wait_for_load_state()
         return self.current_state()
@@ -326,7 +296,6 @@ class PlaywrightComputer(Computer):
                 "status": "error",
                 "error": str(exc),
             }
-
         return {
             "tree": tree,
             "url": url,
@@ -336,17 +305,12 @@ class PlaywrightComputer(Computer):
         }
 
     def key_combination(self, keys: list[str]) -> EnvState:
-        # Normalize all keys to the Playwright compatible version.
         keys = [PLAYWRIGHT_KEY_MAP.get(k.lower(), k) for k in keys]
-
         for key in keys[:-1]:
             self._page.keyboard.down(key)
-
         self._page.keyboard.press(keys[-1])
-
         for key in reversed(keys[:-1]):
             self._page.keyboard.up(key)
-
         return self.current_state()
 
     def drag_and_drop(
@@ -357,7 +321,6 @@ class PlaywrightComputer(Computer):
         self._page.wait_for_load_state()
         self._page.mouse.down()
         self._page.wait_for_load_state()
-
         self.highlight_mouse(destination_x, destination_y)
         self._page.mouse.move(destination_x, destination_y)
         self._page.wait_for_load_state()
@@ -366,19 +329,17 @@ class PlaywrightComputer(Computer):
 
     def current_state(self) -> EnvState:
         self._page.wait_for_load_state()
-        # Even if Playwright reports the page as loaded, it may not be so.
-        # Add a manual sleep to make sure the page has finished rendering.
         time.sleep(0.5)
         screenshot_bytes = self._page.screenshot(type="png", full_page=False)
+        with self._frame_lock:
+            self._frame_buffer = screenshot_bytes
         self._write_history_snapshot(screenshot_bytes)
         return EnvState(screenshot=screenshot_bytes, url=self._page.url)
 
     def screen_size(self) -> tuple[int, int]:
         viewport_size = self._page.viewport_size
-        # If available, try to take the local playwright viewport size.
         if viewport_size:
             return viewport_size["width"], viewport_size["height"]
-        # If unavailable, fall back to the original provided size.
         return self._screen_size
 
     def highlight_mouse(self, x: int, y: int):
@@ -409,8 +370,67 @@ class PlaywrightComputer(Computer):
         }}
     """
         )
-        # Wait a bit for the user to see the cursor.
         time.sleep(1)
+
+    def _start_frame_stream(self) -> None:
+        video_dir = self.video_dir()
+        if not video_dir:
+            return
+        ffmpeg_cmd = os.getenv("COMPUTER_USE_FFMPEG_COMMAND") or shutil.which("ffmpeg")
+        if not ffmpeg_cmd:
+            return
+        self._prepare_log_dirs()
+        output_path = video_dir / "session_60fps.mp4"
+        cmd = [
+            ffmpeg_cmd, "-y",
+            "-f", "image2pipe",
+            "-framerate", str(FRAME_CAPTURE_FPS),
+            "-vcodec", "png",
+            "-i", "pipe:0",
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            str(output_path),
+        ]
+        self._ffmpeg_proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self._frame_stop.clear()
+        self._frame_thread = threading.Thread(
+            target=self._frame_pipe_loop,
+            daemon=True,
+            name="frame-pipe",
+        )
+        self._frame_thread.start()
+
+    def _stop_frame_stream(self) -> None:
+        self._frame_stop.set()
+        if self._frame_thread:
+            self._frame_thread.join(timeout=5)
+            self._frame_thread = None
+        if self._ffmpeg_proc:
+            try:
+                if self._ffmpeg_proc.stdin:
+                    self._ffmpeg_proc.stdin.close()
+                self._ffmpeg_proc.wait(timeout=30)
+            except Exception:
+                self._ffmpeg_proc.kill()
+            self._ffmpeg_proc = None
+
+    def _frame_pipe_loop(self) -> None:
+        interval = 1.0 / FRAME_CAPTURE_FPS
+        while not self._frame_stop.wait(interval):
+            with self._frame_lock:
+                frame = self._frame_buffer
+            if frame is None or self._ffmpeg_proc is None:
+                continue
+            try:
+                self._ffmpeg_proc.stdin.write(frame)
+            except (BrokenPipeError, OSError):
+                break
 
     def _prepare_log_dirs(self):
         self._artifact_logger.prepare_log_dirs()

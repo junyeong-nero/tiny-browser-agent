@@ -1,13 +1,13 @@
 from collections.abc import Callable
 from typing import Any
 
-from computers import Computer, EnvState
+from .playwright import EnvState, PlaywrightBrowser
 
 
 BrowserAction = Callable[..., EnvState | dict[str, Any]]
 
 
-def build_browser_action_functions(browser_computer: Computer) -> list[BrowserAction]:
+def build_browser_action_functions(browser_computer: PlaywrightBrowser) -> list[BrowserAction]:
     def press_key(key: str) -> EnvState:
         """Presses a single keyboard key, such as "Enter", "Escape", "Tab", or "Backspace".
 

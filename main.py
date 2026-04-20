@@ -7,8 +7,8 @@ SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from agent import BrowserAgent
-from computers import PlaywrightComputer
+from agents.actor_agent import BrowserAgent
+from browser import PlaywrightBrowser
 
 
 PLAYWRIGHT_SCREEN_SIZE = (1600, 900)
@@ -98,7 +98,7 @@ def main() -> int:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         log_dir = str(LOGS_DIR / timestamp)
 
-    env = PlaywrightComputer(
+    env = PlaywrightBrowser(
         screen_size=PLAYWRIGHT_SCREEN_SIZE,
         initial_url=args.initial_url,
         highlight_mouse=args.highlight_mouse,
