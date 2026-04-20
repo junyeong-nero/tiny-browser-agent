@@ -413,7 +413,7 @@ class SessionController:
         if target.exists():
             return
 
-        ffmpeg_command = os.getenv("ELECTRON_FFMPEG_COMMAND") or shutil.which("ffmpeg")
+        ffmpeg_command = os.getenv("COMPUTER_USE_FFMPEG_COMMAND") or shutil.which("ffmpeg")
         if not ffmpeg_command:
             return
 
