@@ -48,7 +48,9 @@
       "Bash(vulture /Users/junyeong-nero/workspace/tiny-browser-agent/src /Users/junyeong-nero/workspace/tiny-browser-agent/main.py /Users/junyeong-nero/workspace/tiny-browser-agent/tests --min-confidence 80)",
       "Bash(uv lock *)",
       "Bash(uv sync *)",
-      "Bash(/Users/junyeong-nero/workspace/tiny-browser-agent/.venv/bin/pytest /Users/junyeong-nero/workspace/tiny-browser-agent/tests/ -q)"
+      "Bash(/Users/junyeong-nero/workspace/tiny-browser-agent/.venv/bin/pytest /Users/junyeong-nero/workspace/tiny-browser-agent/tests/ -q)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }
