@@ -4,7 +4,7 @@ from collections.abc import Callable
 import termcolor
 from google.genai import types
 
-from .provider import BaseProvider, GeminiApiProvider
+from .provider import BaseProvider, GeminiApiProvider, GeminiComputerUseProvider, GeminiTextProvider
 
 
 class LLMError(Exception):
@@ -29,6 +29,16 @@ class LLMClient:
     @classmethod
     def from_env(cls) -> "LLMClient":
         return cls(provider=GeminiApiProvider.from_env())
+
+    @classmethod
+    def for_computer_use(cls) -> "LLMClient":
+        """Client for computer-use models (e.g. actor agent)."""
+        return cls(provider=GeminiComputerUseProvider.from_env())
+
+    @classmethod
+    def for_text(cls) -> "LLMClient":
+        """Client for standard text/structured-output models (e.g. planner, summary)."""
+        return cls(provider=GeminiTextProvider.from_env())
 
     @property
     def provider_name(self) -> str:
