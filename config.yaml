@@ -1,0 +1,4 @@
+models:
+  actor: gemini-2.5-computer-use-preview-10-2025
+  planner: gemini-2.0-flash
+  summary: gpt-4o-mini
