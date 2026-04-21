@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Browser Agent</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0d1117;
+    color: #c9d1d9;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 14px; font-weight: 600; color: #f0f6fc; flex: 1; }
+
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #484f58;
+    transition: background 0.3s;
+  }
+  .status-dot.connected    { background: #3fb950; }
+  .status-dot.disconnected { background: #f85149; }
+  .status-dot.running      { background: #d29922; animation: pulse 1s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+  }
+
+  .status-label { font-size: 11px; color: #8b949e; }
+
+  /* ── Timeline ── */
+  #timeline {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .card {
+    border-radius: 6px;
+    padding: 8px 12px;
+    border-left: 3px solid #30363d;
+    background: #161b22;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .card-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #8b949e;
+    margin-bottom: 2px;
+  }
+  .card-body { color: #c9d1d9; }
+  .card-sub  { font-size: 11px; color: #8b949e; margin-top: 3px; }
+
+  .card.task     { border-color: #388bfd; background: #0d2044; }
+  .card.task .card-label { color: #58a6ff; }
+  .card.task .card-body  { color: #cae8ff; font-weight: 500; }
+
+  .card.step     { border-color: #30363d; }
+  .card.step .card-label { color: #6e7681; }
+
+  .card.action   { border-color: #1f6feb; }
+  .card.action .card-label { color: #388bfd; }
+
+  .card.summary  { border-color: #388bfd; background: #0d1d36; }
+  .card.summary .card-label { color: #58a6ff; }
+
+  .card.url      { border-color: #1b4332; background: #0d2018; }
+  .card.url .card-label { color: #3fb950; }
+  .card.url .card-body  { color: #7ee787; font-size: 11px; font-family: monospace; }
+
+  .card.error    { border-color: #f85149; background: #2d0a0a; }
+  .card.error .card-label { color: #f85149; }
+  .card.error .card-body  { color: #ff7b72; }
+
+  .card.complete { border-color: #3fb950; background: #0a1f0f; }
+  .card.complete .card-label { color: #3fb950; }
+  .card.complete .card-body  { color: #7ee787; }
+
+  .card.info     { border-color: #484f58; }
+  .card.info .card-label { color: #8b949e; }
+
+  .pill {
+    display: inline-block;
+    background: #1f3352;
+    color: #58a6ff;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 11px;
+    font-family: monospace;
+    margin: 1px 2px 1px 0;
+  }
+
+  /* ── Input area ── */
+  footer {
+    padding: 12px 16px;
+    background: #161b22;
+    border-top: 1px solid #30363d;
+    flex-shrink: 0;
+  }
+
+  .input-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+
+  textarea {
+    flex: 1;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    padding: 8px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: none;
+    outline: none;
+    min-height: 36px;
+    max-height: 120px;
+    line-height: 1.4;
+    transition: border-color 0.15s;
+  }
+  textarea:focus    { border-color: #388bfd; }
+  textarea:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  button {
+    background: #238636;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background 0.15s;
+    height: 36px;
+  }
+  button:hover:not(:disabled) { background: #2ea043; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .hint { font-size: 11px; color: #6e7681; margin-top: 6px; }
+
+  .divider {
+    border: none;
+    border-top: 1px solid #21262d;
+    margin: 4px 0;
+  }
+
+  #empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #484f58;
+    font-size: 12px;
+    flex-direction: column;
+    gap: 8px;
+  }
+  #empty-state svg { opacity: 0.3; }
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="#58a6ff">
+    <path d="M8 0C3.58 0 0 3.58 0 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm0 14.5A6.5 6.5 0 1 1 8 1.5a6.5 6.5 0 0 1 0 13z"/>
+    <circle cx="8" cy="8" r="3"/>
+  </svg>
+  <h1>Browser Agent</h1>
+  <span class="status-dot" id="dot"></span>
+  <span class="status-label" id="status-label">Connecting…</span>
+</header>
+
+<div id="timeline">
+  <div id="empty-state">
+    <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
+      <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0zM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0z"/>
+    </svg>
+    Waiting for a task…
+  </div>
+</div>
+
+<footer>
+  <div class="input-row">
+    <textarea id="input" placeholder="Describe what you want the agent to do…" rows="1" disabled></textarea>
+    <button id="btn" disabled>Run</button>
+  </div>
+  <div class="hint" id="hint">Connecting to agent…</div>
+</footer>
+
+<script>
+const dot         = document.getElementById('dot');
+const statusLabel = document.getElementById('status-label');
+const timeline    = document.getElementById('timeline');
+const emptyState  = document.getElementById('empty-state');
+const input       = document.getElementById('input');
+const btn         = document.getElementById('btn');
+const hint        = document.getElementById('hint');
+
+let isRunning = false;
+let reconnectDelay = 1000;
+let ws = null;
+
+// ── WebSocket ──────────────────────────────────────────
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = () => {
+    reconnectDelay = 1000;
+    setStatus('connected', 'Ready');
+    if (!isRunning) setInputEnabled(true);
+  };
+
+  ws.onmessage = (e) => {
+    try { handleEvent(JSON.parse(e.data)); }
+    catch (_) {}
+  };
+
+  ws.onclose = () => {
+    setStatus('disconnected', 'Disconnected');
+    setInputEnabled(false);
+    setTimeout(() => {
+      reconnectDelay = Math.min(reconnectDelay * 2, 10000);
+      connect();
+    }, reconnectDelay);
+  };
+}
+
+// ── Status helpers ─────────────────────────────────────
+function setStatus(state, label) {
+  dot.className = `status-dot ${state}`;
+  statusLabel.textContent = label;
+}
+
+function setInputEnabled(enabled) {
+  input.disabled = !enabled;
+  btn.disabled   = !enabled;
+  hint.textContent = enabled ? 'Press Enter or click Run.' : (isRunning ? 'Task running…' : 'Connecting to agent…');
+}
+
+// ── Timeline helpers ───────────────────────────────────
+function clearEmpty() {
+  if (emptyState && emptyState.parentNode) emptyState.remove();
+}
+
+function addCard(type, label, body, sub) {
+  clearEmpty();
+  const card = document.createElement('div');
+  card.className = `card ${type}`;
+  card.innerHTML = `<div class="card-label">${label}</div><div class="card-body">${body}</div>` +
+                   (sub ? `<div class="card-sub">${sub}</div>` : '');
+  timeline.appendChild(card);
+  timeline.scrollTop = timeline.scrollHeight;
+  return card;
+}
+
+function addDivider() {
+  clearEmpty();
+  const hr = document.createElement('hr');
+  hr.className = 'divider';
+  timeline.appendChild(hr);
+}
+
+// ── Event handlers ─────────────────────────────────────
+const toolIcon = {
+  navigate: '🌐', open_web_browser: '🌐',
+  click_at: '👆', hover_at: '👆',
+  type_text_at: '⌨️', key_combination: '⌨️',
+  search: '🔍',
+  scroll_at: '↕️', scroll_document: '↕️',
+  go_back: '◀', go_forward: '▶',
+  wait_5_seconds: '⏳',
+  drag_and_drop: '✋',
+};
+
+function handleEvent(ev) {
+  switch (ev.type) {
+
+    case 'session_ready':
+      setStatus('connected', 'Ready');
+      setInputEnabled(true);
+      addCard('info', 'Session', 'Agent is ready. Enter a task below.');
+      break;
+
+    case 'task_started':
+      isRunning = true;
+      setStatus('running', 'Running');
+      setInputEnabled(false);
+      if (timeline.children.length > 0) addDivider();
+      addCard('task', '▶ Task', escHtml(ev.query));
+      break;
+
+    case 'step_started':
+      addCard('step', `Step ${ev.step_id}`, 'Thinking…');
+      break;
+
+    case 'function_calls_extracted': {
+      const calls = (ev.function_calls || []);
+      if (!calls.length) break;
+      const pills = calls.map(c => {
+        const icon = toolIcon[c.name] || '⚙️';
+        return `<span class="pill">${icon} ${escHtml(c.name)}</span>`;
+      }).join('');
+      addCard('action', 'Actions', pills);
+      break;
+    }
+
+    case 'review_metadata_extracted':
+      if (ev.action_summary) {
+        addCard('summary', 'Summary', escHtml(ev.action_summary));
+      }
+      break;
+
+    case 'action_executed':
+      if (ev.env_state && ev.env_state.url) {
+        addCard('url', 'Page', escHtml(ev.env_state.url));
+      }
+      break;
+
+    case 'step_error':
+      addCard('error', '✗ Error', escHtml(ev.error_message || 'Unknown error'));
+      break;
+
+    case 'model_request_retry':
+      addCard('info', 'Retry', `Attempt ${ev.attempt} — retrying in ${ev.delay_seconds}s`);
+      break;
+
+    case 'step_complete':
+      if (ev.final_reasoning) {
+        addCard('complete', '✓ Done', escHtml(ev.final_reasoning));
+      }
+      break;
+
+    case 'task_complete':
+      isRunning = false;
+      setStatus('connected', 'Ready');
+      setInputEnabled(true);
+      break;
+
+    case 'session_closed':
+      setStatus('disconnected', 'Session ended');
+      setInputEnabled(false);
+      addCard('info', 'Session', 'The agent session has closed.');
+      break;
+  }
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Task submission ────────────────────────────────────
+async function submitTask() {
+  const query = input.value.trim();
+  if (!query || isRunning) return;
+  input.value = '';
+  autoResize();
+  try {
+    await fetch('/task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+  } catch (e) {
+    addCard('error', 'Error', 'Failed to submit task. Is the server running?');
+  }
+}
+
+btn.addEventListener('click', submitTask);
+
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    submitTask();
+  }
+});
+
+function autoResize() {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+}
+input.addEventListener('input', autoResize);
+
+connect();
+</script>
+</body>
+</html>
