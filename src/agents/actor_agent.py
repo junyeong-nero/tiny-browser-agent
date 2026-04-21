@@ -33,7 +33,7 @@ from agents.post_summary_agent import (
     AmbiguityCandidate,
     ActionStepSummarizer,
 )
-from browser import build_browser_action_functions, EnvState, PlaywrightBrowser
+from browser import ArtifactLogger, build_browser_action_functions, EnvState, PlaywrightBrowser
 from llm import LLMClient
 from tool_executor import BrowserToolExecutor, prune_old_screenshot_parts
 from tools.types import ToolBatchResult, ToolResult, is_env_state_result
@@ -68,6 +68,7 @@ class BrowserAgent:
         llm_client: Optional[LLMClient] = None,
         event_sink: Optional[Callable[[dict[str, Any]], None]] = None,
         step_summarizer: ActionStepSummarizer | None = _UNSET_STEP_SUMMARIZER,  # type: ignore[assignment]
+        artifact_logger: Optional[ArtifactLogger] = None,
     ):
         self._browser_computer = browser_computer
         self._query = query
@@ -76,6 +77,7 @@ class BrowserAgent:
         self.final_reasoning = None
         self._llm_client = llm_client or LLMClient.from_env()
         self._event_sink = event_sink
+        self._artifact_logger = artifact_logger if artifact_logger is not None else ArtifactLogger()
         self._step_id = 0
         self._custom_functions = [
             multiply_numbers,
@@ -595,7 +597,7 @@ class BrowserAgent:
                 response=fc_result,
             )
             result_summary = str(fc_result)[:200] if fc_result is not None else None
-        self._browser_computer.record_action(
+        self._artifact_logger.record_action(
             tool=function_call.name,
             args=dict(function_call.args or {}),
             result_summary=result_summary,

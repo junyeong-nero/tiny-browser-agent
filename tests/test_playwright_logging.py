@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 
 from google.genai import types
 
+from browser.artifact_logger import ArtifactLogger
 from browser.playwright import PlaywrightBrowser
 from agents.actor_agent import BrowserAgent
 
@@ -30,7 +31,7 @@ class TestPlaywrightLogging(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             computer = PlaywrightBrowser(
                 screen_size=(1440, 900),
-                log_dir=tmp_dir,
+                artifact_logger=ArtifactLogger(log_dir=tmp_dir),
             )
             computer._page = MagicMock()
             computer._page.url = "https://example.com"
@@ -72,7 +73,7 @@ class TestPlaywrightLogging(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             computer = PlaywrightBrowser(
                 screen_size=(1440, 900),
-                log_dir=tmp_dir,
+                artifact_logger=ArtifactLogger(log_dir=tmp_dir),
             )
             computer._page = MagicMock()
             computer._page.url = "https://example.com"
@@ -100,7 +101,7 @@ class TestPlaywrightLogging(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             computer = PlaywrightBrowser(
                 screen_size=(1440, 900),
-                log_dir=tmp_dir,
+                artifact_logger=ArtifactLogger(log_dir=tmp_dir),
             )
             computer._page = MagicMock()
             computer._page.url = "https://example.com"

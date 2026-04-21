@@ -17,6 +17,7 @@ class TestMain(unittest.TestCase):
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.log = True
+        mock_args.ui = False
         mock_arg_parser.return_value.parse_args.return_value = mock_args
 
         main.main()
@@ -26,7 +27,7 @@ class TestMain(unittest.TestCase):
             initial_url='test_url',
             highlight_mouse=True,
             headless=True,
-            log_dir=ANY,
+            artifact_logger=ANY,
         )
         mock_browser_agent.assert_called_once()
         mock_browser_agent.return_value.agent_loop.assert_called_once()
@@ -43,6 +44,7 @@ class TestMain(unittest.TestCase):
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.log = False
+        mock_args.ui = False
         mock_arg_parser.return_value.parse_args.return_value = mock_args
 
         main.main()
@@ -52,7 +54,7 @@ class TestMain(unittest.TestCase):
             initial_url='https://www.google.com',
             highlight_mouse=False,
             headless=False,
-            log_dir=None,
+            artifact_logger=ANY,
         )
 
 

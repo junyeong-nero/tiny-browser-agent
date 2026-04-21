@@ -81,14 +81,14 @@ class PlaywrightBrowser:
         search_engine_url: str = "https://www.google.com",
         highlight_mouse: bool = False,
         headless: bool = False,
-        log_dir: Optional[str] = None,
+        artifact_logger: Optional[ArtifactLogger] = None,
     ):
         self._initial_url = initial_url
         self._screen_size = screen_size
         self._search_engine_url = search_engine_url
         self._highlight_mouse = highlight_mouse
         self._headless = headless
-        self._artifact_logger = ArtifactLogger(log_dir=log_dir)
+        self._artifact_logger = artifact_logger if artifact_logger is not None else ArtifactLogger()
         self._frame_buffer: bytes | None = None
         self._frame_lock = threading.Lock()
         self._frame_thread: Optional[threading.Thread] = None
@@ -437,19 +437,6 @@ class PlaywrightBrowser:
 
     def latest_artifact_metadata(self) -> Optional[dict]:
         return self._artifact_logger.latest_artifact_metadata()
-
-    def record_action(
-        self,
-        *,
-        tool: str,
-        args: dict[str, Any],
-        result_summary: str | None = None,
-    ) -> None:
-        self._artifact_logger.record_action(
-            tool=tool,
-            args=args,
-            result_summary=result_summary,
-        )
 
     def history_dir(self) -> Optional[Path]:
         return self._artifact_logger.history_dir()
