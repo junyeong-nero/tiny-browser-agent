@@ -438,6 +438,19 @@ class PlaywrightBrowser:
     def latest_artifact_metadata(self) -> Optional[dict]:
         return self._artifact_logger.latest_artifact_metadata()
 
+    def record_action(
+        self,
+        *,
+        tool: str,
+        args: dict[str, Any],
+        result_summary: str | None = None,
+    ) -> None:
+        self._artifact_logger.record_action(
+            tool=tool,
+            args=args,
+            result_summary=result_summary,
+        )
+
     def history_dir(self) -> Optional[Path]:
         return self._artifact_logger.history_dir()
 

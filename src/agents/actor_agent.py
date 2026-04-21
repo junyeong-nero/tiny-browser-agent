@@ -586,6 +586,7 @@ class BrowserAgent:
                 },
                 artifacts=executed_call.artifacts,
             )
+            result_summary = fc_result.url
         else:
             self._emit_event(
                 "action_executed",
@@ -593,6 +594,12 @@ class BrowserAgent:
                 action=action_payload,
                 response=fc_result,
             )
+            result_summary = str(fc_result)[:200] if fc_result is not None else None
+        self._browser_computer.record_action(
+            tool=function_call.name,
+            args=dict(function_call.args or {}),
+            result_summary=result_summary,
+        )
         return self._tool_executor.serialize_function_response(
             executed_call,
             extra_response_fields=extra_fr_fields,

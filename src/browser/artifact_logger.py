@@ -9,6 +9,7 @@ class ArtifactLogger:
         self._log_dir = Path(log_dir) if log_dir else None
         self._history_dir = self._log_dir / "history" if self._log_dir else None
         self._video_dir = self._log_dir / "video" if self._log_dir else None
+        self._actions_file = self._log_dir / "actions.jsonl" if self._log_dir else None
         self._history_step = 0
         self._latest_artifact_metadata: dict[str, Any] | None = None
 
@@ -28,6 +29,25 @@ class ArtifactLogger:
         if self._latest_artifact_metadata is None:
             return None
         return dict(self._latest_artifact_metadata)
+
+    def record_action(
+        self,
+        *,
+        tool: str,
+        args: dict[str, Any],
+        result_summary: str | None = None,
+    ) -> None:
+        if not self._actions_file:
+            return
+        self._log_dir.mkdir(parents=True, exist_ok=True)  # type: ignore[union-attr]
+        entry = {
+            "timestamp": time.time(),
+            "tool": tool,
+            "args": args,
+            "result_summary": result_summary,
+        }
+        with self._actions_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
     def write_snapshot(
         self,
