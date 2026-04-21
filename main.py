@@ -13,7 +13,6 @@ from browser import PlaywrightBrowser
 
 PLAYWRIGHT_SCREEN_SIZE = (1600, 900)
 LOGS_DIR = Path(__file__).resolve().parent / "logs" / "history"
-DESKTOP_LOGS_DIR = Path(__file__).resolve().parent / "logs" / "desktop"
 
 
 def parse_bool(value: str) -> bool:
@@ -28,17 +27,10 @@ def parse_bool(value: str) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the browser agent with a query.")
     parser.add_argument(
-        "--query",
+        "query",
         type=str,
         help="The query for the browser agent to execute.",
     )
-    parser.add_argument(
-        "--desktop_bridge",
-        action="store_true",
-        default=False,
-        help="Run the desktop bridge over stdio instead of the CLI agent loop.",
-    )
-
     parser.add_argument(
         "--env",
         type=str,
@@ -76,22 +68,6 @@ def main() -> int:
         help="Set which main model to use.",
     )
     args = parser.parse_args()
-
-    if not args.query and not args.desktop_bridge:
-        parser.error("--query is required unless --desktop_bridge is set.")
-
-    if args.desktop_bridge:
-        from ui.desktop_bridge import run_desktop_bridge
-
-        run_desktop_bridge(
-            model_name=args.model,
-            screen_size=PLAYWRIGHT_SCREEN_SIZE,
-            initial_url=args.initial_url,
-            highlight_mouse=args.highlight_mouse,
-            headless=args.headless,
-            artifacts_root=DESKTOP_LOGS_DIR,
-        )
-        return 0
 
     log_dir = None
     if args.log:
