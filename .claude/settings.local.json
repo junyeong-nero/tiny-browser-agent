@@ -45,7 +45,10 @@
       "Bash(pip install *)",
       "Bash(vulture /Users/junyeong-nero/workspace/tiny-browser-agent/src /Users/junyeong-nero/workspace/tiny-browser-agent/main.py --min-confidence 70)",
       "Bash(vulture /Users/junyeong-nero/workspace/tiny-browser-agent/src /Users/junyeong-nero/workspace/tiny-browser-agent/main.py --min-confidence 60)",
-      "Bash(vulture /Users/junyeong-nero/workspace/tiny-browser-agent/src /Users/junyeong-nero/workspace/tiny-browser-agent/main.py /Users/junyeong-nero/workspace/tiny-browser-agent/tests --min-confidence 80)"
+      "Bash(vulture /Users/junyeong-nero/workspace/tiny-browser-agent/src /Users/junyeong-nero/workspace/tiny-browser-agent/main.py /Users/junyeong-nero/workspace/tiny-browser-agent/tests --min-confidence 80)",
+      "Bash(uv lock *)",
+      "Bash(uv sync *)",
+      "Bash(/Users/junyeong-nero/workspace/tiny-browser-agent/.venv/bin/pytest /Users/junyeong-nero/workspace/tiny-browser-agent/tests/ -q)"
     ]
   }
 }

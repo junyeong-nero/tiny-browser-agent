@@ -1,4 +1,1 @@
-cd desktop
-npm install
-npm run build
-npm run start
+uv run main.py "$@"
