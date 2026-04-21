@@ -1,5 +1,6 @@
 import json
-from typing import Optional
+import time
+from typing import Any, Callable, Optional
 
 from google.genai import types as genai_types
 from pydantic import BaseModel
@@ -41,15 +42,28 @@ class PlannerAgent:
         query: str,
         llm_client: Optional[LLMClient] = None,
         model_name: str | None = None,
+        event_sink: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> None:
         self._query = query
-        self._llm_client = llm_client or LLMClient.from_env()
+        self._llm_client = llm_client or LLMClient.for_text()
         self._model_name = model_name or app_config.planner_model()
+        self._event_sink = event_sink
+
+    def _emit_event(self, event_type: str, **payload: Any) -> None:
+        if not self._event_sink:
+            return
+        self._event_sink({"type": event_type, "timestamp": time.time(), **payload})
 
     def plan(self) -> list[Subgoal]:
         """Decompose the query into a list of subgoals."""
+        self._emit_event("planner_started", query=self._query)
         prompt = f"{_PLANNER_SYSTEM_PROMPT}\n\nUser query:\n{self._query}"
-        return self._call_planner(prompt, start_id=1)
+        subgoals = self._call_planner(prompt, start_id=1)
+        self._emit_event(
+            "planner_completed",
+            subgoals=[{"id": sg.id, "description": sg.description, "success_criteria": sg.success_criteria} for sg in subgoals],
+        )
+        return subgoals
 
     def replan(
         self,
@@ -58,6 +72,11 @@ class PlannerAgent:
         remaining: list[Subgoal],
     ) -> list[Subgoal]:
         """Re-plan remaining subgoals after a failure."""
+        self._emit_event(
+            "planner_replanning",
+            failed_subgoal_id=current_subgoal.id,
+            failure_reason=failure_reason,
+        )
         remaining_text = "\n".join(
             f"- [{sg.id}] {sg.description}" for sg in remaining
         )
@@ -70,7 +89,46 @@ class PlannerAgent:
             "Provide a revised list of subgoals to complete the original query."
         )
         start_id = current_subgoal.id + 1
-        return self._call_planner(prompt, start_id=start_id)
+        subgoals = self._call_planner(prompt, start_id=start_id)
+        self._emit_event(
+            "planner_replanned",
+            subgoals=[{"id": sg.id, "description": sg.description, "success_criteria": sg.success_criteria} for sg in subgoals],
+        )
+        return subgoals
+
+    def _parse_subgoal_json(self, raw_text: str) -> list[dict[str, Any]]:
+        """Parse the planner response into a list of dicts, emitting an error
+        event if the payload is not valid JSON.
+        """
+        try:
+            parsed = json.loads(raw_text)
+        except json.JSONDecodeError:
+            start = raw_text.find("[")
+            end = raw_text.rfind("]") + 1
+            if start == -1 or end <= start:
+                self._emit_event(
+                    "planner_parse_error",
+                    error_message="response does not contain a JSON array",
+                    raw_text=raw_text[:500],
+                )
+                return []
+            try:
+                parsed = json.loads(raw_text[start:end])
+            except json.JSONDecodeError as exc:
+                self._emit_event(
+                    "planner_parse_error",
+                    error_message=str(exc),
+                    raw_text=raw_text[:500],
+                )
+                return []
+        if not isinstance(parsed, list):
+            self._emit_event(
+                "planner_parse_error",
+                error_message=f"expected JSON array, got {type(parsed).__name__}",
+                raw_text=raw_text[:500],
+            )
+            return []
+        return parsed
 
     def _call_planner(self, prompt: str, start_id: int) -> list[Subgoal]:
         contents = [
@@ -80,9 +138,9 @@ class PlannerAgent:
             )
         ]
         config = genai_types.GenerateContentConfig(
+            temperature=0.3,
             response_mime_type="application/json",
             response_schema=list[_SubgoalSchema],
-            temperature=0.3,
         )
         response = self._llm_client.generate_content(
             model=self._model_name,
@@ -90,14 +148,7 @@ class PlannerAgent:
             config=config,
         )
         raw_text = response.candidates[0].content.parts[0].text or "[]"
-
-        try:
-            data = json.loads(raw_text)
-        except json.JSONDecodeError:
-            # Attempt to extract JSON array from surrounding text
-            start = raw_text.find("[")
-            end = raw_text.rfind("]") + 1
-            data = json.loads(raw_text[start:end]) if start != -1 else []
+        data = self._parse_subgoal_json(raw_text)
 
         subgoals = []
         for idx, item in enumerate(data):
