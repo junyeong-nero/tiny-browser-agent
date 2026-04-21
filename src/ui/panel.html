@@ -14,15 +14,15 @@
     --fg:         #c8c8c8;
     --fg-dim:     #7a7a7a;
     --fg-mute:    #4a4a4a;
-    --teal:       #5ebdb2;
-    --teal-dim:   #3a7a74;
-    --orange:     #d97757;
-    --orange-dim: #8a4a34;
-    --ok:         #6fa36f;
-    --err:        #e06c75;
-    --warn:       #d9a066;
-    --purple:     #c9a8ff;
-    --purple-bg:  #2a1f3d;
+    --teal:       #427AB5;
+    --teal-dim:   #406AAF;
+    --orange:     #F7DD7D;
+    --orange-dim: #FFE8BE;
+    --ok:         #a8d5a2;
+    --err:        #f0a5a5;
+    --warn:       #F7DD7D;
+    --purple:     #d4bfff;
+    --purple-bg:  #2e2440;
     --mono: "JetBrains Mono", "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   }
 
@@ -186,9 +186,9 @@
     margin-left: 4px;
   }
   .pill.queued  { background: var(--purple-bg); color: var(--purple); }
-  .pill.running { background: #3a2a14; color: var(--warn); }
-  .pill.done    { background: #142a18; color: var(--ok); }
-  .pill.failed  { background: #2a1414; color: var(--err); }
+  .pill.running { background: #3a3424; color: var(--warn); }
+  .pill.done    { background: #1a241c; color: var(--ok); }
+  .pill.failed  { background: #2b1d1d; color: var(--err); }
 
   /* ── Sidebar ── */
   aside#sidebar {
@@ -293,11 +293,11 @@
   .act-item .outcome { color: var(--fg-dim); font-size: 11.5px; line-height: 1.35; margin-top: 1px; font-style: italic; }
   .act-item .outcome::before { content: "→ "; color: var(--fg-mute); font-style: normal; }
 
-  .phase-navigation  { --phase-bg: #10201f; --phase-border: var(--teal-dim); }
-  .phase-interaction { --phase-bg: #101826; --phase-border: #3b5d7a; }
-  .phase-input       { --phase-bg: #20170e; --phase-border: var(--orange-dim); }
-  .phase-observation { --phase-bg: #161616; --phase-border: #3a3a3a; }
-  .phase-complete    { --phase-bg: #12241a; --phase-border: #3a6a44; }
+  .phase-navigation  { --phase-bg: #141b24; --phase-border: var(--teal-dim); }
+  .phase-interaction { --phase-bg: #18222d; --phase-border: var(--teal); }
+  .phase-input       { --phase-bg: #242118; --phase-border: var(--orange); }
+  .phase-observation { --phase-bg: #1a1a1a; --phase-border: #444444; }
+  .phase-complete    { --phase-bg: #18221c; --phase-border: #4a6a52; }
 
   .side-footer {
     margin-top: auto;
