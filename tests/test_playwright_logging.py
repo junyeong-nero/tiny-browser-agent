@@ -20,15 +20,15 @@ from unittest.mock import MagicMock, patch
 
 from google.genai import types
 
-from computers.playwright.playwright import PlaywrightComputer
-from src.agent import BrowserAgent
+from browser.playwright import PlaywrightBrowser
+from agents.actor_agent import BrowserAgent
 
 
 class TestPlaywrightLogging(unittest.TestCase):
-    @patch("computers.playwright.playwright.time.sleep", return_value=None)
+    @patch("browser.playwright.time.sleep", return_value=None)
     def test_current_state_writes_history_files_when_logging_enabled(self, _mock_sleep):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            computer = PlaywrightComputer(
+            computer = PlaywrightBrowser(
                 screen_size=(1440, 900),
                 log_dir=tmp_dir,
             )
@@ -67,10 +67,10 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(latest_metadata["metadata_path"], "step-0001.json")
             self.assertEqual(latest_metadata["a11y_path"], "step-0001.a11y.yaml")
 
-    @patch("computers.playwright.playwright.time.sleep", return_value=None)
+    @patch("browser.playwright.time.sleep", return_value=None)
     def test_current_state_keeps_base_artifacts_when_a11y_capture_fails(self, _mock_sleep):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            computer = PlaywrightComputer(
+            computer = PlaywrightBrowser(
                 screen_size=(1440, 900),
                 log_dir=tmp_dir,
             )
@@ -95,10 +95,10 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(metadata["a11y_capture_status"], "error")
             self.assertEqual(metadata["a11y_capture_error"], "aria capture failed")
 
-    @patch("computers.playwright.playwright.time.sleep", return_value=None)
+    @patch("browser.playwright.time.sleep", return_value=None)
     def test_agent_enrichment_merges_action_metadata_into_history_json(self, _mock_sleep):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            computer = PlaywrightComputer(
+            computer = PlaywrightBrowser(
                 screen_size=(1440, 900),
                 log_dir=tmp_dir,
             )

@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 from google.genai import types
-from src.agent import BrowserAgent, multiply_numbers
-from src.computers.computer import EnvState
-from src.llm.client import LLMClient
+from agents.actor_agent import BrowserAgent, multiply_numbers
+from browser import EnvState
+from llm.client import LLMClient
 
 
 class TestBrowserAgent(unittest.TestCase):
@@ -169,7 +169,7 @@ class TestBrowserAgent(unittest.TestCase):
             config=self.agent._generate_content_config,
         )
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_no_function_calls(self, mock_get_model_response):
         mock_response = MagicMock()
         mock_candidate = MagicMock()
@@ -183,7 +183,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(len(self.agent._contents), 2)
         self.assertEqual(self.agent._contents[1], mock_candidate.content)
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_retries_on_malformed_function_call(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -216,7 +216,7 @@ class TestBrowserAgent(unittest.TestCase):
         )
         self.assertEqual(events[-1]["error_message"], "Malformed function call.")
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_with_function_call(self, mock_get_model_response):
         mock_response = MagicMock()
         mock_candidate = MagicMock()
@@ -234,7 +234,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.mock_browser_computer.navigate.assert_called_once_with("https://example.com")
         self.assertEqual(len(self.agent._contents), 3)
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_env_state_function_response(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -271,7 +271,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(events[4]["type"], "action_executed")
         self.assertEqual(events[4]["artifacts"], self.mock_browser_computer.latest_artifact_metadata.return_value)
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_dict_function_response(self, mock_get_model_response):
         function_call = types.FunctionCall(
             name=multiply_numbers.__name__,
@@ -290,7 +290,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(function_response.response, {"result": 6})
         self.assertIsNone(function_response.parts)
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_enriches_browser_metadata_with_reasoning(
         self,
         mock_get_model_response,
@@ -450,7 +450,7 @@ class TestBrowserAgent(unittest.TestCase):
             self.assertEqual(relative_path, history_dir / "step-0001.json")
             self.assertEqual(absolute_path, absolute_metadata_path)
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_enriches_each_metadata_file_for_multiple_function_calls(
         self,
         mock_get_model_response,
@@ -522,7 +522,7 @@ class TestBrowserAgent(unittest.TestCase):
             self.assertEqual(first_metadata["action"]["args"], {"url": "https://example.com/one"})
             self.assertEqual(second_metadata["action"]["args"], {"url": "https://example.com/two"})
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_custom_function_result_skips_metadata_enrichment(
         self,
         mock_get_model_response,
@@ -544,7 +544,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.mock_browser_computer.latest_artifact_metadata.assert_not_called()
         self.mock_browser_computer.history_dir.assert_not_called()
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_prunes_old_screenshots(self, mock_get_model_response):
         oldest_turn = self.make_screenshot_turn("navigate", b"oldest")
         middle_turn = self.make_screenshot_turn("navigate", b"middle")
@@ -593,7 +593,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIsNotNone(newest_response.parts)
         self.assertIsNotNone(latest_response.parts)
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_terminates_when_safety_confirmation_rejected(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -655,7 +655,7 @@ class TestBrowserAgent(unittest.TestCase):
             ],
         )
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_emits_step_events(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -690,7 +690,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(events[-1]["final_reasoning"], "some reasoning")
         self.assertEqual(events[-2]["phase_id"], "phase-complete")
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_builds_final_result_summary_for_chat(self, mock_get_model_response):
         events = []
         step_summarizer = MagicMock()
@@ -732,7 +732,7 @@ class TestBrowserAgent(unittest.TestCase):
         )
         step_summarizer.summarize_final_result.assert_called_once()
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_final_result_summary_falls_back_to_visible_text(
         self,
         mock_get_model_response,
@@ -767,7 +767,7 @@ class TestBrowserAgent(unittest.TestCase):
             "EXAONE 4.5 Hugging Face 페이지를 찾았습니다.",
         )
 
-    @patch("src.agent.BrowserAgent.get_model_response")
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_emits_runtime_phase_metadata_for_action_steps(
         self,
         mock_get_model_response,

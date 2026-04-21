@@ -3,10 +3,9 @@ from unittest.mock import MagicMock
 
 from google.genai import types
 
-from src.agent import multiply_numbers
-from src.browser_actions import build_browser_action_functions
-from src.computers.computer import EnvState
-from src.tool_calling import BrowserToolExecutor, prune_old_screenshot_parts
+from agents.actor_agent import multiply_numbers
+from browser import build_browser_action_functions, EnvState
+from tool_executor import BrowserToolExecutor, prune_old_screenshot_parts
 
 
 class TestBrowserToolExecutor(unittest.TestCase):
