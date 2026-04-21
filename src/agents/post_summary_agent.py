@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
+import config as app_config
+
 from google.genai import types
 
 from llm.provider.openai import OpenAIProvider
@@ -75,7 +77,7 @@ class ActionStepSummarizer:
                 f"Unsupported ACTION_SUMMARY_PROVIDER '{configured_provider}'. Expected 'openai' or 'openrouter'."
             )
 
-        model = os.environ.get("ACTION_SUMMARY_MODEL", "gpt-4o-mini").strip()
+        model = os.environ.get("ACTION_SUMMARY_MODEL", app_config.summary_model()).strip()
         if not model:
             raise ValueError("ACTION_SUMMARY_MODEL must not be empty when summarization is enabled.")
 

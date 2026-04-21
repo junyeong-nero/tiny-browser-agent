@@ -33,9 +33,10 @@ from agents.post_summary_agent import (
     AmbiguityCandidate,
     ActionStepSummarizer,
 )
+from agents.types import GroundingMode, Subgoal
 from browser import ArtifactLogger, build_browser_action_functions, EnvState, PlaywrightBrowser
 from llm import LLMClient
-from tool_executor import BrowserToolExecutor, prune_old_screenshot_parts
+from tool_executor import BrowserToolExecutor, prune_old_aria_parts, prune_old_screenshot_parts
 from tools.types import ToolBatchResult, ToolResult, is_env_state_result
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
@@ -69,6 +70,8 @@ class BrowserAgent:
         event_sink: Optional[Callable[[dict[str, Any]], None]] = None,
         step_summarizer: ActionStepSummarizer | None = _UNSET_STEP_SUMMARIZER,  # type: ignore[assignment]
         artifact_logger: Optional[ArtifactLogger] = None,
+        grounding: GroundingMode = "vision",
+        subgoals: list[Subgoal] | None = None,
     ):
         self._browser_computer = browser_computer
         self._query = query
@@ -79,6 +82,8 @@ class BrowserAgent:
         self._event_sink = event_sink
         self._artifact_logger = artifact_logger if artifact_logger is not None else ArtifactLogger()
         self._step_id = 0
+        self._grounding = grounding
+        self._subgoals = subgoals
         self._custom_functions = [
             multiply_numbers,
             *build_browser_action_functions(browser_computer),
@@ -90,6 +95,7 @@ class BrowserAgent:
         self._tool_executor = BrowserToolExecutor(
             browser_computer=self._browser_computer,
             custom_functions=self._custom_functions,
+            grounding=grounding,
         )
         self._review_service = ActionReviewService(
             query=self._query,
@@ -710,6 +716,10 @@ class BrowserAgent:
             self._contents,
             MAX_RECENT_TURN_WITH_SCREENSHOTS,
         )
+        prune_old_aria_parts(
+            self._contents,
+            MAX_RECENT_TURN_WITH_SCREENSHOTS,
+        )
 
         return self._finalize_continuation_step(step_id, reasoning)
 
@@ -731,10 +741,47 @@ class BrowserAgent:
             return "TERMINATE"
         return "CONTINUE"
 
-    def agent_loop(self):
+    def _run_subgoal_loop(self, subgoal: Subgoal) -> Literal["done", "failed"]:
+        self._contents = [
+            Content(
+                role="user",
+                parts=[
+                    Part(
+                        text=(
+                            f"[Subgoal {subgoal.id}] {subgoal.description}\n"
+                            f"Success criteria: {subgoal.success_criteria}"
+                        )
+                    )
+                ],
+            )
+        ]
         status = "CONTINUE"
         while status == "CONTINUE":
             status = self.run_one_iteration()
+        return "done"
+
+    def agent_loop(self):
+        if self._subgoals is None:
+            status = "CONTINUE"
+            while status == "CONTINUE":
+                status = self.run_one_iteration()
+            return
+
+        for subgoal in self._subgoals:
+            subgoal.status = "active"
+            self._emit_event(
+                "subgoal_started",
+                subgoal_id=subgoal.id,
+                description=subgoal.description,
+                success_criteria=subgoal.success_criteria,
+            )
+            result = self._run_subgoal_loop(subgoal)
+            subgoal.status = result
+            self._emit_event(
+                "subgoal_completed" if result == "done" else "subgoal_failed",
+                subgoal_id=subgoal.id,
+                status=result,
+            )
 
     def denormalize_x(self, x: int) -> int:
         return self._tool_executor.denormalize_x(x)

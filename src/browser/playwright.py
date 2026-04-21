@@ -12,6 +12,7 @@ import termcolor
 import playwright.sync_api
 from playwright.sync_api import sync_playwright
 
+from .aria_snapshot import AriaSnapshot, NodeInfo, build_aria_snapshot
 from .artifact_logger import ArtifactLogger
 
 FRAME_CAPTURE_FPS = 60
@@ -94,6 +95,7 @@ class PlaywrightBrowser:
         self._frame_thread: Optional[threading.Thread] = None
         self._frame_stop = threading.Event()
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
+        self._aria_ref_map: dict[int, NodeInfo] | None = None
 
     def _handle_new_page(self, new_page: playwright.sync_api.Page):
         new_url = new_page.url
@@ -265,6 +267,28 @@ class PlaywrightBrowser:
         self._page.goto(normalized_url)
         self._page.wait_for_load_state()
         return self.current_state()
+
+    def take_aria_snapshot(self) -> AriaSnapshot:
+        """Take a fresh ARIA snapshot, assign integer refs, and cache the ref map."""
+        try:
+            raw_yaml = self._page.locator("body").aria_snapshot()
+        except Exception as exc:
+            raw_yaml = f"# error: {exc}"
+        snapshot = build_aria_snapshot(raw_yaml, self._page.url)
+        self._aria_ref_map = snapshot.ref_map
+        return snapshot
+
+    def resolve_ref(self, ref: int) -> playwright.sync_api.Locator:
+        """Resolve an integer ref to a Playwright Locator using the cached ref map."""
+        if self._aria_ref_map is None:
+            raise ValueError("No ARIA snapshot cached. Call take_aria_snapshot() first.")
+        node = self._aria_ref_map.get(ref)
+        if node is None:
+            raise ValueError(f"ref {ref} is stale, request a new snapshot")
+        locator = self._page.get_by_role(node.role, name=node.name)  # type: ignore[arg-type]
+        if node.nth > 0:
+            locator = locator.nth(node.nth)
+        return locator
 
     def reload_page(self) -> EnvState:
         self._page.reload()
