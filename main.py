@@ -124,7 +124,7 @@ def main() -> int:
                 from llm import LLMClient
                 planner = PlannerAgent(
                     query=args.query,
-                    llm_client=LLMClient.from_env(),
+                    llm_client=LLMClient.for_text(),
                 )
                 subgoals = planner.plan()
                 print(f"Planner created {len(subgoals)} subgoal(s):")
@@ -164,6 +164,8 @@ def _run_ui_mode(browser_computer: PlaywrightBrowser, args) -> None:
         model_name=args.model,
         logs_dir=LOGS_DIR,
         log_enabled=args.log,
+        grounding=args.grounding,
+        use_planner=args.planner,
     )
     session.run()
 

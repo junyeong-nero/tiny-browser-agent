@@ -97,6 +97,35 @@ class PlaywrightBrowser:
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
         self._aria_ref_map: dict[int, NodeInfo] | None = None
 
+    def set_artifact_logger(self, artifact_logger: ArtifactLogger) -> None:
+        """Swap the artifact logger (e.g. when starting a new session task).
+
+        Prepares log directories on the new logger so screenshots written by the
+        browser land alongside agent artifacts for the same task.
+        """
+        self._artifact_logger = artifact_logger
+        self._artifact_logger.prepare_log_dirs()
+
+    def reset_to_blank(self) -> None:
+        """Recover from an aborted task: close popups, navigate to a blank page,
+        and drop cached ARIA refs so the next task starts clean.
+        """
+        self._aria_ref_map = None
+        try:
+            for page in list(self._context.pages):
+                if page is not self._page:
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
+            self._page.goto("about:blank")
+            self._page.wait_for_load_state()
+        except Exception as exc:
+            termcolor.cprint(
+                f"Browser reset after task failure encountered an error: {exc}",
+                color="yellow",
+            )
+
     def _handle_new_page(self, new_page: playwright.sync_api.Page):
         new_url = new_page.url
         new_page.close()
@@ -273,7 +302,13 @@ class PlaywrightBrowser:
         try:
             raw_yaml = self._page.locator("body").aria_snapshot()
         except Exception as exc:
-            raw_yaml = f"# error: {exc}"
+            termcolor.cprint(
+                f"ARIA snapshot capture failed: {exc}",
+                color="yellow",
+            )
+            snapshot = AriaSnapshot(text="", ref_map={}, url=self._page.url)
+            self._aria_ref_map = snapshot.ref_map
+            return snapshot
         snapshot = build_aria_snapshot(raw_yaml, self._page.url)
         self._aria_ref_map = snapshot.ref_map
         return snapshot
@@ -285,10 +320,10 @@ class PlaywrightBrowser:
         node = self._aria_ref_map.get(ref)
         if node is None:
             raise ValueError(f"ref {ref} is stale, request a new snapshot")
+        if node.nth < 0:
+            raise ValueError(f"NodeInfo.nth must be >= 0, got {node.nth} for ref {ref}")
         locator = self._page.get_by_role(node.role, name=node.name)  # type: ignore[arg-type]
-        if node.nth > 0:
-            locator = locator.nth(node.nth)
-        return locator
+        return locator.nth(node.nth)
 
     def reload_page(self) -> EnvState:
         self._page.reload()
