@@ -18,6 +18,8 @@ class TestMain(unittest.TestCase):
         mock_args.model = 'test_model'
         mock_args.log = True
         mock_args.ui = False
+        mock_args.grounding = "vision"
+        mock_args.planner = False
         mock_arg_parser.return_value.parse_args.return_value = mock_args
 
         main.main()
@@ -45,6 +47,8 @@ class TestMain(unittest.TestCase):
         mock_args.model = 'test_model'
         mock_args.log = False
         mock_args.ui = False
+        mock_args.grounding = "vision"
+        mock_args.planner = False
         mock_arg_parser.return_value.parse_args.return_value = mock_args
 
         main.main()

@@ -10,7 +10,10 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from agents.actor_agent import BrowserAgent
+from agents.planner_agent import PlannerAgent
+from agents.types import GroundingMode
 from browser import ArtifactLogger, PlaywrightBrowser
+import config as app_config
 
 
 PLAYWRIGHT_SCREEN_SIZE = (1600, 900)
@@ -74,8 +77,24 @@ def main() -> int:
     )
     parser.add_argument(
         "--model",
-        default="gemini-2.5-computer-use-preview-10-2025",
+        default=app_config.actor_model(),
         help="Set which main model to use.",
+    )
+    parser.add_argument(
+        "--grounding",
+        choices=["vision", "text", "mixed"],
+        default="vision",
+        help=(
+            "Page grounding mode: vision (screenshot+coords), "
+            "text (ARIA snapshot+refs), or mixed (both). "
+            "Note: 'text' mode requires a standard function-calling model, not computer-use."
+        ),
+    )
+    parser.add_argument(
+        "--planner",
+        action="store_true",
+        default=False,
+        help="Use PlannerAgent to decompose the query into subgoals before execution.",
     )
     args = parser.parse_args()
 
@@ -100,11 +119,26 @@ def main() -> int:
         if args.ui:
             _run_ui_mode(browser_computer, args)
         else:
+            subgoals = None
+            if args.planner:
+                from llm import LLMClient
+                planner = PlannerAgent(
+                    query=args.query,
+                    llm_client=LLMClient.from_env(),
+                )
+                subgoals = planner.plan()
+                print(f"Planner created {len(subgoals)} subgoal(s):")
+                for sg in subgoals:
+                    print(f"  [{sg.id}] {sg.description}")
+
+            grounding: GroundingMode = args.grounding
             agent = BrowserAgent(
                 browser_computer=browser_computer,
                 query=args.query,
                 model_name=args.model,
                 artifact_logger=artifact_logger,
+                grounding=grounding,
+                subgoals=subgoals,
             )
             agent.agent_loop()
     return 0
