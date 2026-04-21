@@ -3,213 +3,479 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Browser Agent</title>
+<title>browser-agent</title>
 <style>
+  :root {
+    --bg:         #0d0d0d;
+    --bg-soft:    #111111;
+    --bg-inset:   #151515;
+    --border:     #1c1c1c;
+    --border-hi:  #262626;
+    --fg:         #c8c8c8;
+    --fg-dim:     #7a7a7a;
+    --fg-mute:    #4a4a4a;
+    --teal:       #5ebdb2;
+    --teal-dim:   #3a7a74;
+    --orange:     #d97757;
+    --orange-dim: #8a4a34;
+    --ok:         #6fa36f;
+    --err:        #e06c75;
+    --warn:       #d9a066;
+    --purple:     #c9a8ff;
+    --purple-bg:  #2a1f3d;
+    --mono: "JetBrains Mono", "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #0d1117;
-    color: #c9d1d9;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
+  html, body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
     font-size: 13px;
+    line-height: 1.55;
+    height: 100vh;
+  }
+
+  body {
+    --aside-w: 340px;
+    display: grid;
+    grid-template-rows: auto 1fr auto auto;
+    grid-template-columns: 1fr 5px var(--aside-w);
+    grid-template-areas:
+      "header  resizer aside"
+      "main    resizer aside"
+      "keybind resizer aside"
+      "footer  resizer aside";
+  }
+  body.resizing { cursor: col-resize; user-select: none; }
+  body.resizing * { user-select: none !important; }
+
+  #resizer {
+    grid-area: resizer;
+    background: transparent;
+    cursor: col-resize;
+    position: relative;
+    z-index: 10;
+    transition: background 0.12s;
+  }
+  #resizer::before {
+    content: "";
+    position: absolute;
+    left: 2px; top: 0; bottom: 0;
+    width: 1px;
+    background: var(--border);
+    transition: background 0.12s;
+  }
+  #resizer:hover::before,
+  body.resizing #resizer::before { background: var(--teal); }
+
+  @media (max-width: 900px) {
+    body {
+      grid-template-columns: 1fr;
+      grid-template-areas: "header" "main" "keybind" "footer";
+    }
+    aside#sidebar, #resizer { display: none; }
   }
 
   /* ── Header ── */
   header {
+    grid-area: header;
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px 16px;
-    background: #161b22;
-    border-bottom: 1px solid #30363d;
-    flex-shrink: 0;
+    padding: 10px 18px 8px;
+    background: var(--bg);
+    font-size: 12px;
+    color: var(--fg-dim);
   }
-  header h1 { font-size: 14px; font-weight: 600; color: #f0f6fc; flex: 1; }
-
-  .status-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: #484f58;
-    transition: background 0.3s;
+  header .title {
+    color: var(--fg);
+    font-weight: 600;
   }
-  .status-dot.connected    { background: #3fb950; }
-  .status-dot.disconnected { background: #f85149; }
-  .status-dot.running      { background: #d29922; animation: pulse 1s infinite; }
+  header .spacer { flex: 1; }
+  header .status { display: inline-flex; align-items: center; gap: 6px; }
+  .status-dot { font-size: 10px; color: var(--fg-mute); }
+  .status-dot.connected    { color: var(--ok); }
+  .status-dot.disconnected { color: var(--err); }
+  .status-dot.running      { color: var(--warn); animation: blink 1s steps(2,end) infinite; }
+  @keyframes blink { 50% { opacity: 0.3; } }
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+  /* ── Main timeline ── */
+  main#timeline-wrap {
+    grid-area: main;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
   }
-
-  .status-label { font-size: 11px; color: #8b949e; }
-
-  /* ── Timeline ── */
   #timeline {
     flex: 1;
     overflow-y: auto;
-    padding: 12px 16px;
+    padding: 6px 18px 14px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 0;
   }
 
-  .card {
-    border-radius: 6px;
-    padding: 8px 12px;
-    border-left: 3px solid #30363d;
-    background: #161b22;
-    line-height: 1.5;
+  #timeline::-webkit-scrollbar,
+  aside#sidebar::-webkit-scrollbar { width: 6px; }
+  #timeline::-webkit-scrollbar-thumb,
+  aside#sidebar::-webkit-scrollbar-thumb { background: var(--border-hi); }
+  #timeline::-webkit-scrollbar-track,
+  aside#sidebar::-webkit-scrollbar-track { background: transparent; }
+
+  /* Plain text line, no box */
+  .row {
+    padding: 1px 0;
+    white-space: pre-wrap;
     word-break: break-word;
+    color: var(--fg);
   }
-  .card-label {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #8b949e;
-    margin-bottom: 2px;
+  .row.dim       { color: var(--fg-dim); }
+  .row.thinking  { color: var(--fg-dim); font-style: italic; }
+  .row.ok        { color: var(--ok); }
+  .row.err       { color: var(--err); }
+  .row.warn      { color: var(--warn); }
+
+  .row .tool { color: var(--teal); }
+  .row .args { color: var(--fg-dim); }
+  .row a, .row .url { color: var(--fg); text-decoration: underline dotted var(--border-hi); text-underline-offset: 2px; }
+
+  /* Agent speaker line: ■ name · model */
+  .speaker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 0 6px;
+    font-size: 13px;
   }
-  .card-body { color: #c9d1d9; }
-  .card-sub  { font-size: 11px; color: #8b949e; margin-top: 3px; }
+  .speaker .marker {
+    display: inline-block;
+    width: 10px; height: 10px;
+    background: var(--teal);
+  }
+  .speaker .name  { color: var(--teal); font-weight: 600; }
+  .speaker .model { color: var(--fg-dim); }
+  .speaker .sep   { color: var(--fg-mute); }
 
-  .card.task     { border-color: #388bfd; background: #0d2044; }
-  .card.task .card-label { color: #58a6ff; }
-  .card.task .card-body  { color: #cae8ff; font-weight: 500; }
+  /* Quoted / grouped block: left gutter, no box */
+  .block {
+    border-left: 2px solid var(--border-hi);
+    padding: 2px 0 2px 12px;
+    margin: 4px 0;
+    color: var(--fg);
+  }
+  .block.teal   { border-left-color: var(--teal-dim); }
+  .block.green  { border-left-color: var(--ok); background: var(--bg-inset); padding: 8px 12px; }
+  .block.red    { border-left-color: var(--err); }
+  .block.orange { border-left-color: var(--orange-dim); }
 
-  .card.step     { border-color: #30363d; }
-  .card.step .card-label { color: #6e7681; }
+  .block .title { color: var(--fg); font-weight: 600; margin-bottom: 2px; }
+  .block .meta  { color: var(--fg-dim); font-size: 12px; }
 
-  .card.action   { border-color: #1f6feb; }
-  .card.action .card-label { color: #388bfd; }
-
-  .card.summary  { border-color: #388bfd; background: #0d1d36; }
-  .card.summary .card-label { color: #58a6ff; }
-
-  .card.url      { border-color: #1b4332; background: #0d2018; }
-  .card.url .card-label { color: #3fb950; }
-  .card.url .card-body  { color: #7ee787; font-size: 11px; font-family: monospace; }
-
-  .card.error    { border-color: #f85149; background: #2d0a0a; }
-  .card.error .card-label { color: #f85149; }
-  .card.error .card-body  { color: #ff7b72; }
-
-  .card.complete { border-color: #3fb950; background: #0a1f0f; }
-  .card.complete .card-label { color: #3fb950; }
-  .card.complete .card-body  { color: #7ee787; }
-
-  .card.info     { border-color: #484f58; }
-  .card.info .card-label { color: #8b949e; }
-
+  /* Small pill badges */
   .pill {
     display: inline-block;
-    background: #1f3352;
-    color: #58a6ff;
-    border-radius: 4px;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
     padding: 1px 6px;
-    font-size: 11px;
-    font-family: monospace;
-    margin: 1px 2px 1px 0;
+    background: var(--border);
+    color: var(--fg-dim);
+    vertical-align: 1px;
+    margin-left: 4px;
   }
+  .pill.queued  { background: var(--purple-bg); color: var(--purple); }
+  .pill.running { background: #3a2a14; color: var(--warn); }
+  .pill.done    { background: #142a18; color: var(--ok); }
+  .pill.failed  { background: #2a1414; color: var(--err); }
+
+  /* ── Sidebar ── */
+  aside#sidebar {
+    grid-area: aside;
+    background: var(--bg);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 14px 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    font-size: 12.5px;
+  }
+  aside#sidebar .side-title {
+    font-weight: 600;
+    color: var(--fg);
+    padding-bottom: 6px;
+  }
+
+  details.side-section {
+    border: 0;
+  }
+  details.side-section > summary {
+    list-style: none;
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--fg);
+    padding: 2px 0 4px;
+    user-select: none;
+  }
+  details.side-section > summary::-webkit-details-marker { display: none; }
+  details.side-section > summary::before {
+    content: "▶ ";
+    color: var(--fg-dim);
+    display: inline-block;
+    width: 14px;
+    transition: transform 0.1s;
+  }
+  details.side-section[open] > summary::before { content: "▼ "; }
+
+  .side-body { padding: 4px 0 0 14px; display: flex; flex-direction: column; gap: 2px; }
+  .side-empty { color: var(--fg-mute); font-style: italic; }
+
+  .bullet {
+    display: grid;
+    grid-template-columns: 12px 1fr;
+    gap: 6px;
+    color: var(--fg);
+  }
+  .bullet .dot { color: var(--fg-dim); }
+  .bullet .k   { color: var(--fg); font-weight: 500; }
+  .bullet .v   { color: var(--fg-dim); }
+
+  .kvline {
+    color: var(--fg);
+  }
+  .kvline .v-dim { color: var(--fg-dim); }
+
+  .todo {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 6px;
+    line-height: 1.4;
+    padding: 2px 0;
+    color: var(--fg);
+  }
+  .todo .box   { color: var(--fg-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .todo .text  { color: var(--fg); }
+  .todo.pending .text { color: var(--fg-dim); }
+  .todo.active  .box  { color: var(--orange); }
+  .todo.active  .text { color: var(--orange); font-style: italic; }
+  .todo.done    .box  { color: var(--ok); }
+  .todo.done    .text { color: var(--fg-mute); text-decoration: line-through; }
+  .todo.failed  .box  { color: var(--err); }
+  .todo.failed  .text { color: var(--err); }
+
+  /* Activity items, phase-tinted */
+  .act-group { margin-bottom: 10px; }
+  .act-group-title {
+    font-size: 11px;
+    color: var(--fg-dim);
+    padding: 4px 0 4px 2px;
+    border-bottom: 1px dashed var(--border);
+    margin-bottom: 4px;
+  }
+  .act-group-title .sg-num  { color: var(--fg-mute); margin-right: 6px; }
+  .act-group-title .sg-desc { color: var(--fg); }
+  .act-group-title.unassigned { color: var(--fg-mute); font-style: italic; }
+
+  .act-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px;
+    padding: 4px 6px 4px 8px;
+    margin: 2px 0;
+    border-left: 2px solid var(--phase-border, var(--border-hi));
+    background: var(--phase-bg, transparent);
+  }
+  .act-item .step-no { color: var(--fg-mute); font-size: 11px; padding-top: 1px; white-space: nowrap; }
+  .act-item .what    { color: var(--fg); font-weight: 500; line-height: 1.35; }
+  .act-item .why     { color: var(--fg-dim); font-size: 11.5px; line-height: 1.35; margin-top: 1px; }
+  .act-item .outcome { color: var(--fg-dim); font-size: 11.5px; line-height: 1.35; margin-top: 1px; font-style: italic; }
+  .act-item .outcome::before { content: "→ "; color: var(--fg-mute); font-style: normal; }
+
+  .phase-navigation  { --phase-bg: #10201f; --phase-border: var(--teal-dim); }
+  .phase-interaction { --phase-bg: #101826; --phase-border: #3b5d7a; }
+  .phase-input       { --phase-bg: #20170e; --phase-border: var(--orange-dim); }
+  .phase-observation { --phase-bg: #161616; --phase-border: #3a3a3a; }
+  .phase-complete    { --phase-bg: #12241a; --phase-border: #3a6a44; }
+
+  .side-footer {
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border);
+    color: var(--fg-dim);
+    font-size: 11.5px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .side-footer .path   { color: var(--fg); }
+  .side-footer .branch { color: var(--orange); }
+  .side-footer .brand  { color: var(--teal); font-weight: 600; }
+
+  /* ── Keybind bar ── */
+  .keybind {
+    grid-area: keybind;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 18px 6px;
+    color: var(--fg-mute);
+    font-size: 11px;
+    background: var(--bg);
+  }
+  .keybind .dots { letter-spacing: 3px; color: var(--fg-mute); }
+  .keybind kbd {
+    font-family: var(--mono);
+    color: var(--fg-dim);
+    font-size: 11px;
+    margin-right: 2px;
+  }
+  .keybind .kb-group { margin-right: 14px; }
 
   /* ── Input area ── */
   footer {
-    padding: 12px 16px;
-    background: #161b22;
-    border-top: 1px solid #30363d;
-    flex-shrink: 0;
+    grid-area: footer;
+    padding: 4px 18px 14px;
+    background: var(--bg);
   }
-
+  .input-shell {
+    border-left: 2px solid var(--teal);
+    padding: 6px 12px 8px;
+    background: var(--bg-inset);
+  }
+  .input-shell.disabled { border-left-color: var(--border-hi); }
   .input-row {
-    display: flex;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
     align-items: flex-end;
   }
-
   textarea {
-    flex: 1;
-    background: #0d1117;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #c9d1d9;
-    padding: 8px 10px;
+    background: transparent;
+    border: 0;
+    color: var(--fg);
+    padding: 2px 0;
     font-size: 13px;
-    font-family: inherit;
+    font-family: var(--mono);
     resize: none;
     outline: none;
-    min-height: 36px;
-    max-height: 120px;
-    line-height: 1.4;
-    transition: border-color 0.15s;
+    min-height: 22px;
+    max-height: 160px;
+    line-height: 1.5;
   }
-  textarea:focus    { border-color: #388bfd; }
-  textarea:disabled { opacity: 0.4; cursor: not-allowed; }
+  textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+  textarea::placeholder { color: var(--fg-mute); }
 
   button {
-    background: #238636;
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 8px 14px;
+    background: transparent;
+    color: var(--teal);
+    border: 1px solid var(--teal-dim);
+    padding: 3px 10px;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 11.5px;
+    font-family: var(--mono);
     font-weight: 600;
-    white-space: nowrap;
-    transition: background 0.15s;
-    height: 36px;
+    border-radius: 0;
+    letter-spacing: 0.04em;
+    transition: background 0.1s, color 0.1s;
   }
-  button:hover:not(:disabled) { background: #2ea043; }
-  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button:hover:not(:disabled) { background: var(--teal); color: var(--bg); }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
 
-  .hint { font-size: 11px; color: #6e7681; margin-top: 6px; }
-
-  .divider {
-    border: none;
-    border-top: 1px solid #21262d;
-    margin: 4px 0;
+  .input-agent {
+    margin-top: 4px;
+    color: var(--fg-dim);
+    font-size: 11.5px;
   }
+  .input-agent .name  { color: var(--teal); font-weight: 600; }
+  .input-agent .sep   { color: var(--fg-mute); }
 
   #empty-state {
     flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #484f58;
+    color: var(--fg-mute);
     font-size: 12px;
     flex-direction: column;
-    gap: 8px;
+    gap: 4px;
   }
-  #empty-state svg { opacity: 0.3; }
 </style>
 </head>
 <body>
 
 <header>
-  <svg width="16" height="16" viewBox="0 0 16 16" fill="#58a6ff">
-    <path d="M8 0C3.58 0 0 3.58 0 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm0 14.5A6.5 6.5 0 1 1 8 1.5a6.5 6.5 0 0 1 0 13z"/>
-    <circle cx="8" cy="8" r="3"/>
-  </svg>
-  <h1>Browser Agent</h1>
-  <span class="status-dot" id="dot"></span>
-  <span class="status-label" id="status-label">Connecting…</span>
+  <span class="title" id="hdr-title">browser-agent</span>
+  <span class="status">
+    <span class="status-dot" id="dot">●</span>
+    <span id="status-label">connecting…</span>
+  </span>
+  <span class="spacer"></span>
 </header>
 
-<div id="timeline">
-  <div id="empty-state">
-    <svg width="32" height="32" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
-      <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0zM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0z"/>
-    </svg>
-    Waiting for a task…
+<main id="timeline-wrap">
+  <div id="timeline">
+    <div id="empty-state">waiting for a task…</div>
   </div>
+</main>
+
+<div id="resizer" title="drag to resize"></div>
+
+<aside id="sidebar">
+  <div class="side-title" id="side-title">browser-agent</div>
+
+  <details class="side-section" open>
+    <summary>Task</summary>
+    <div class="side-body"><div id="side-task" class="side-empty">no active task.</div></div>
+  </details>
+
+  <details class="side-section" open>
+    <summary>Status</summary>
+    <div class="side-body">
+      <div class="bullet"><span class="dot">•</span><span><span class="k">step</span> <span class="v" id="meta-step">—</span></span></div>
+      <div class="bullet"><span class="dot">•</span><span><span class="k">url</span> <span class="v" id="meta-url">—</span></span></div>
+      <div class="bullet"><span class="dot">•</span><span><span class="k">state</span> <span class="v" id="meta-state">idle</span></span></div>
+    </div>
+  </details>
+
+  <details class="side-section" open>
+    <summary>Plan</summary>
+    <div class="side-body" id="side-plan"><div class="side-empty">no plan yet.</div></div>
+  </details>
+
+  <details class="side-section" open>
+    <summary>Activity</summary>
+    <div class="side-body" id="side-activity"><div class="side-empty">no activity yet.</div></div>
+  </details>
+
+  <div class="side-footer">
+    <div><span class="path" id="sf-path">tiny-browser-agent</span>:<span class="branch" id="sf-branch">main</span></div>
+    <div>• <span class="brand">browser-agent</span> <span id="sf-version">0.1.0</span></div>
+  </div>
+</aside>
+
+<div class="keybind">
+  <span class="dots">· · · ·</span>
+  <span>
+    <span class="kb-group"><kbd>enter</kbd> submit</span>
+    <span class="kb-group"><kbd>shift+enter</kbd> newline</span>
+    <span class="kb-group"><kbd>esc</kbd> interrupt</span>
+  </span>
 </div>
 
 <footer>
-  <div class="input-row">
-    <textarea id="input" placeholder="Describe what you want the agent to do…" rows="1" disabled></textarea>
-    <button id="btn" disabled>Run</button>
+  <div class="input-shell" id="input-shell">
+    <div class="input-row">
+      <textarea id="input" placeholder="describe what you want the agent to do…" rows="1" disabled></textarea>
+      <button id="btn" disabled>run</button>
+    </div>
+    <div class="input-agent">
+      <span class="name" id="agent-name">browser-agent</span>
+      <span class="sep"> · </span>
+      <span id="agent-model">gemini</span>
+    </div>
   </div>
-  <div class="hint" id="hint">Connecting to agent…</div>
 </footer>
 
 <script>
@@ -219,29 +485,38 @@ const timeline    = document.getElementById('timeline');
 const emptyState  = document.getElementById('empty-state');
 const input       = document.getElementById('input');
 const btn         = document.getElementById('btn');
-const hint        = document.getElementById('hint');
+const inputShell  = document.getElementById('input-shell');
+
+const sideTitle      = document.getElementById('side-title');
+const sideTask       = document.getElementById('side-task');
+const sidePlan       = document.getElementById('side-plan');
+const sideActivity   = document.getElementById('side-activity');
+const metaStep       = document.getElementById('meta-step');
+const metaUrl        = document.getElementById('meta-url');
+const metaState      = document.getElementById('meta-state');
 
 let isRunning = false;
 let reconnectDelay = 1000;
 let ws = null;
 
+let subgoals = [];
+// activity[step_id] = { step, subgoalId, phaseId, what, why, outcome }
+let activity = [];
+const MAX_ACTIVITY = 80;
+
 // ── WebSocket ──────────────────────────────────────────
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
-
   ws.onopen = () => {
     reconnectDelay = 1000;
-    setStatus('connected', 'Ready');
+    setStatus('connected', 'ready');
     if (!isRunning) setInputEnabled(true);
   };
-
   ws.onmessage = (e) => {
-    try { handleEvent(JSON.parse(e.data)); }
-    catch (_) {}
+    try { handleEvent(JSON.parse(e.data)); } catch (_) {}
   };
-
   ws.onclose = () => {
-    setStatus('disconnected', 'Disconnected');
+    setStatus('disconnected', 'disconnected');
     setInputEnabled(false);
     setTimeout(() => {
       reconnectDelay = Math.min(reconnectDelay * 2, 10000);
@@ -250,16 +525,16 @@ function connect() {
   };
 }
 
-// ── Status helpers ─────────────────────────────────────
 function setStatus(state, label) {
   dot.className = `status-dot ${state}`;
   statusLabel.textContent = label;
+  metaState.textContent = label;
 }
 
 function setInputEnabled(enabled) {
   input.disabled = !enabled;
   btn.disabled   = !enabled;
-  hint.textContent = enabled ? 'Press Enter or click Run.' : (isRunning ? 'Task running…' : 'Connecting to agent…');
+  inputShell.classList.toggle('disabled', !enabled);
 }
 
 // ── Timeline helpers ───────────────────────────────────
@@ -267,106 +542,335 @@ function clearEmpty() {
   if (emptyState && emptyState.parentNode) emptyState.remove();
 }
 
-function addCard(type, label, body, sub) {
+function addRow(cls, html) {
   clearEmpty();
-  const card = document.createElement('div');
-  card.className = `card ${type}`;
-  card.innerHTML = `<div class="card-label">${label}</div><div class="card-body">${body}</div>` +
-                   (sub ? `<div class="card-sub">${sub}</div>` : '');
-  timeline.appendChild(card);
+  const el = document.createElement('div');
+  el.className = `row ${cls || ''}`;
+  el.innerHTML = html;
+  timeline.appendChild(el);
   timeline.scrollTop = timeline.scrollHeight;
-  return card;
+  return el;
 }
 
-function addDivider() {
+function addSpeaker(name, model) {
   clearEmpty();
-  const hr = document.createElement('hr');
-  hr.className = 'divider';
-  timeline.appendChild(hr);
+  const el = document.createElement('div');
+  el.className = 'speaker';
+  el.innerHTML =
+    `<span class="marker"></span>` +
+    `<span class="name">${escHtml(name)}</span>` +
+    (model ? `<span class="sep">·</span><span class="model">${escHtml(model)}</span>` : '');
+  timeline.appendChild(el);
+  timeline.scrollTop = timeline.scrollHeight;
+}
+
+function addBlock(cls, html) {
+  clearEmpty();
+  const el = document.createElement('div');
+  el.className = `block ${cls || ''}`;
+  el.innerHTML = html;
+  timeline.appendChild(el);
+  timeline.scrollTop = timeline.scrollHeight;
+  return el;
+}
+
+// ── Sidebar helpers ────────────────────────────────────
+function resetSidebar() {
+  subgoals = [];
+  activity = [];
+  sideTask.className = 'side-empty';
+  sideTask.textContent = 'no active task.';
+  renderPlan();
+  renderActivity();
+  metaStep.textContent = '—';
+  metaUrl.textContent  = '—';
+}
+
+function setSideTask(query) {
+  sideTask.className = '';
+  sideTask.textContent = query;
+  sideTitle.textContent = query.length > 40 ? query.slice(0, 40) + '…' : query;
+}
+
+function setSubgoals(list) {
+  subgoals = (list || []).map(sg => ({
+    id: sg.id,
+    description: sg.description,
+    status: 'pending',
+  }));
+  renderPlan();
+}
+
+function updateSubgoalStatus(id, status) {
+  const sg = subgoals.find(s => String(s.id) === String(id));
+  if (sg) { sg.status = status; renderPlan(); }
+}
+
+function renderPlan() {
+  if (!subgoals.length) {
+    sidePlan.innerHTML = '<div class="side-empty">no plan yet.</div>';
+    return;
+  }
+  const box = { pending: '[ ]', active: '[›]', done: '[✓]', failed: '[✗]' };
+  sidePlan.innerHTML = subgoals.map(sg => `
+    <div class="todo ${sg.status}">
+      <span class="box">${box[sg.status] || '[ ]'}</span>
+      <span class="text">${escHtml(sg.description)}</span>
+    </div>
+  `).join('');
+}
+
+function addActivity(item) {
+  // item: {step, subgoalId, phaseId, what, why, outcome}
+  // If a step already recorded, update in place (step can emit multiple review_metadata).
+  const existingIdx = activity.findIndex(a => a.step === item.step);
+  if (existingIdx !== -1) {
+    activity[existingIdx] = { ...activity[existingIdx], ...item };
+  } else {
+    activity.push(item);
+    if (activity.length > MAX_ACTIVITY) activity = activity.slice(-MAX_ACTIVITY);
+  }
+  renderActivity();
+}
+
+function renderActivity() {
+  if (!activity.length) {
+    sideActivity.innerHTML = '<div class="side-empty">no activity yet.</div>';
+    return;
+  }
+
+  // Group activity by subgoalId, preserving plan order; unknowns go to an "unassigned" bucket.
+  const buckets = new Map();
+  const unassigned = [];
+  for (const it of activity) {
+    const key = it.subgoalId != null ? String(it.subgoalId) : null;
+    if (key === null) { unassigned.push(it); continue; }
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(it);
+  }
+
+  const renderItem = (a) => {
+    const cls = a.phaseId ? `phase-${escHtml(String(a.phaseId).replace(/^phase-/, ''))}` : '';
+    const what    = a.what    ? `<div class="what">${escHtml(a.what)}</div>`       : '';
+    const why     = a.why     ? `<div class="why">${escHtml(a.why)}</div>`         : '';
+    const outcome = (a.outcome && a.outcome !== '—')
+      ? `<div class="outcome">${escHtml(a.outcome)}</div>` : '';
+    return `<div class="act-item ${cls}">
+      <span class="step-no">#${escHtml(a.step)}</span>
+      <span>${what}${why}${outcome}</span>
+    </div>`;
+  };
+
+  const parts = [];
+  // Plan-ordered subgoal groups first
+  subgoals.forEach((sg, i) => {
+    const key = String(sg.id);
+    const items = buckets.get(key);
+    if (!items || !items.length) return;
+    parts.push(
+      `<div class="act-group">` +
+        `<div class="act-group-title">` +
+          `<span class="sg-num">${String(i + 1).padStart(2,'0')}</span>` +
+          `<span class="sg-desc">${escHtml(sg.description)}</span>` +
+        `</div>` +
+        items.map(renderItem).join('') +
+      `</div>`
+    );
+    buckets.delete(key);
+  });
+  // Any remaining buckets whose subgoal id is unknown to the plan
+  for (const [key, items] of buckets.entries()) {
+    parts.push(
+      `<div class="act-group">` +
+        `<div class="act-group-title"><span class="sg-num">sg ${escHtml(key)}</span></div>` +
+        items.map(renderItem).join('') +
+      `</div>`
+    );
+  }
+  if (unassigned.length) {
+    parts.push(
+      `<div class="act-group">` +
+        `<div class="act-group-title unassigned">unassigned</div>` +
+        unassigned.map(renderItem).join('') +
+      `</div>`
+    );
+  }
+  sideActivity.innerHTML = parts.join('');
 }
 
 // ── Event handlers ─────────────────────────────────────
-const toolIcon = {
-  navigate: '🌐', open_web_browser: '🌐',
-  click_at: '👆', hover_at: '👆',
-  type_text_at: '⌨️', key_combination: '⌨️',
-  search: '🔍',
-  scroll_at: '↕️', scroll_document: '↕️',
-  go_back: '◀', go_forward: '▶',
-  wait_5_seconds: '⏳',
-  drag_and_drop: '✋',
-};
-
 function handleEvent(ev) {
   switch (ev.type) {
 
     case 'session_ready':
-      setStatus('connected', 'Ready');
+      setStatus('connected', 'ready');
       setInputEnabled(true);
-      addCard('info', 'Session', 'Agent is ready. Enter a task below.');
+      addRow('dim', 'agent ready.');
       break;
 
     case 'task_started':
       isRunning = true;
-      setStatus('running', 'Running');
+      setStatus('running', 'running');
       setInputEnabled(false);
-      if (timeline.children.length > 0) addDivider();
-      addCard('task', '▶ Task', escHtml(ev.query));
+      addSpeaker('user', null);
+      addRow('', escHtml(ev.query));
+      resetSidebar();
+      setSideTask(ev.query);
+      break;
+
+    case 'planner_started':
+      addRow('dim', 'planner: decomposing task…');
+      break;
+
+    case 'planner_completed': {
+      const items = ev.subgoals || [];
+      if (!items.length) {
+        addRow('dim', 'planner: no subgoals.');
+      } else {
+        const lines = items.map((sg, i) =>
+          `<div><span style="color:var(--fg-mute)">${String(i + 1).padStart(2, '0')}</span>  ${escHtml(sg.description)}</div>`
+        ).join('');
+        addBlock('orange',
+          `<div class="title">plan <span class="pill">${items.length}</span></div>${lines}`
+        );
+      }
+      setSubgoals(items);
+      break;
+    }
+
+    case 'planner_replanning':
+      addRow('warn', `replanning · subgoal ${escHtml(ev.failed_subgoal_id)} failed`);
+      break;
+
+    case 'planner_replanned': {
+      const items = ev.subgoals || [];
+      const lines = items.map((sg, i) =>
+        `<div><span style="color:var(--fg-mute)">${String(i + 1).padStart(2, '0')}</span>  ${escHtml(sg.description)}</div>`
+      ).join('');
+      addBlock('orange',
+        `<div class="title">replan <span class="pill">${items.length}</span></div>${lines}`
+      );
+      setSubgoals(items);
+      break;
+    }
+
+    case 'subgoal_started':
+      updateSubgoalStatus(ev.subgoal_id, 'active');
+      addRow('', `<span style="color:var(--orange)">▸</span> subgoal ${escHtml(ev.subgoal_id)} <span class="pill running">RUNNING</span> <span class="dim" style="color:var(--fg-dim)">${escHtml(ev.description || '')}</span>`);
+      break;
+
+    case 'subgoal_completed':
+      updateSubgoalStatus(ev.subgoal_id, 'done');
+      addRow('ok', `✓ subgoal ${escHtml(ev.subgoal_id)} <span class="pill done">DONE</span>`);
+      break;
+
+    case 'subgoal_failed':
+      updateSubgoalStatus(ev.subgoal_id, 'failed');
+      addRow('err', `✗ subgoal ${escHtml(ev.subgoal_id)} <span class="pill failed">FAILED</span> ${escHtml(ev.reason || '')}`);
+      break;
+
+    case 'replan_error':
+      addBlock('red', `<div class="title">replan error</div><div class="meta">${escHtml(ev.error_message || '')}</div>`);
       break;
 
     case 'step_started':
-      addCard('step', `Step ${ev.step_id}`, 'Thinking…');
+      metaStep.textContent = `#${ev.step_id}`;
+      addSpeaker('browser-agent', `step ${ev.step_id}`);
+      break;
+
+    case 'reasoning_extracted':
+      if (ev.reasoning) {
+        addRow('thinking', escHtml(ev.reasoning));
+      }
       break;
 
     case 'function_calls_extracted': {
       const calls = (ev.function_calls || []);
       if (!calls.length) break;
-      const pills = calls.map(c => {
-        const icon = toolIcon[c.name] || '⚙️';
-        return `<span class="pill">${icon} ${escHtml(c.name)}</span>`;
-      }).join('');
-      addCard('action', 'Actions', pills);
+      const phaseCls = phaseForTool(calls[0].name);
+      calls.forEach(c => {
+        const args = c.args && Object.keys(c.args).length
+          ? ` <span class="args">[${escHtml(formatArgs(c.args))}]</span>`
+          : '';
+        const el = addRow('', `<span style="color:var(--fg-dim)">⚙</span> <span class="tool">${escHtml(c.name)}</span>${args}`);
+        if (phaseCls) {
+          el.classList.add(phaseCls);
+          el.style.paddingLeft = '8px';
+          el.style.borderLeft = '2px solid var(--phase-border)';
+          el.style.background = 'var(--phase-bg)';
+        }
+      });
       break;
     }
 
-    case 'review_metadata_extracted':
-      if (ev.action_summary) {
-        addCard('summary', 'Summary', escHtml(ev.action_summary));
-      }
+    case 'review_metadata_extracted': {
+      const what = ev.what || ev.action_summary;
+      if (!what) break;
+      addActivity({
+        step: ev.step_id,
+        subgoalId: ev.subgoal_id != null ? ev.subgoal_id : null,
+        phaseId: ev.phase_id || null,
+        what,
+        why: ev.why || ev.reason || '',
+        outcome: ev.outcome || '',
+      });
       break;
+    }
 
     case 'action_executed':
       if (ev.env_state && ev.env_state.url) {
-        addCard('url', 'Page', escHtml(ev.env_state.url));
+        metaUrl.textContent = ev.env_state.url;
+        addRow('dim', `@ <span class="url">${escHtml(ev.env_state.url)}</span>`);
       }
       break;
 
     case 'step_error':
-      addCard('error', '✗ Error', escHtml(ev.error_message || 'Unknown error'));
+      addBlock('red', `<div class="title">error</div><div class="meta">${escHtml(ev.error_message || 'unknown error')}</div>`);
       break;
 
     case 'model_request_retry':
-      addCard('info', 'Retry', `Attempt ${ev.attempt} — retrying in ${ev.delay_seconds}s`);
+      addRow('warn', `~ retry #${escHtml(ev.attempt)} in ${escHtml(ev.delay_seconds)}s`);
       break;
 
     case 'step_complete':
       if (ev.final_reasoning) {
-        addCard('complete', '✓ Done', escHtml(ev.final_reasoning));
+        addBlock('green',
+          `<div class="title">step complete</div>` +
+          `<div class="meta">${escHtml(ev.final_reasoning)}</div>`
+        );
       }
       break;
 
     case 'task_complete':
       isRunning = false;
-      setStatus('connected', 'Ready');
+      setStatus('connected', 'ready');
       setInputEnabled(true);
+      subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'done'; });
+      renderPlan();
+      addBlock('green', `<div class="title">task complete</div>`);
       break;
 
     case 'session_closed':
-      setStatus('disconnected', 'Session ended');
+      setStatus('disconnected', 'session ended');
       setInputEnabled(false);
-      addCard('info', 'Session', 'The agent session has closed.');
+      addRow('dim', 'session closed.');
       break;
   }
+}
+
+function phaseForTool(name) {
+  if (!name) return null;
+  if (['navigate','search','go_back','go_forward','open_web_browser'].includes(name)) return 'phase-navigation';
+  if (['click_at','click_by_ref','hover_at'].includes(name)) return 'phase-interaction';
+  if (['type_text_at','type_by_ref','key_combination','drag_and_drop'].includes(name)) return 'phase-input';
+  if (['scroll_at','scroll_document','wait_5_seconds'].includes(name)) return 'phase-observation';
+  return 'phase-observation';
+}
+
+function formatArgs(obj) {
+  return Object.entries(obj)
+    .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
+    .join(', ');
 }
 
 function escHtml(str) {
@@ -390,7 +894,7 @@ async function submitTask() {
       body: JSON.stringify({ query }),
     });
   } catch (e) {
-    addCard('error', 'Error', 'Failed to submit task. Is the server running?');
+    addBlock('red', `<div class="title">network error</div><div class="meta">failed to submit task. is the server running?</div>`);
   }
 }
 
@@ -405,11 +909,52 @@ input.addEventListener('keydown', (e) => {
 
 function autoResize() {
   input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  input.style.height = Math.min(input.scrollHeight, 160) + 'px';
 }
 input.addEventListener('input', autoResize);
 
 connect();
+
+// ── Sidebar resize ─────────────────────────────────────
+(function setupResizer() {
+  const resizer = document.getElementById('resizer');
+  if (!resizer) return;
+  const MIN = 220, MAX = 720;
+  const KEY = 'bragent.asideW';
+
+  const saved = parseInt(localStorage.getItem(KEY) || '', 10);
+  if (saved && saved >= MIN && saved <= MAX) {
+    document.body.style.setProperty('--aside-w', saved + 'px');
+  }
+
+  let dragging = false;
+  resizer.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    resizer.setPointerCapture(e.pointerId);
+    document.body.classList.add('resizing');
+    e.preventDefault();
+  });
+  resizer.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const w = Math.min(MAX, Math.max(MIN, window.innerWidth - e.clientX));
+    document.body.style.setProperty('--aside-w', w + 'px');
+  });
+  const stop = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove('resizing');
+    try { resizer.releasePointerCapture(e.pointerId); } catch (_) {}
+    const cur = getComputedStyle(document.body).getPropertyValue('--aside-w').trim();
+    const px = parseInt(cur, 10);
+    if (px) localStorage.setItem(KEY, String(px));
+  };
+  resizer.addEventListener('pointerup', stop);
+  resizer.addEventListener('pointercancel', stop);
+  resizer.addEventListener('dblclick', () => {
+    document.body.style.setProperty('--aside-w', '340px');
+    localStorage.setItem(KEY, '340');
+  });
+})();
 </script>
 </body>
 </html>
