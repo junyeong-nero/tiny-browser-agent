@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import dataclasses
 import time
 from pathlib import Path
 from typing import Callable, Literal, Optional, Any
@@ -72,24 +73,46 @@ class BrowserAgent:
         artifact_logger: Optional[ArtifactLogger] = None,
         grounding: GroundingMode = "vision",
         subgoals: list[Subgoal] | None = None,
+        replan_callback: Optional[Callable[[Subgoal, str, list[Subgoal]], list[Subgoal]]] = None,
+        max_steps_per_subgoal: int = 15,
     ):
         self._browser_computer = browser_computer
         self._query = query
         self._model_name = model_name
         self._verbose = verbose
         self.final_reasoning = None
-        self._llm_client = llm_client or LLMClient.from_env()
+        if llm_client is not None:
+            self._llm_client = llm_client
+        elif grounding == "text":
+            self._llm_client = LLMClient.for_text()
+        else:
+            self._llm_client = LLMClient.for_computer_use()
+
+        provider_name = self._llm_client.provider_name
+        if grounding == "text" and provider_name == "gemini_computer_use":
+            raise ValueError(
+                "grounding='text' requires a standard text model provider, "
+                f"but llm_client uses '{provider_name}'. Use LLMClient.for_text()."
+            )
+        if grounding in ("vision", "mixed") and provider_name == "gemini_text":
+            raise ValueError(
+                f"grounding='{grounding}' requires a computer-use model provider, "
+                f"but llm_client uses '{provider_name}'. Use LLMClient.for_computer_use()."
+            )
         self._event_sink = event_sink
         self._artifact_logger = artifact_logger if artifact_logger is not None else ArtifactLogger()
         self._step_id = 0
         self._grounding = grounding
         self._subgoals = subgoals
+        self._replan_callback = replan_callback
+        self._max_steps_per_subgoal = max_steps_per_subgoal
         self._custom_functions = [
             multiply_numbers,
             *build_browser_action_functions(browser_computer),
         ]
         self._step_review_metadata: dict[int, dict[str, Any]] = {}
         self._latest_url: str | None = None
+        self._current_subgoal_id: int | None = None
         if step_summarizer is _UNSET_STEP_SUMMARIZER:
             step_summarizer = ActionStepSummarizer.from_env()
         self._tool_executor = BrowserToolExecutor(
@@ -165,9 +188,13 @@ class BrowserAgent:
         self._emit_event(
             "review_metadata_extracted",
             step_id=step_id,
+            subgoal_id=step_review_metadata.get("subgoal_id", self._current_subgoal_id),
             phase_id=step_review_metadata.get("phase_id", default_phase_id),
             phase_label=step_review_metadata.get("phase_label", default_phase_label),
             phase_summary=step_review_metadata.get("phase_summary", reasoning),
+            what=step_review_metadata.get("what"),
+            why=step_review_metadata.get("why"),
+            outcome=step_review_metadata.get("outcome"),
             action_summary=step_review_metadata.get(
                 "action_summary",
                 step_review_metadata.get("user_visible_label", default_user_visible_label),
@@ -254,6 +281,21 @@ class BrowserAgent:
             if part.text and (include_thoughts or not getattr(part, "thought", False)):
                 text.append(part.text)
         return " ".join(text) or None
+
+    @staticmethod
+    def _strip_thought_parts(content: Content) -> Content:
+        """Return a copy of `content` with thought parts removed.
+
+        Persisting thought parts in `_contents` is not portable across providers
+        and can trigger validation errors when replayed to models that do not
+        support the `thought` flag.
+        """
+        if not content.parts:
+            return content
+        filtered = [part for part in content.parts if not getattr(part, "thought", False)]
+        if len(filtered) == len(content.parts):
+            return content
+        return Content(role=content.role, parts=filtered)
 
     def extract_function_calls(self, candidate: Candidate) -> list[types.FunctionCall]:
         """Extracts the function call from the candidate."""
@@ -355,7 +397,7 @@ class BrowserAgent:
             finish_reason=str(candidate.finish_reason) if candidate.finish_reason else None,
         )
         if candidate.content:
-            self._contents.append(candidate.content)
+            self._contents.append(self._strip_thought_parts(candidate.content))
 
         reasoning = self.get_text(candidate)
         visible_text = self.get_visible_text(candidate)
@@ -439,7 +481,7 @@ class BrowserAgent:
             "Gemini Computer Use Reasoning", header_style="magenta", ratio=1
         )
         table.add_column("Function Call(s)", header_style="cyan", ratio=1)
-        table.add_row(reasoning, "\n".join(function_call_strs))
+        table.add_row(reasoning or "", "\n".join(function_call_strs))
         if self._verbose:
             console.print(table)
             print()
@@ -524,6 +566,7 @@ class BrowserAgent:
             function_call=function_call,
             reasoning=reasoning,
             artifacts=artifacts,
+            subgoal_id=self._current_subgoal_id,
         )
 
     def _record_step_review_metadata(
@@ -727,7 +770,7 @@ class BrowserAgent:
         self, safety: dict[str, Any]
     ) -> Literal["CONTINUE", "TERMINATE"]:
         if safety["decision"] != "require_confirmation":
-            raise ValueError(f"Unknown safety decision: safety['decision']")
+            raise ValueError(f"Unknown safety decision: {safety['decision']}")
         termcolor.cprint(
             "Safety service requires explicit confirmation!",
             color="yellow",
@@ -741,7 +784,9 @@ class BrowserAgent:
             return "TERMINATE"
         return "CONTINUE"
 
-    def _run_subgoal_loop(self, subgoal: Subgoal) -> Literal["done", "failed"]:
+    def _run_subgoal_loop(self, subgoal: Subgoal) -> tuple[Literal["done", "failed"], str]:
+        self.final_reasoning = None
+        self._current_subgoal_id = subgoal.id
         self._contents = [
             Content(
                 role="user",
@@ -749,16 +794,41 @@ class BrowserAgent:
                     Part(
                         text=(
                             f"[Subgoal {subgoal.id}] {subgoal.description}\n"
-                            f"Success criteria: {subgoal.success_criteria}"
+                            f"Success criteria: {subgoal.success_criteria}\n"
+                            "When you determine the success criteria is met, stop calling tools and "
+                            "respond with a final message that begins with either 'SUBGOAL_DONE:' "
+                            "(criteria satisfied) or 'SUBGOAL_FAILED:' (criteria cannot be met), "
+                            "followed by a short explanation."
                         )
                     )
                 ],
             )
         ]
-        status = "CONTINUE"
-        while status == "CONTINUE":
-            status = self.run_one_iteration()
-        return "done"
+        try:
+            status = "CONTINUE"
+            steps = 0
+            while status == "CONTINUE":
+                if steps >= self._max_steps_per_subgoal:
+                    return "failed", (
+                        f"Exceeded max steps ({self._max_steps_per_subgoal}) for subgoal {subgoal.id}."
+                    )
+                status = self.run_one_iteration()
+                steps += 1
+        finally:
+            self._current_subgoal_id = None
+
+        final_text = (self.final_reasoning or "").strip()
+        if not final_text:
+            return "failed", f"Subgoal {subgoal.id} ended without any final reasoning."
+        upper = final_text.upper()
+        if "SUBGOAL_FAILED" in upper:
+            return "failed", final_text
+        if "SUBGOAL_DONE" in upper:
+            return "done", final_text
+        # No explicit marker: treat as failure so the planner can verify/replan.
+        return "failed", (
+            f"Subgoal {subgoal.id} completed without declaring success. Final text: {final_text[:200]}"
+        )
 
     def agent_loop(self):
         if self._subgoals is None:
@@ -767,21 +837,39 @@ class BrowserAgent:
                 status = self.run_one_iteration()
             return
 
-        for subgoal in self._subgoals:
-            subgoal.status = "active"
+        queue = list(self._subgoals)
+        index = 0
+        while index < len(queue):
+            active_subgoal = dataclasses.replace(queue[index], status="active")
+            queue[index] = active_subgoal
             self._emit_event(
                 "subgoal_started",
-                subgoal_id=subgoal.id,
-                description=subgoal.description,
-                success_criteria=subgoal.success_criteria,
+                subgoal_id=active_subgoal.id,
+                description=active_subgoal.description,
+                success_criteria=active_subgoal.success_criteria,
             )
-            result = self._run_subgoal_loop(subgoal)
-            subgoal.status = result
+            result, reason = self._run_subgoal_loop(active_subgoal)
+            completed_subgoal = dataclasses.replace(active_subgoal, status=result)
+            queue[index] = completed_subgoal
             self._emit_event(
                 "subgoal_completed" if result == "done" else "subgoal_failed",
-                subgoal_id=subgoal.id,
+                subgoal_id=completed_subgoal.id,
                 status=result,
+                reason=reason,
             )
+            if result == "failed" and self._replan_callback is not None:
+                remaining = queue[index + 1 :]
+                try:
+                    revised = self._replan_callback(completed_subgoal, reason, remaining)
+                except Exception as exc:  # noqa: BLE001
+                    self._emit_event(
+                        "replan_error",
+                        subgoal_id=completed_subgoal.id,
+                        error_message=str(exc),
+                    )
+                    return
+                queue = queue[: index + 1] + list(revised)
+            index += 1
 
     def denormalize_x(self, x: int) -> int:
         return self._tool_executor.denormalize_x(x)

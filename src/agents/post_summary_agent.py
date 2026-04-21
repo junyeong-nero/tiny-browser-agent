@@ -19,9 +19,19 @@ from llm.provider.openrouter import OpenRouterProvider
 
 @dataclass(frozen=True)
 class ActionStepSummary:
-    action_summary: str
-    reason: str
+    what: str
+    why: str
+    outcome: str
     summary_source: str
+
+    # Backward-compat accessors for callers that still read the old field names.
+    @property
+    def action_summary(self) -> str:
+        return self.what
+
+    @property
+    def reason(self) -> str:
+        return self.why
 
 
 class ActionSummaryTextProvider(Protocol):
@@ -45,6 +55,7 @@ class ActionStepSummarizerProtocol(Protocol):
         function_call: types.FunctionCall,
         reasoning: str | None,
         current_url: str | None,
+        previous_url: str | None = None,
     ) -> ActionStepSummary | None: ...
 
     def summarize_final_result(
@@ -111,6 +122,7 @@ class ActionStepSummarizer:
         function_call: types.FunctionCall,
         reasoning: str | None,
         current_url: str | None,
+        previous_url: str | None = None,
     ) -> ActionStepSummary | None:
         prompt_payload = {
             "user_request": query,
@@ -119,6 +131,7 @@ class ActionStepSummarizer:
                 "args": dict(function_call.args or {}),
             },
             "model_reasoning": reasoning,
+            "previous_url": previous_url,
             "current_url": current_url,
         }
 
@@ -132,14 +145,16 @@ class ActionStepSummarizer:
                     "Write concise Korean text."
                 ),
                 prompt=(
-                    "Summarize the executed browser action.\n"
-                    "Return JSON with keys action_summary and reason.\n"
-                    "- action_summary: a short Korean label for the executed step.\n"
-                    "- reason: one Korean sentence explaining why the step was needed.\n"
-                    "If the reason is unclear, infer conservatively from the request and action only.\n\n"
+                    "Summarize the executed browser action as three short Korean fields.\n"
+                    "Return JSON with keys what, why, outcome.\n"
+                    "- what: a short Korean label (≤ 24 chars) describing the executed action.\n"
+                    "- why: one concise Korean sentence explaining why this step was needed, grounded in the user request.\n"
+                    "- outcome: one concise Korean sentence describing the concrete result observed (e.g. URL change, form filled). "
+                    "If the outcome cannot be inferred, return '—'.\n"
+                    "Never invent page details that are not present in the inputs.\n\n"
                     f"{json.dumps(prompt_payload, ensure_ascii=False)}"
                 ),
-                max_tokens=160,
+                max_tokens=220,
                 temperature=0,
                 response_format={
                     "type": "json_schema",
@@ -149,10 +164,11 @@ class ActionStepSummarizer:
                         "schema": {
                             "type": "object",
                             "properties": {
-                                "action_summary": {"type": "string"},
-                                "reason": {"type": "string"},
+                                "what":    {"type": "string"},
+                                "why":     {"type": "string"},
+                                "outcome": {"type": "string"},
                             },
-                            "required": ["action_summary", "reason"],
+                            "required": ["what", "why", "outcome"],
                             "additionalProperties": False,
                         },
                     },
@@ -166,16 +182,20 @@ class ActionStepSummarizer:
         except json.JSONDecodeError:
             return None
 
-        action_summary = parsed.get("action_summary")
-        reason = parsed.get("reason")
-        if not isinstance(action_summary, str) or not action_summary.strip():
+        what = parsed.get("what")
+        why = parsed.get("why")
+        outcome = parsed.get("outcome")
+        if not isinstance(what, str) or not what.strip():
             return None
-        if not isinstance(reason, str) or not reason.strip():
+        if not isinstance(why, str) or not why.strip():
+            return None
+        if not isinstance(outcome, str) or not outcome.strip():
             return None
 
         return ActionStepSummary(
-            action_summary=" ".join(action_summary.split()),
-            reason=" ".join(reason.split()),
+            what=" ".join(what.split()),
+            why=" ".join(why.split()),
+            outcome=" ".join(outcome.split()),
             summary_source=self._summary_source,
         )
 
@@ -466,6 +486,24 @@ class ActionReviewService:
             else f"Step {step_id}",
         }
 
+    def _build_fallback_outcome(
+        self,
+        function_call: types.FunctionCall,
+        current_url: str | None,
+        previous_url: str | None,
+    ) -> str:
+        if current_url and previous_url and current_url != previous_url:
+            try:
+                from urllib.parse import urlparse
+                host = urlparse(current_url).hostname or current_url
+            except Exception:  # noqa: BLE001
+                host = current_url
+            return f"페이지 이동: {host}"
+        action_name = function_call.name or ""
+        if action_name in NAVIGATION_ACTION_NAMES:
+            return "페이지 이동 요청 완료"
+        return "—"
+
     def _get_action_step_summary(
         self,
         *,
@@ -474,6 +512,7 @@ class ActionReviewService:
         function_call: types.FunctionCall,
         reasoning: Optional[str],
         current_url: str | None,
+        previous_url: str | None = None,
     ) -> ActionStepSummary:
         cache_key = (step_id, function_call_index)
         cached_summary = self._step_summary_cache.get(cache_key)
@@ -481,9 +520,10 @@ class ActionReviewService:
             return cached_summary
 
         fallback_summary = ActionStepSummary(
-            action_summary=self.build_action_summary(function_call),
-            reason=self.clean_reasoning_text(reasoning)
+            what=self.build_action_summary(function_call),
+            why=self.clean_reasoning_text(reasoning)
             or self.build_fallback_reason(function_call),
+            outcome=self._build_fallback_outcome(function_call, current_url, previous_url),
             summary_source="app_derived",
         )
 
@@ -496,6 +536,7 @@ class ActionReviewService:
             function_call=function_call,
             reasoning=reasoning,
             current_url=current_url,
+            previous_url=previous_url,
         )
         resolved_summary = summarized or fallback_summary
         self._step_summary_cache[cache_key] = resolved_summary
@@ -508,18 +549,25 @@ class ActionReviewService:
         function_call: types.FunctionCall,
         reasoning: Optional[str],
         artifacts: Optional[dict[str, Any]],
+        subgoal_id: int | None = None,
     ) -> dict[str, Any]:
+        current_url = artifacts.get("url") if artifacts else None
+        previous_context_for_url = (
+            self._action_review_history[-1] if self._action_review_history else None
+        )
+        previous_url = previous_context_for_url.current_url if previous_context_for_url else None
         action_step_summary = self._get_action_step_summary(
             step_id=step_id,
             function_call_index=function_call_index,
             function_call=function_call,
             reasoning=reasoning,
-            current_url=artifacts.get("url") if artifacts else None,
+            current_url=current_url,
+            previous_url=previous_url,
         )
         current_context = ActionReviewContext(
             action_name=function_call.name or "action",
             action_args=dict(function_call.args or {}),
-            current_url=artifacts.get("url") if artifacts else None,
+            current_url=current_url,
         )
         previous_context = self._action_review_history[-1] if self._action_review_history else None
         ambiguity_candidate = detect_ambiguity_candidate(
@@ -535,9 +583,13 @@ class ActionReviewService:
                 reasoning=reasoning,
                 step_id=step_id,
             ),
+            "what": action_step_summary.what,
+            "why": action_step_summary.why,
+            "outcome": action_step_summary.outcome,
             "action_summary": action_step_summary.action_summary,
             "reason": action_step_summary.reason,
             "summary_source": action_step_summary.summary_source,
+            "subgoal_id": subgoal_id,
             "user_visible_label": action_step_summary.action_summary,
             "ambiguity_flag": ambiguity_candidate is not None,
             "ambiguity_type": ambiguity_candidate.ambiguity_type if ambiguity_candidate else None,
@@ -587,6 +639,9 @@ class ActionReviewService:
                 "name": function_call.name,
                 "args": dict(function_call.args or {}),
             },
+            "what": action_step_summary.what,
+            "why": action_step_summary.why,
+            "outcome": action_step_summary.outcome,
             "action_summary": action_step_summary.action_summary,
             "reason": action_step_summary.reason,
             "reasoning_text": cleaned_reasoning,
@@ -629,11 +684,17 @@ class ActionReviewService:
             "phase_id": existing_metadata.get("phase_id") or review_metadata.get("phase_id"),
             "phase_label": existing_metadata.get("phase_label") or review_metadata.get("phase_label"),
             "phase_summary": existing_metadata.get("phase_summary") or review_metadata.get("phase_summary"),
+            "what": existing_metadata.get("what") or review_metadata.get("what"),
+            "why": existing_metadata.get("why") or review_metadata.get("why"),
+            "outcome": existing_metadata.get("outcome") or review_metadata.get("outcome"),
             "action_summary": existing_metadata.get("action_summary")
             or review_metadata.get("action_summary"),
             "reason": existing_metadata.get("reason") or review_metadata.get("reason"),
             "summary_source": existing_metadata.get("summary_source")
             or review_metadata.get("summary_source"),
+            "subgoal_id": existing_metadata.get("subgoal_id")
+            if existing_metadata.get("subgoal_id") is not None
+            else review_metadata.get("subgoal_id"),
             "user_visible_label": existing_metadata.get("user_visible_label")
             or review_metadata.get("user_visible_label"),
             "ambiguity_flag": ambiguity_flag,

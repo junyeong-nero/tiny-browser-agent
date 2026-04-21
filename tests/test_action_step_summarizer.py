@@ -107,8 +107,9 @@ class _FakeStepSummarizer:
     def summarize_action(self, **kwargs) -> ActionStepSummary | None:
         self.calls.append(kwargs)
         return ActionStepSummary(
-            action_summary="예시 페이지 열기",
-            reason="요청한 페이지로 이동하기 위한 단계였습니다.",
+            what="예시 페이지 열기",
+            why="요청한 페이지로 이동하기 위한 단계였습니다.",
+            outcome="example.com으로 이동 완료.",
             summary_source="openrouter",
         )
 
