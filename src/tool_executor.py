@@ -1,4 +1,5 @@
 from collections.abc import Callable
+import inspect
 from typing import Any
 
 from google.genai import types
@@ -189,9 +190,20 @@ class BrowserToolExecutor:
 
         custom_function = self._custom_functions.get(name)
         if custom_function is not None:
-            return custom_function(**(action.args or {}))
+            args = self._filter_args(action.args or {}, custom_function)
+            return custom_function(**args)
 
         raise ValueError(f"Unsupported function: {action}")
+
+    def _filter_args(
+        self, args: dict[str, Any], func: Callable[..., object]
+    ) -> dict[str, Any]:
+        sig = inspect.signature(func)
+        valid_keys = {
+            p.name for p in sig.parameters.values()
+            if p.name != "self" and p.kind != inspect.Parameter.VAR_KEYWORD
+        }
+        return {k: v for k, v in args.items() if k in valid_keys}
 
     def denormalize_x(self, x: int) -> int:
         return _denormalize_x(x, self._browser_computer)
