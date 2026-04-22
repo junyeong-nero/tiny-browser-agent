@@ -266,6 +266,7 @@ class TestActionStepSummarizer(unittest.TestCase):
             {
                 "ACTION_SUMMARY_PROVIDER": "openai",
                 "ACTION_SUMMARY_MODEL": "gpt-4o-mini",
+                "OPENAI_API_KEY": "test-key",
             },
             clear=True,
         ):
@@ -279,7 +280,7 @@ class TestActionStepSummarizer(unittest.TestCase):
 
     @patch("agents.post_summary_agent.OpenAIProvider.from_env")
     @patch("agents.post_summary_agent.OpenRouterProvider.from_env")
-    def test_from_env_infers_openai_provider_from_api_key(
+    def test_from_env_uses_configured_openai_provider_when_credentials_exist(
         self,
         mock_openrouter_provider_from_env,
         mock_openai_provider_from_env,
@@ -297,7 +298,7 @@ class TestActionStepSummarizer(unittest.TestCase):
             summarizer = ActionStepSummarizer.from_env()
 
         if summarizer is None:
-            self.fail("Expected ActionStepSummarizer.from_env() to infer OpenAI from OPENAI_API_KEY")
+            self.fail("Expected ActionStepSummarizer.from_env() to use configured OpenAI provider")
         self.assertIs(summarizer._provider, provider)
         self.assertEqual(summarizer._model, "gpt-4o-mini")
         self.assertEqual(summarizer._summary_source, "openai")
@@ -306,14 +307,11 @@ class TestActionStepSummarizer(unittest.TestCase):
 
     @patch("agents.post_summary_agent.OpenAIProvider.from_env")
     @patch("agents.post_summary_agent.OpenRouterProvider.from_env")
-    def test_from_env_infers_openrouter_provider_from_api_key(
+    def test_from_env_uses_configured_provider_instead_of_other_available_credentials(
         self,
         mock_openrouter_provider_from_env,
         mock_openai_provider_from_env,
     ):
-        provider = object()
-        mock_openrouter_provider_from_env.return_value = provider
-
         with patch.dict(
             os.environ,
             {
@@ -323,12 +321,8 @@ class TestActionStepSummarizer(unittest.TestCase):
         ):
             summarizer = ActionStepSummarizer.from_env()
 
-        if summarizer is None:
-            self.fail("Expected ActionStepSummarizer.from_env() to infer OpenRouter from OPENROUTER_API_KEY")
-        self.assertIs(summarizer._provider, provider)
-        self.assertEqual(summarizer._model, "gpt-4o-mini")
-        self.assertEqual(summarizer._summary_source, "openrouter")
-        mock_openrouter_provider_from_env.assert_called_once_with()
+        self.assertIsNone(summarizer)
+        mock_openrouter_provider_from_env.assert_not_called()
         mock_openai_provider_from_env.assert_not_called()
 
     def test_summarize_final_result_parses_provider_response(self):

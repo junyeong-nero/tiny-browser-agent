@@ -3,11 +3,11 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from llm.client import EmptyResponseError, LLMClient
-from llm.provider.gemini_api import GeminiApiProvider
+from llm.provider.gemini_api import GeminiProvider
 
 
 class TestLLMClient(unittest.TestCase):
-    @patch("llm.client.GeminiApiProvider.from_env")
+    @patch("llm.client.GeminiProvider.from_env")
     def test_from_env_uses_gemini(self, mock_gemini_provider):
         provider = MagicMock()
         provider.name = "gemini_api"
@@ -73,9 +73,31 @@ class TestLLMClient(unittest.TestCase):
         self.assertEqual(provider.generate_content.call_count, 2)
         mock_sleep.assert_called_once_with(1)
 
+    @patch("llm.client.GeminiProvider.from_env")
+    def test_from_provider_name_uses_gemini_text(self, mock_provider_from_env):
+        provider = MagicMock()
+        provider.name = "gemini_text"
+        mock_provider_from_env.return_value = provider
 
-class TestGeminiApiProvider(unittest.TestCase):
+        client = LLMClient.from_provider_name("gemini_text")
+
+        self.assertEqual(client.provider_name, "gemini_text")
+        mock_provider_from_env.assert_called_once_with(name="gemini_text")
+
+    @patch("llm.client.GeminiProvider.from_env")
+    def test_from_provider_name_uses_gemini_computer_use(self, mock_provider_from_env):
+        provider = MagicMock()
+        provider.name = "gemini_computer_use"
+        mock_provider_from_env.return_value = provider
+
+        client = LLMClient.from_provider_name("gemini_computer_use")
+
+        self.assertEqual(client.provider_name, "gemini_computer_use")
+        mock_provider_from_env.assert_called_once_with(name="gemini_computer_use")
+
+
+class TestGeminiProvider(unittest.TestCase):
     def test_gemini_provider_requires_api_key(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(ValueError, "GEMINI_API_KEY"):
-                GeminiApiProvider.from_env()
+                GeminiProvider.from_env()
