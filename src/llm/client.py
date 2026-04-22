@@ -1,10 +1,13 @@
 import time
 from collections.abc import Callable
+from typing import Literal
 
 import termcolor
 from google.genai import types
 
-from .provider import BaseProvider, GeminiApiProvider, GeminiComputerUseProvider, GeminiTextProvider
+from .provider import BaseProvider, GeminiProvider, OpenAIProvider, OpenRouterProvider
+
+ProviderName = Literal["gemini", "openai", "openrouter"]
 
 
 class LLMError(Exception):
@@ -28,17 +31,32 @@ class LLMClient:
 
     @classmethod
     def from_env(cls) -> "LLMClient":
-        return cls(provider=GeminiApiProvider.from_env())
+        return cls(provider=GeminiProvider.from_env())
+
+    @classmethod
+    def from_provider_name(cls, provider_name: ProviderName) -> "LLMClient":
+        if provider_name == "gemini":
+            return cls(provider=GeminiProvider.from_env())
+        if provider_name == "openai":
+            return cls(provider=OpenAIProvider.from_env())
+        if provider_name == "openrouter":
+            return cls(provider=OpenRouterProvider.from_env())
+        name_map = {
+            "gemini_api": "gemini_api",
+            "gemini_text": "gemini_text",
+            "gemini_computer_use": "gemini_computer_use",
+        }
+        if provider_name in name_map:
+            return cls(provider=GeminiProvider.from_env(name=name_map[provider_name]))
+        raise ValueError(f"Unsupported LLM provider '{provider_name}'.")
 
     @classmethod
     def for_computer_use(cls) -> "LLMClient":
-        """Client for computer-use models (e.g. actor agent)."""
-        return cls(provider=GeminiComputerUseProvider.from_env())
+        return cls(provider=GeminiProvider.from_env(name="gemini_computer_use"))
 
     @classmethod
     def for_text(cls) -> "LLMClient":
-        """Client for standard text/structured-output models (e.g. planner, summary)."""
-        return cls(provider=GeminiTextProvider.from_env())
+        return cls(provider=GeminiProvider.from_env(name="gemini_text"))
 
     @property
     def provider_name(self) -> str:
