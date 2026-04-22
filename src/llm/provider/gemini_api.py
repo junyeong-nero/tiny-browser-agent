@@ -24,4 +24,4 @@ class GeminiProvider(BaseProvider):
         return cls(client=genai.Client(api_key=api_key), name=name)
 
 
-GeminiApiProvider = GeminiProvider
+
