@@ -45,8 +45,9 @@ class PlannerAgent:
         event_sink: Optional[Callable[[dict[str, Any]], None]] = None,
     ) -> None:
         self._query = query
-        self._llm_client = llm_client or LLMClient.for_text()
-        self._model_name = model_name or app_config.planner_model()
+        planner_config = app_config.planner_config()
+        self._llm_client = llm_client or LLMClient.from_provider_name(planner_config.provider)
+        self._model_name = model_name or planner_config.model
         self._event_sink = event_sink
 
     def _emit_event(self, event_type: str, **payload: Any) -> None:

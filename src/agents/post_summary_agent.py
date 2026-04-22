@@ -80,15 +80,18 @@ class ActionStepSummarizer:
 
     @classmethod
     def from_env(cls) -> "ActionStepSummarizer | None":
-        configured_provider = cls._resolve_provider_from_env()
-        if not configured_provider:
-            return None
+        summary_config = app_config.summary_config()
+        configured_provider = os.environ.get(
+            "ACTION_SUMMARY_PROVIDER", summary_config.provider
+        ).strip().lower()
         if configured_provider not in {"openai", "openrouter"}:
             raise ValueError(
                 f"Unsupported ACTION_SUMMARY_PROVIDER '{configured_provider}'. Expected 'openai' or 'openrouter'."
             )
+        if not cls._provider_has_credentials(configured_provider):
+            return None
 
-        model = os.environ.get("ACTION_SUMMARY_MODEL", app_config.summary_model()).strip()
+        model = os.environ.get("ACTION_SUMMARY_MODEL", summary_config.model).strip()
         if not model:
             raise ValueError("ACTION_SUMMARY_MODEL must not be empty when summarization is enabled.")
 
@@ -105,15 +108,12 @@ class ActionStepSummarizer:
         )
 
     @staticmethod
-    def _resolve_provider_from_env() -> str:
-        configured_provider = os.environ.get("ACTION_SUMMARY_PROVIDER", "").strip().lower()
-        if configured_provider:
-            return configured_provider
-        if os.environ.get("OPENAI_API_KEY", "").strip():
-            return "openai"
-        if os.environ.get("OPENROUTER_API_KEY", "").strip():
-            return "openrouter"
-        return ""
+    def _provider_has_credentials(provider_name: str) -> bool:
+        if provider_name == "openai":
+            return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+        if provider_name == "openrouter":
+            return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
+        return False
 
     def summarize_action(
         self,

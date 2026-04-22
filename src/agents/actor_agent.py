@@ -28,6 +28,7 @@ from google.genai.types import (
 from rich.console import Console
 from rich.table import Table
 
+import config as app_config
 from agents.post_summary_agent import (
     ActionMetadataWriter,
     ActionReviewService,
@@ -83,10 +84,8 @@ class BrowserAgent:
         self.final_reasoning = None
         if llm_client is not None:
             self._llm_client = llm_client
-        elif grounding == "text":
-            self._llm_client = LLMClient.for_text()
         else:
-            self._llm_client = LLMClient.for_computer_use()
+            self._llm_client = LLMClient.from_provider_name(app_config.actor_provider())
 
         provider_name = self._llm_client.provider_name
         if grounding == "text" and provider_name == "gemini_computer_use":

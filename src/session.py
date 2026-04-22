@@ -22,7 +22,7 @@ class BrowserSession:
         self._model_name = model_name
         self._logs_dir = logs_dir
         self._log_enabled = log_enabled
-        self._grounding = grounding
+        self._grounding: GroundingMode = grounding
         self._use_planner = use_planner
 
     def _make_artifact_logger(self) -> ArtifactLogger:
@@ -39,8 +39,7 @@ class BrowserSession:
         subgoals = None
         if self._use_planner:
             from agents.planner_agent import PlannerAgent
-            from llm import LLMClient
-            planner = PlannerAgent(query=query, llm_client=LLMClient.for_text(), event_sink=emit)
+            planner = PlannerAgent(query=query, event_sink=emit)
             subgoals = planner.plan()
 
         agent = BrowserAgent(
