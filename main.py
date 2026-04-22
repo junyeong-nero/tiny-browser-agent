@@ -121,10 +121,8 @@ def main() -> int:
         else:
             subgoals = None
             if args.planner:
-                from llm import LLMClient
                 planner = PlannerAgent(
                     query=args.query,
-                    llm_client=LLMClient.for_text(),
                 )
                 subgoals = planner.plan()
                 print(f"Planner created {len(subgoals)} subgoal(s):")
