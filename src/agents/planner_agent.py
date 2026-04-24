@@ -153,11 +153,27 @@ class PlannerAgent:
 
         subgoals = []
         for idx, item in enumerate(data):
+            if not isinstance(item, dict):
+                self._emit_event(
+                    "planner_parse_error",
+                    error_message=f"expected dict, got {type(item).__name__}",
+                    raw_text=str(item)[:500],
+                )
+                continue
+            description = item.get("description", "")
+            success_criteria = item.get("success_criteria", "")
+            if not description or not success_criteria:
+                self._emit_event(
+                    "planner_parse_error",
+                    error_message="subgoal missing description or success_criteria",
+                    raw_text=str(item)[:500],
+                )
+                continue
             subgoals.append(
                 Subgoal(
                     id=start_id + idx,
-                    description=item.get("description", ""),
-                    success_criteria=item.get("success_criteria", ""),
+                    description=description,
+                    success_criteria=success_criteria,
                 )
             )
         return subgoals

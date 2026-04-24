@@ -41,6 +41,9 @@ class BrowserSession:
             from agents.planner_agent import PlannerAgent
             planner = PlannerAgent(query=query, event_sink=emit)
             subgoals = planner.plan()
+            if not subgoals:
+                emit({"type": "planner_fallback", "reason": "no valid subgoals returned"})
+                subgoals = None
 
         agent = BrowserAgent(
             browser_computer=self._browser,

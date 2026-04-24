@@ -3,8 +3,8 @@ models:
     provider: openrouter
     model: nvidia/nemotron-3-super-120b-a12b:free
   planner:
-    provider: openrouter
-    model: openai/gpt-oss-120b:free
+    provider: gemini
+    model: gemini-3-flash-preview
   summary:
     provider: openai
     model: gpt-4o-mini
