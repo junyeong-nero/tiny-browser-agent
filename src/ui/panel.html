@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>browser-agent</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
   :root {
     --bg:         #0d0d0d;
@@ -101,14 +102,51 @@
   .status-dot.running      { color: var(--warn); animation: blink 1s steps(2,end) infinite; }
   @keyframes blink { 50% { opacity: 0.3; } }
 
-  /* ── Main timeline ── */
-  main#timeline-wrap {
+  /* ── Main content (tabs + panes) ── */
+  main#main {
     grid-area: main;
     overflow: hidden;
     display: flex;
     flex-direction: column;
     background: var(--bg);
+    min-width: 0;
   }
+  .view-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 4px 18px 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .view-tab {
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: 0;
+    color: var(--fg-dim);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    padding: 4px 12px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    border-radius: 0;
+  }
+  .view-tab:hover { color: var(--fg); }
+  .view-tab.active {
+    color: var(--teal);
+    border-color: var(--border);
+    background: var(--bg-soft);
+    position: relative;
+    top: 1px;
+  }
+  .view-pane {
+    flex: 1;
+    overflow: hidden;
+    display: none;
+    min-height: 0;
+  }
+  .view-pane.active { display: flex; flex-direction: column; }
+
+  #timeline-wrap { flex: 1; overflow: hidden; }
   #timeline {
     flex: 1;
     overflow-y: auto;
@@ -116,7 +154,84 @@
     display: flex;
     flex-direction: column;
     gap: 0;
+    height: 100%;
   }
+
+  /* ── Graph pane ── */
+  #graph-wrap {
+    position: relative;
+    background: var(--bg);
+  }
+  #graph-svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: grab;
+  }
+  #graph-svg:active { cursor: grabbing; }
+  #graph-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-mute);
+    font-size: 12px;
+    pointer-events: none;
+  }
+  .graph-link {
+    stroke: var(--border-hi);
+    stroke-width: 1.2;
+    fill: none;
+    marker-end: url(#graph-arrow);
+  }
+  .graph-node circle {
+    fill: var(--bg-soft);
+    stroke: var(--teal-dim);
+    stroke-width: 1.5;
+    transition: fill 0.1s, stroke 0.1s;
+  }
+  .graph-node.root circle { stroke: var(--orange-dim); }
+  .graph-node.current circle { fill: var(--teal); stroke: var(--teal); }
+  .graph-node:hover circle { stroke: var(--orange); stroke-width: 2; }
+  .graph-node text {
+    fill: var(--fg-dim);
+    font-size: 10.5px;
+    font-family: var(--mono);
+    pointer-events: none;
+    user-select: none;
+  }
+  .graph-node.current text { fill: var(--orange); }
+
+  .graph-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--bg-inset);
+    border: 1px solid var(--border-hi);
+    border-left: 2px solid var(--teal);
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--fg);
+    max-width: 420px;
+    z-index: 20;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  }
+  .graph-tooltip.hidden { display: none; }
+  .graph-tooltip .tt-url {
+    color: var(--orange);
+    word-break: break-all;
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  .graph-tooltip .tt-row {
+    display: grid;
+    grid-template-columns: 70px 1fr;
+    gap: 6px;
+    color: var(--fg-dim);
+    line-height: 1.4;
+  }
+  .graph-tooltip .tt-row .v { color: var(--fg); }
 
   #timeline::-webkit-scrollbar,
   aside#sidebar::-webkit-scrollbar { width: 6px; }
@@ -414,9 +529,27 @@
   <span class="spacer"></span>
 </header>
 
-<main id="timeline-wrap">
-  <div id="timeline">
-    <div id="empty-state">waiting for a task…</div>
+<main id="main">
+  <div class="view-tabs">
+    <button class="view-tab active" data-view="timeline">Timeline</button>
+    <button class="view-tab" data-view="graph">Graph</button>
+  </div>
+  <div class="view-pane active" data-view="timeline" id="timeline-wrap">
+    <div id="timeline">
+      <div id="empty-state">waiting for a task…</div>
+    </div>
+  </div>
+  <div class="view-pane" data-view="graph" id="graph-wrap">
+    <svg id="graph-svg">
+      <defs>
+        <marker id="graph-arrow" viewBox="0 -5 10 10" refX="14" refY="0"
+                markerWidth="7" markerHeight="7" orient="auto">
+          <path d="M0,-4L8,0L0,4" fill="var(--fg-mute)"></path>
+        </marker>
+      </defs>
+    </svg>
+    <div id="graph-empty">no navigation yet.</div>
+    <div id="graph-tooltip" class="graph-tooltip hidden"></div>
   </div>
 </main>
 
@@ -504,6 +637,12 @@ let subgoals = [];
 let activity = [];
 const MAX_ACTIVITY = 80;
 
+// Trajectory: Map<urlKey, {key, fullUrl, host, path, parent, children:Set, visits, firstStep, lastStep}>
+let trajectoryNodes = new Map();
+let trajectoryRoots = [];
+let trajectoryLastKey = null;
+let trajectoryCurrentKey = null;
+
 // ── WebSocket ──────────────────────────────────────────
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
@@ -578,10 +717,16 @@ function addBlock(cls, html) {
 function resetSidebar() {
   subgoals = [];
   activity = [];
+  trajectoryNodes = new Map();
+  trajectoryRoots = [];
+  trajectoryLastKey = null;
+  trajectoryCurrentKey = null;
+  trajectoryEdges.clear();
   sideTask.className = 'side-empty';
   sideTask.textContent = 'no active task.';
   renderPlan();
   renderActivity();
+  resetGraph();
   metaStep.textContent = '—';
   metaUrl.textContent  = '—';
 }
@@ -697,6 +842,239 @@ function renderActivity() {
   }
   sideActivity.innerHTML = parts.join('');
 }
+
+// ── Trajectory state ───────────────────────────────────
+// Also tracks directed edges (A→B with visit count) so that revisits that
+// traverse new edges show up as additional links in the d3 graph.
+const trajectoryEdges = new Map(); // key: "src|dst" → {source, target, count}
+
+function parseUrlParts(url) {
+  try {
+    const u = new URL(url);
+    const host = u.host || u.protocol.replace(':', '');
+    const path = (u.pathname || '/') + (u.search || '');
+    return { key: u.origin + u.pathname, host, path, full: url };
+  } catch (_) {
+    return { key: url, host: '', path: url, full: url };
+  }
+}
+
+function recordNavigation(url, stepId) {
+  if (!url || url === 'about:blank') return;
+  const { key, host, path, full } = parseUrlParts(url);
+
+  let node = trajectoryNodes.get(key);
+  if (!node) {
+    node = {
+      id: key, fullUrl: full, host, path,
+      parent: trajectoryLastKey,
+      childrenKeys: new Set(),
+      visits: 0,
+      firstStep: stepId,
+      lastStep: stepId,
+    };
+    trajectoryNodes.set(key, node);
+    if (!trajectoryLastKey) trajectoryRoots.push(key);
+  }
+  node.visits += 1;
+  node.lastStep = stepId;
+  if (node.fullUrl !== full) node.fullUrl = full;
+
+  if (trajectoryLastKey && trajectoryLastKey !== key) {
+    const parentNode = trajectoryNodes.get(trajectoryLastKey);
+    if (parentNode) parentNode.childrenKeys.add(key);
+    const edgeKey = trajectoryLastKey + '|' + key;
+    const edge = trajectoryEdges.get(edgeKey);
+    if (edge) edge.count += 1;
+    else trajectoryEdges.set(edgeKey, { source: trajectoryLastKey, target: key, count: 1 });
+  }
+
+  trajectoryLastKey = key;
+  trajectoryCurrentKey = key;
+  updateGraph();
+}
+
+// ── d3 force graph ─────────────────────────────────────
+const graph = (() => {
+  const svgEl = document.getElementById('graph-svg');
+  const wrapEl = document.getElementById('graph-wrap');
+  const emptyEl = document.getElementById('graph-empty');
+  const tooltip = document.getElementById('graph-tooltip');
+
+  const svg = d3.select(svgEl);
+  const root = svg.append('g').attr('class', 'graph-root');
+  const linkG = root.append('g').attr('class', 'links');
+  const nodeG = root.append('g').attr('class', 'nodes');
+
+  svg.call(
+    d3.zoom()
+      .scaleExtent([0.3, 3])
+      .on('zoom', (event) => root.attr('transform', event.transform))
+  );
+
+  const simulation = d3.forceSimulation()
+    .force('link', d3.forceLink().id(d => d.id).distance(80).strength(0.7))
+    .force('charge', d3.forceManyBody().strength(-260))
+    .force('x', d3.forceX().strength(0.04))
+    .force('y', d3.forceY().strength(0.04))
+    .force('collide', d3.forceCollide(22))
+    .on('tick', ticked);
+
+  let nodeSel = nodeG.selectAll('g');
+  let linkSel = linkG.selectAll('line');
+  let nodesData = [];
+  let linksData = [];
+
+  function resize() {
+    const { width, height } = wrapEl.getBoundingClientRect();
+    svgEl.setAttribute('viewBox', `${-width / 2} ${-height / 2} ${width} ${height}`);
+    svgEl.setAttribute('width', width);
+    svgEl.setAttribute('height', height);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function ticked() {
+    linkSel
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+  }
+
+  function labelFor(n) {
+    const p = n.path && n.path !== '/' ? n.path : '';
+    const short = (n.host || '') + (p ? (p.length > 18 ? p.slice(0, 17) + '…' : p) : '');
+    return short || n.id;
+  }
+
+  function showTooltip(event, d) {
+    const outgoing = linksData.filter(l =>
+      (l.source.id || l.source) === d.id
+    ).length;
+    const incoming = linksData.filter(l =>
+      (l.target.id || l.target) === d.id
+    ).length;
+    tooltip.innerHTML =
+      `<div class="tt-url">${escHtml(d.fullUrl)}</div>` +
+      `<div class="tt-row"><span>host</span><span class="v">${escHtml(d.host || '—')}</span></div>` +
+      `<div class="tt-row"><span>path</span><span class="v">${escHtml(d.path || '/')}</span></div>` +
+      `<div class="tt-row"><span>visits</span><span class="v">${d.visits}</span></div>` +
+      `<div class="tt-row"><span>first step</span><span class="v">#${d.firstStep ?? '—'}</span></div>` +
+      `<div class="tt-row"><span>last step</span><span class="v">#${d.lastStep ?? '—'}</span></div>` +
+      `<div class="tt-row"><span>out / in</span><span class="v">${outgoing} / ${incoming}</span></div>`;
+    tooltip.classList.remove('hidden');
+    moveTooltip(event);
+  }
+  function moveTooltip(event) {
+    const rect = wrapEl.getBoundingClientRect();
+    const x = event.clientX - rect.left + 14;
+    const y = event.clientY - rect.top + 14;
+    const maxX = rect.width - tooltip.offsetWidth - 10;
+    const maxY = rect.height - tooltip.offsetHeight - 10;
+    tooltip.style.left = Math.max(6, Math.min(x, maxX)) + 'px';
+    tooltip.style.top  = Math.max(6, Math.min(y, maxY)) + 'px';
+  }
+  function hideTooltip() { tooltip.classList.add('hidden'); }
+
+  function drag() {
+    return d3.drag()
+      .on('start', (event, d) => {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x; d.fy = d.y;
+      })
+      .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
+      .on('end', (event, d) => {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null; d.fy = null;
+      });
+  }
+
+  function update() {
+    // Build fresh nodes + links arrays, preserving positions for existing nodes.
+    const prevById = new Map(nodesData.map(n => [n.id, n]));
+    nodesData = Array.from(trajectoryNodes.values()).map(src => {
+      const prev = prevById.get(src.id);
+      return Object.assign(prev || {}, {
+        id: src.id,
+        fullUrl: src.fullUrl,
+        host: src.host,
+        path: src.path,
+        visits: src.visits,
+        firstStep: src.firstStep,
+        lastStep: src.lastStep,
+        isRoot: trajectoryRoots.includes(src.id),
+        isCurrent: src.id === trajectoryCurrentKey,
+      });
+    });
+    const idSet = new Set(nodesData.map(n => n.id));
+    linksData = Array.from(trajectoryEdges.values())
+      .filter(e => idSet.has(e.source) && idSet.has(e.target))
+      .map(e => ({ source: e.source, target: e.target, count: e.count }));
+
+    emptyEl.style.display = nodesData.length ? 'none' : 'flex';
+
+    linkSel = linkG.selectAll('line').data(linksData, d =>
+      (d.source.id || d.source) + '|' + (d.target.id || d.target)
+    );
+    linkSel.exit().remove();
+    linkSel = linkSel.enter().append('line').attr('class', 'graph-link').merge(linkSel);
+    linkSel.attr('stroke-width', d => Math.min(3, 1 + Math.log2(d.count + 1)));
+
+    nodeSel = nodeG.selectAll('g.graph-node').data(nodesData, d => d.id);
+    nodeSel.exit().remove();
+    const enter = nodeSel.enter().append('g')
+      .attr('class', 'graph-node')
+      .call(drag())
+      .on('mouseenter', showTooltip)
+      .on('mousemove', moveTooltip)
+      .on('mouseleave', hideTooltip);
+    enter.append('circle').attr('r', 8);
+    enter.append('text').attr('dx', 12).attr('dy', 4);
+    nodeSel = enter.merge(nodeSel);
+    nodeSel
+      .classed('root', d => d.isRoot)
+      .classed('current', d => d.isCurrent);
+    nodeSel.select('circle').attr('r', d => 6 + Math.min(8, Math.log2(d.visits + 1) * 2));
+    nodeSel.select('text').text(labelFor);
+
+    simulation.nodes(nodesData);
+    simulation.force('link').links(linksData);
+    simulation.alpha(0.6).restart();
+  }
+
+  function reset() {
+    nodesData = [];
+    linksData = [];
+    linkG.selectAll('*').remove();
+    nodeG.selectAll('*').remove();
+    hideTooltip();
+    emptyEl.style.display = 'flex';
+    simulation.nodes([]);
+    simulation.force('link').links([]);
+  }
+
+  return { update, reset, resize };
+})();
+
+function updateGraph() { graph.update(); }
+function resetGraph()  { graph.reset(); }
+
+// Tab switching (Timeline ↔ Graph)
+(function setupTabs() {
+  const tabs = document.querySelectorAll('.view-tab');
+  const panes = document.querySelectorAll('.view-pane');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const view = tab.dataset.view;
+      tabs.forEach(t => t.classList.toggle('active', t === tab));
+      panes.forEach(p => p.classList.toggle('active', p.dataset.view === view));
+      if (view === 'graph') {
+        graph.resize();
+        graph.update();
+      }
+    });
+  });
+})();
 
 // ── Event handlers ─────────────────────────────────────
 function handleEvent(ev) {
@@ -821,6 +1199,7 @@ function handleEvent(ev) {
       if (ev.env_state && ev.env_state.url) {
         metaUrl.textContent = ev.env_state.url;
         addRow('dim', `@ <span class="url">${escHtml(ev.env_state.url)}</span>`);
+        recordNavigation(ev.env_state.url, ev.step_id);
       }
       break;
 
