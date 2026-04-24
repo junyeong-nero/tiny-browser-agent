@@ -48,7 +48,8 @@ def build_browser_action_functions(browser_computer: PlaywrightBrowser) -> list[
         Args:
             x: Horizontal coordinate of the file input (0-1000 normalized).
             y: Vertical coordinate of the file input (0-1000 normalized).
-            path: Absolute path to a local file that exists on disk.
+            path: Absolute path to a local file that exists under an allowed
+                upload root (current working directory or system temp by default).
         """
         width, height = browser_computer.screen_size()
         absolute_x = int(x / 1000 * width)

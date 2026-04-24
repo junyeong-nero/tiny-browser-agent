@@ -43,6 +43,7 @@ from tools.types import ToolBatchResult, ToolResult, is_env_state_result
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 _UNSET_STEP_SUMMARIZER: object = object()
+COMPUTER_USE_PROVIDER_NAMES = {"gemini_api", "gemini_computer_use"}
 
 MODEL_REQUEST_MAX_ATTEMPTS = 4
 MODEL_REQUEST_BASE_DELAY_SECONDS = 1.0
@@ -88,16 +89,7 @@ class BrowserAgent:
             self._llm_client = LLMClient.from_provider_name(app_config.actor_provider())
 
         provider_name = self._llm_client.provider_name
-        if grounding == "text" and provider_name == "gemini_computer_use":
-            raise ValueError(
-                "grounding='text' requires a standard text model provider, "
-                f"but llm_client uses '{provider_name}'. Use LLMClient.for_text()."
-            )
-        if grounding in ("vision", "mixed") and provider_name == "gemini_text":
-            raise ValueError(
-                f"grounding='{grounding}' requires a computer-use model provider, "
-                f"but llm_client uses '{provider_name}'. Use LLMClient.for_computer_use()."
-            )
+        self._validate_grounding_provider(grounding, provider_name)
         self._event_sink = event_sink
         self._artifact_logger = artifact_logger if artifact_logger is not None else ArtifactLogger()
         self._step_id = 0
@@ -157,6 +149,23 @@ class BrowserAgent:
                 include_thoughts=True
             ),
         )
+
+    @staticmethod
+    def _validate_grounding_provider(
+        grounding: GroundingMode,
+        provider_name: str,
+    ) -> None:
+        if grounding == "text" and provider_name == "gemini_computer_use":
+            raise ValueError(
+                "grounding='text' requires a standard text model provider, "
+                f"but llm_client uses '{provider_name}'. Use LLMClient.for_text()."
+            )
+        if grounding in ("vision", "mixed") and provider_name not in COMPUTER_USE_PROVIDER_NAMES:
+            raise ValueError(
+                f"grounding='{grounding}' requires a computer-use model provider, "
+                f"but llm_client uses '{provider_name}'. Use LLMClient.for_computer_use() "
+                "or set models.actor.provider to 'gemini'."
+            )
 
     def _emit_event(self, event_type: str, **payload: Any) -> None:
         if not self._event_sink:
@@ -829,6 +838,48 @@ class BrowserAgent:
             f"Subgoal {subgoal.id} completed without declaring success. Final text: {final_text[:200]}"
         )
 
+    def _build_subgoal_plan_summary(
+        self,
+        outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]],
+    ) -> str:
+        header = (
+            "All planner subgoals completed."
+            if all(result == "done" for _, result, _ in outcomes)
+            else "Planner subgoals completed with failures."
+        )
+        lines = [header]
+        for subgoal, _result, reason in outcomes:
+            lines.append(f"[{subgoal.id}] {subgoal.description}: {reason}")
+        return "\n".join(lines)
+
+    def _finalize_subgoal_plan(
+        self,
+        outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]],
+    ) -> None:
+        if not outcomes:
+            return
+
+        self._step_id += 1
+        step_id = self._step_id
+        raw_summary = self._build_subgoal_plan_summary(outcomes)
+        final_result_summary = self._review_service.build_final_result_summary(
+            final_response=raw_summary,
+            current_url=self._latest_url,
+        )
+        self.final_reasoning = final_result_summary or raw_summary
+        print(f"Agent Loop Complete: {self.final_reasoning}")
+        self._emit_review_metadata(
+            step_id=step_id,
+            reasoning=raw_summary,
+            final_result_summary=self.final_reasoning,
+        )
+        self._emit_event(
+            "step_complete",
+            step_id=step_id,
+            status="complete",
+            final_reasoning=self.final_reasoning,
+        )
+
     def agent_loop(self):
         if self._subgoals is None:
             status = "CONTINUE"
@@ -837,6 +888,7 @@ class BrowserAgent:
             return
 
         queue = list(self._subgoals)
+        outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]] = []
         index = 0
         while index < len(queue):
             active_subgoal = dataclasses.replace(queue[index], status="active")
@@ -850,6 +902,7 @@ class BrowserAgent:
             result, reason = self._run_subgoal_loop(active_subgoal)
             completed_subgoal = dataclasses.replace(active_subgoal, status=result)
             queue[index] = completed_subgoal
+            outcomes.append((completed_subgoal, result, reason))
             self._emit_event(
                 "subgoal_completed" if result == "done" else "subgoal_failed",
                 subgoal_id=completed_subgoal.id,
@@ -869,6 +922,7 @@ class BrowserAgent:
                     return
                 queue = queue[: index + 1] + list(revised)
             index += 1
+        self._finalize_subgoal_plan(outcomes)
 
     def denormalize_x(self, x: int) -> int:
         return self._tool_executor.denormalize_x(x)

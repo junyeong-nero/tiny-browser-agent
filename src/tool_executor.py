@@ -130,6 +130,7 @@ class BrowserToolExecutor:
                 raise TypeError("Expected dict result for non-browser tool response")
             return types.FunctionResponse(
                 name=executed_call.function_call.name,
+                id=executed_call.function_call.id,
                 response=dict_result,
             )
 
@@ -138,6 +139,7 @@ class BrowserToolExecutor:
         if self._grounding == "vision":
             return types.FunctionResponse(
                 name=executed_call.function_call.name,
+                id=executed_call.function_call.id,
                 response={"url": env_state.url, **response_fields},
                 parts=[
                     types.FunctionResponsePart(
@@ -153,6 +155,7 @@ class BrowserToolExecutor:
             snapshot = self._browser_computer.take_aria_snapshot()
             return types.FunctionResponse(
                 name=executed_call.function_call.name,
+                id=executed_call.function_call.id,
                 response={
                     "url": env_state.url,
                     "aria_snapshot": snapshot.text,
@@ -164,6 +167,7 @@ class BrowserToolExecutor:
         snapshot = self._browser_computer.take_aria_snapshot()
         return types.FunctionResponse(
             name=executed_call.function_call.name,
+            id=executed_call.function_call.id,
             response={
                 "url": env_state.url,
                 "aria_snapshot": snapshot.text,

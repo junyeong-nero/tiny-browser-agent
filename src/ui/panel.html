@@ -1229,6 +1229,18 @@ function handleEvent(ev) {
       addBlock('green', `<div class="title">task complete</div>`);
       break;
 
+    case 'task_failed':
+      isRunning = false;
+      setStatus('connected', 'ready');
+      setInputEnabled(true);
+      subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'failed'; });
+      renderPlan();
+      addBlock('red',
+        `<div class="title">task failed</div>` +
+        `<div class="meta">${escHtml(ev.error_message || 'unknown error')}</div>`
+      );
+      break;
+
     case 'session_closed':
       setStatus('disconnected', 'session ended');
       setInputEnabled(false);

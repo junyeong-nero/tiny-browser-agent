@@ -62,7 +62,13 @@ def _strip_bytes(obj: Any) -> Any:
     return obj
 
 
-_SESSION_LEVEL_TYPES = {"session_ready", "task_started", "task_complete", "session_closed"}
+_SESSION_LEVEL_TYPES = {
+    "session_ready",
+    "task_started",
+    "task_complete",
+    "task_failed",
+    "session_closed",
+}
 
 
 def emit(event: dict[str, Any]) -> None:

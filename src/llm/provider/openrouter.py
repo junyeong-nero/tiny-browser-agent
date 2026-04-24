@@ -2,11 +2,18 @@ import json
 import os
 import ssl
 from collections.abc import Callable
-from inspect import signature
 from typing import Any
 from urllib import error, request
 
 from google.genai import types
+
+from .chat_completion_adapter import (
+    build_function_declaration as build_chat_function_declaration,
+    content_to_text,
+    contents_to_messages,
+    declaration_to_openai_tool,
+    payload_to_response,
+)
 
 try:
     import certifi
@@ -143,47 +150,7 @@ class OpenRouterProvider:
     def build_function_declaration(
         self, callable_: Callable[..., object]
     ) -> types.FunctionDeclaration:
-        import inspect as inspect_module
-
-        name = callable_.__name__
-        description = (callable_.__doc__ or "").strip()
-        sig = signature(callable_)
-
-        properties: dict[str, types.Schema] = {}
-        required: list[str] = []
-
-        for param_name, param in sig.parameters.items():
-            if param_name == "self":
-                continue
-
-            if param.annotation is inspect_module.Parameter.empty:
-                param_type = "STRING"
-            elif param.annotation in (int, inspect_module.Parameter.empty):
-                param_type = "INTEGER"
-            elif param.annotation is float:
-                param_type = "DOUBLE"
-            elif param.annotation is bool:
-                param_type = "BOOLEAN"
-            elif param.annotation is str:
-                param_type = "STRING"
-            else:
-                param_type = "STRING"
-
-            properties[param_name] = types.Schema(type=param_type)
-            if param.default is inspect_module.Parameter.empty:
-                required.append(param_name)
-
-        params_schema = types.Schema(
-            type="OBJECT",
-            properties=properties if properties else None,
-            required=required if required else None,
-        )
-
-        return types.FunctionDeclaration(
-            name=name,
-            description=description,
-            parameters=params_schema,
-        )
+        return build_chat_function_declaration(callable_)
 
     def generate_content(
         self,
@@ -191,10 +158,10 @@ class OpenRouterProvider:
         contents: list[types.Content],
         config: types.GenerateContentConfig,
     ) -> types.GenerateContentResponse:
-        messages = self._contents_to_messages(contents)
+        messages = contents_to_messages(contents)
 
         if config.system_instruction:
-            system_text = self._content_to_text(config.system_instruction)
+            system_text = content_to_text(config.system_instruction)
             messages.insert(0, {"role": "system", "content": system_text})
 
         body: dict[str, Any] = {
@@ -202,25 +169,12 @@ class OpenRouterProvider:
             "messages": messages,
         }
 
-        if config.thinking_config:
-            body["thinking"] = {
-                "type": "enabled",
-                "thinking_bytes": config.thinking_config.include_thoughts or False,
-            }
-
         tools = []
         if config.tools:
             for tool in config.tools:
                 if tool.function_declarations:
                     for decl in tool.function_declarations:
-                        func_dict = {
-                            "name": decl.name,
-                            "description": decl.description or "",
-                            "parameters": decl.parameters.model_dump(
-                                exclude_none=True
-                            ) if decl.parameters else {"type": "object", "properties": {}},
-                        }
-                        tools.append(func_dict)
+                        tools.append(declaration_to_openai_tool(decl))
             if tools:
                 body["tools"] = [{"type": "function", "function": f} for f in tools]
 
@@ -246,92 +200,4 @@ class OpenRouterProvider:
         except error.URLError as exc:
             raise RuntimeError(f"OpenRouter request failed: {exc.reason}") from exc
 
-        return self._payload_to_response(payload)
-
-    def _contents_to_messages(
-        self, contents: list[types.Content]
-    ) -> list[dict[str, Any]]:
-        messages = []
-        for content in contents:
-            role = content.role or "user"
-            for part in content.parts:
-                text = self._part_to_text(part)
-                if text:
-                    messages.append({"role": role, "content": text})
-        return messages
-
-    def _content_to_text(self, content: types.Content) -> str:
-        parts = []
-        for part in content.parts:
-            text = self._part_to_text(part)
-            if text:
-                parts.append(text)
-        return "\n".join(parts)
-
-    def _part_to_text(self, part: types.Part) -> str:
-        if part.text:
-            return part.text
-        if part.inline_data:
-            return f"[{part.inline_data.mime_type}]"
-        if part.function_call:
-            args_str = json.dumps(part.function_call.args, default=str)
-            return f"[Function call: {part.function_call.name}({args_str})]"
-        if part.function_response:
-            return f"[Function response: {part.function_response.response}]"
-        return ""
-
-    def _payload_to_response(
-        self, payload: dict[str, Any]
-    ) -> types.GenerateContentResponse:
-        choices = payload.get("choices") or []
-
-        candidates = []
-        for choice in choices:
-            message = choice.get("message") or {}
-            tool_calls = message.get("tool_calls") or []
-            text_content = message.get("content") or ""
-
-            parts = []
-
-            if text_content and isinstance(text_content, str) and text_content.strip():
-                parts.append(types.Part(text=text_content))
-
-            for tc in tool_calls:
-                func = tc.get("function", {}) or {}
-                func_name = func.get("name", "")
-                args_str = func.get("arguments", "{}")
-                try:
-                    args = json.loads(args_str) if isinstance(args_str, str) else args_str
-                except json.JSONDecodeError:
-                    args = {}
-                parts.append(
-                    types.Part(function_call=types.FunctionCall(name=func_name, args=args))
-                )
-
-            finish_reason_map = {
-                "stop": types.FinishReason.STOP,
-                "length": types.FinishReason.MAX_TOKENS,
-                "content_filter": types.FinishReason.OTHER,
-                "tool_calls": types.FinishReason.STOP,
-            }
-            finish = choice.get("finish_reason", "stop")
-            finish_reason = finish_reason_map.get(finish, types.FinishReason.FINISH_REASON_UNSPECIFIED)
-
-            candidate_content = types.Content(role="model", parts=parts) if parts else None
-
-            candidate = types.Candidate(
-                content=candidate_content,
-                finish_reason=finish_reason,
-            )
-            candidates.append(candidate)
-
-        if not candidates:
-            empty_part = types.Part(text="")
-            empty_content = types.Content(role="model", parts=[empty_part])
-            empty_candidate = types.Candidate(
-                content=empty_content,
-                finish_reason=types.FinishReason.FINISH_REASON_UNSPECIFIED,
-            )
-            candidates.append(empty_candidate)
-
-        return types.GenerateContentResponse(candidates=candidates)
+        return payload_to_response(payload)

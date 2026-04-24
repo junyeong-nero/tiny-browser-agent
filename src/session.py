@@ -37,6 +37,7 @@ class BrowserSession:
         self._browser.set_artifact_logger(artifact_logger)
 
         subgoals = None
+        replan_callback = None
         if self._use_planner:
             from agents.planner_agent import PlannerAgent
             planner = PlannerAgent(query=query, event_sink=emit)
@@ -44,6 +45,8 @@ class BrowserSession:
             if not subgoals:
                 emit({"type": "planner_fallback", "reason": "no valid subgoals returned"})
                 subgoals = None
+            else:
+                replan_callback = planner.replan
 
         agent = BrowserAgent(
             browser_computer=self._browser,
@@ -53,12 +56,15 @@ class BrowserSession:
             artifact_logger=artifact_logger,
             grounding=self._grounding,
             subgoals=subgoals,
+            replan_callback=replan_callback,
         )
         try:
             agent.agent_loop()
         except Exception as exc:
             emit({"type": "step_error", "step_id": -1, "error_message": str(exc)})
             self._browser.reset_to_blank()
+            emit({"type": "task_failed", "query": query, "error_message": str(exc)})
+            return
         emit({"type": "task_complete", "query": query})
 
     def run(self) -> None:

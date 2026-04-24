@@ -36,6 +36,39 @@ class TestMain(unittest.TestCase):
 
     @patch("main.argparse.ArgumentParser")
     @patch("main.PlaywrightBrowser")
+    @patch("main.PlannerAgent")
+    @patch("main.BrowserAgent")
+    def test_main_planner_passes_subgoals_and_replan_callback(
+        self,
+        mock_browser_agent,
+        mock_planner_agent,
+        mock_playwright_browser,
+        mock_arg_parser,
+    ):
+        mock_args = MagicMock()
+        mock_args.env = 'playwright'
+        mock_args.initial_url = 'https://www.google.com'
+        mock_args.highlight_mouse = False
+        mock_args.headless = False
+        mock_args.query = 'test_query'
+        mock_args.model = 'test_model'
+        mock_args.log = False
+        mock_args.ui = False
+        mock_args.grounding = "vision"
+        mock_args.planner = True
+        mock_arg_parser.return_value.parse_args.return_value = mock_args
+        subgoals = [MagicMock()]
+        mock_planner_agent.return_value.plan.return_value = subgoals
+
+        main.main()
+
+        mock_planner_agent.assert_called_once_with(query='test_query')
+        call_kwargs = mock_browser_agent.call_args.kwargs
+        self.assertIs(call_kwargs["subgoals"], subgoals)
+        self.assertIs(call_kwargs["replan_callback"], mock_planner_agent.return_value.replan)
+
+    @patch("main.argparse.ArgumentParser")
+    @patch("main.PlaywrightBrowser")
     @patch("main.BrowserAgent")
     def test_main_no_log(self, mock_browser_agent, mock_playwright_browser, mock_arg_parser):
         mock_args = MagicMock()

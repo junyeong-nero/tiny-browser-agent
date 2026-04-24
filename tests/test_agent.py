@@ -20,6 +20,7 @@ from typing import cast
 from unittest.mock import MagicMock, patch
 from google.genai import types
 from agents.actor_agent import BrowserAgent, multiply_numbers
+from agents.types import Subgoal
 from browser import EnvState
 from llm.client import LLMClient
 
@@ -35,6 +36,7 @@ class TestBrowserAgent(unittest.TestCase):
         }
         self.mock_browser_computer.history_dir.return_value = None
         self.mock_llm_client = MagicMock(spec=LLMClient)
+        self.mock_llm_client.provider_name = "gemini_api"
         self.mock_llm_client.build_function_declaration.side_effect = (
             lambda callable_: types.FunctionDeclaration(
                 name=callable_.__name__,
@@ -126,6 +128,47 @@ class TestBrowserAgent(unittest.TestCase):
         if automatic_function_calling is None:
             self.fail("Expected automatic function calling config")
         self.assertTrue(automatic_function_calling.disable)
+
+    def test_vision_grounding_rejects_non_computer_use_provider(self):
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.provider_name = "openrouter"
+
+        with self.assertRaisesRegex(ValueError, "requires a computer-use model provider"):
+            BrowserAgent(
+                browser_computer=self.mock_browser_computer,
+                query="test query",
+                model_name="test_model",
+                llm_client=llm_client,
+                grounding="vision",
+                step_summarizer=None,
+            )
+
+    @patch("agents.actor_agent.LLMClient.from_provider_name")
+    def test_default_config_provider_is_compatible_with_vision_grounding(
+        self,
+        mock_from_provider_name,
+    ):
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.provider_name = "gemini_api"
+        llm_client.build_function_declaration.side_effect = (
+            lambda callable_: types.FunctionDeclaration(
+                name=callable_.__name__,
+                description=callable_.__doc__,
+                parameters_json_schema={"type": "object", "properties": {}},
+            )
+        )
+        mock_from_provider_name.return_value = llm_client
+
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            grounding="vision",
+            step_summarizer=None,
+        )
+
+        mock_from_provider_name.assert_called_once_with("gemini")
+        self.assertEqual(agent._llm_client.provider_name, "gemini_api")
 
     def test_generate_content_config_tools_match_expected_structure(self):
         tools = self.get_tools()
@@ -689,6 +732,41 @@ class TestBrowserAgent(unittest.TestCase):
         )
         self.assertEqual(events[-1]["final_reasoning"], "some reasoning")
         self.assertEqual(events[-2]["phase_id"], "phase-complete")
+
+    def test_agent_loop_with_subgoals_emits_aggregate_final_result(self):
+        events = []
+        subgoals = [
+            Subgoal(id=1, description="Open example", success_criteria="Example is open"),
+            Subgoal(id=2, description="Summarize page", success_criteria="Summary is ready"),
+        ]
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+            subgoals=subgoals,
+        )
+
+        with patch.object(
+            agent,
+            "_run_subgoal_loop",
+            side_effect=[
+                ("done", "SUBGOAL_DONE: opened example.com"),
+                ("done", "SUBGOAL_DONE: summarized page"),
+            ],
+        ):
+            agent.agent_loop()
+
+        self.assertIsNotNone(agent.final_reasoning)
+        self.assertIn("All planner subgoals completed.", agent.final_reasoning)
+        self.assertIn("[1] Open example: SUBGOAL_DONE: opened example.com", agent.final_reasoning)
+        self.assertIn("[2] Summarize page: SUBGOAL_DONE: summarized page", agent.final_reasoning)
+        self.assertEqual(events[-2]["type"], "review_metadata_extracted")
+        self.assertEqual(events[-2]["phase_id"], "phase-complete")
+        self.assertEqual(events[-1]["type"], "step_complete")
+        self.assertEqual(events[-1]["final_reasoning"], agent.final_reasoning)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_builds_final_result_summary_for_chat(self, mock_get_model_response):

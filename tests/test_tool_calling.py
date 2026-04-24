@@ -227,7 +227,7 @@ class TestBrowserToolExecutor(unittest.TestCase):
 
     def test_serialize_function_response_for_env_state(self):
         executed_call = self.executor.execute_call(
-            types.FunctionCall(name="navigate", args={"url": "https://example.com"})
+            types.FunctionCall(id="call-1", name="navigate", args={"url": "https://example.com"})
         )
         executed_call = executed_call.__class__(
             function_call=executed_call.function_call,
@@ -241,6 +241,7 @@ class TestBrowserToolExecutor(unittest.TestCase):
         )
 
         self.assertEqual(function_response.name, "navigate")
+        self.assertEqual(function_response.id, "call-1")
         self.assertEqual(
             function_response.response,
             {
@@ -254,12 +255,13 @@ class TestBrowserToolExecutor(unittest.TestCase):
 
     def test_serialize_function_response_for_dict(self):
         executed_call = self.executor.execute_call(
-            types.FunctionCall(name=multiply_numbers.__name__, args={"x": 2, "y": 3})
+            types.FunctionCall(id="call-2", name=multiply_numbers.__name__, args={"x": 2, "y": 3})
         )
 
         function_response = self.executor.serialize_function_response(executed_call)
 
         self.assertEqual(function_response.name, multiply_numbers.__name__)
+        self.assertEqual(function_response.id, "call-2")
         self.assertEqual(function_response.response, {"result": 6})
         self.assertIsNone(function_response.parts)
 

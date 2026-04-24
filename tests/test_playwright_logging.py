@@ -111,6 +111,7 @@ class TestPlaywrightLogging(unittest.TestCase):
             computer.current_state()
 
             mock_llm_client = MagicMock()
+            mock_llm_client.provider_name = "gemini_api"
             mock_llm_client.build_function_declaration.return_value = types.FunctionDeclaration(
                 name="multiply_numbers",
                 description="Multiplies two numbers.",

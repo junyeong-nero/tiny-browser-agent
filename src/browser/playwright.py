@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -83,6 +84,7 @@ class PlaywrightBrowser:
         highlight_mouse: bool = False,
         headless: bool = False,
         artifact_logger: Optional[ArtifactLogger] = None,
+        allowed_upload_roots: Optional[list[str | Path]] = None,
     ):
         self._initial_url = initial_url
         self._screen_size = screen_size
@@ -90,6 +92,7 @@ class PlaywrightBrowser:
         self._highlight_mouse = highlight_mouse
         self._headless = headless
         self._artifact_logger = artifact_logger if artifact_logger is not None else ArtifactLogger()
+        self._allowed_upload_roots = self._normalize_upload_roots(allowed_upload_roots)
         self._frame_buffer: bytes | None = None
         self._frame_lock = threading.Lock()
         self._frame_thread: Optional[threading.Thread] = None
@@ -105,6 +108,24 @@ class PlaywrightBrowser:
         """
         self._artifact_logger = artifact_logger
         self._artifact_logger.prepare_log_dirs()
+
+    def _normalize_upload_roots(
+        self,
+        allowed_upload_roots: Optional[list[str | Path]],
+    ) -> list[Path]:
+        roots = allowed_upload_roots
+        if roots is None:
+            roots = [Path.cwd(), Path(tempfile.gettempdir())]
+        return [Path(root).expanduser().resolve() for root in roots]
+
+    def _is_allowed_upload_path(self, path: Path) -> bool:
+        for root in self._allowed_upload_roots:
+            try:
+                path.relative_to(root)
+            except ValueError:
+                continue
+            return True
+        return False
 
     def reset_to_blank(self) -> None:
         """Recover from an aborted task: close popups, navigate to a blank page,
@@ -335,11 +356,18 @@ class PlaywrightBrowser:
         return self.current_state()
 
     def upload_file(self, x: int, y: int, path: str) -> EnvState:
-        resolved_path = Path(path)
-        if not resolved_path.is_absolute():
+        raw_path = Path(path).expanduser()
+        if not raw_path.is_absolute():
             raise ValueError(f"upload_file requires an absolute path; got: {path}")
-        if not resolved_path.exists():
+        if not raw_path.exists():
             raise FileNotFoundError(f"upload_file target does not exist: {path}")
+        resolved_path = raw_path.resolve(strict=True)
+        if not self._is_allowed_upload_path(resolved_path):
+            roots = ", ".join(str(root) for root in self._allowed_upload_roots)
+            raise PermissionError(
+                f"upload_file target is outside allowed upload roots: {resolved_path}. "
+                f"Allowed roots: {roots}"
+            )
 
         with self._page.expect_file_chooser() as file_chooser_info:
             self._page.mouse.click(x, y)

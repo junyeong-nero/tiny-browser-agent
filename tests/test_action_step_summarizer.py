@@ -8,6 +8,7 @@ from google.genai import types
 from agents.post_summary_agent import ActionReviewService, ActionStepSummary, ActionStepSummarizer
 from llm.provider.openai import OpenAIProvider
 from llm.provider.openrouter import OpenRouterProvider
+from tools.text_mode_tools import key_combination
 
 
 class TestOpenRouterProvider(unittest.TestCase):
@@ -51,6 +52,88 @@ class TestOpenRouterProvider(unittest.TestCase):
         self.assertEqual(request_body["messages"][0], {"role": "system", "content": "system"})
         self.assertEqual(request_body["messages"][1], {"role": "user", "content": "prompt"})
         self.assertEqual(request_body["response_format"], {"type": "json_object"})
+
+    @patch("llm.provider.openrouter.request.urlopen")
+    def test_generate_content_uses_chat_completion_tool_protocol(self, mock_urlopen):
+        response_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call-2",
+                                "type": "function",
+                                "function": {
+                                    "name": "key_combination",
+                                    "arguments": '{"keys":["Enter"]}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+        mock_urlopen.return_value.__enter__.return_value.read.return_value = json.dumps(
+            response_payload
+        ).encode("utf-8")
+
+        provider = OpenRouterProvider(api_key="test-key", timeout_seconds=3)
+        declaration = provider.build_function_declaration(key_combination)
+        response = provider.generate_content(
+            model="test-model",
+            contents=[
+                types.Content(role="user", parts=[types.Part(text="press enter")]),
+                types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                id="call-1",
+                                name="key_combination",
+                                args={"keys": ["Tab"]},
+                            )
+                        )
+                    ],
+                ),
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                id="call-1",
+                                name="key_combination",
+                                response={"url": "https://example.com"},
+                            )
+                        )
+                    ],
+                ),
+            ],
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(function_declarations=[declaration])]
+            ),
+        )
+
+        request_body = json.loads(mock_urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(request_body["messages"][1]["role"], "assistant")
+        self.assertEqual(request_body["messages"][1]["tool_calls"][0]["id"], "call-1")
+        self.assertEqual(
+            json.loads(request_body["messages"][1]["tool_calls"][0]["function"]["arguments"]),
+            {"keys": ["Tab"]},
+        )
+        self.assertEqual(request_body["messages"][2]["role"], "tool")
+        self.assertEqual(request_body["messages"][2]["tool_call_id"], "call-1")
+        self.assertEqual(
+            json.loads(request_body["messages"][2]["content"]),
+            {"url": "https://example.com"},
+        )
+        parameters = request_body["tools"][0]["function"]["parameters"]
+        self.assertEqual(parameters["type"], "object")
+        self.assertEqual(parameters["properties"]["keys"]["type"], "array")
+        self.assertEqual(parameters["properties"]["keys"]["items"]["type"], "string")
+        returned_call = response.candidates[0].content.parts[0].function_call
+        self.assertEqual(returned_call.id, "call-2")
+        self.assertEqual(returned_call.args, {"keys": ["Enter"]})
 
 
 class TestOpenAIProvider(unittest.TestCase):
@@ -97,6 +180,88 @@ class TestOpenAIProvider(unittest.TestCase):
             request_body["response_format"],
             {"type": "json_schema", "json_schema": {"name": "summary", "schema": {}}},
         )
+
+    @patch("llm.provider.openai.request.urlopen")
+    def test_generate_content_uses_chat_completion_tool_protocol(self, mock_urlopen):
+        response_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "tool_calls": [
+                            {
+                                "id": "call-2",
+                                "type": "function",
+                                "function": {
+                                    "name": "key_combination",
+                                    "arguments": '{"keys":["Enter"]}',
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ]
+        }
+        mock_urlopen.return_value.__enter__.return_value.read.return_value = json.dumps(
+            response_payload
+        ).encode("utf-8")
+
+        provider = OpenAIProvider(api_key="test-key", timeout_seconds=3)
+        declaration = provider.build_function_declaration(key_combination)
+        response = provider.generate_content(
+            model="test-model",
+            contents=[
+                types.Content(role="user", parts=[types.Part(text="press enter")]),
+                types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                id="call-1",
+                                name="key_combination",
+                                args={"keys": ["Tab"]},
+                            )
+                        )
+                    ],
+                ),
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                id="call-1",
+                                name="key_combination",
+                                response={"url": "https://example.com"},
+                            )
+                        )
+                    ],
+                ),
+            ],
+            config=types.GenerateContentConfig(
+                tools=[types.Tool(function_declarations=[declaration])]
+            ),
+        )
+
+        request_body = json.loads(mock_urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(request_body["messages"][1]["role"], "assistant")
+        self.assertEqual(request_body["messages"][1]["tool_calls"][0]["id"], "call-1")
+        self.assertEqual(
+            json.loads(request_body["messages"][1]["tool_calls"][0]["function"]["arguments"]),
+            {"keys": ["Tab"]},
+        )
+        self.assertEqual(request_body["messages"][2]["role"], "tool")
+        self.assertEqual(request_body["messages"][2]["tool_call_id"], "call-1")
+        self.assertEqual(
+            json.loads(request_body["messages"][2]["content"]),
+            {"url": "https://example.com"},
+        )
+        parameters = request_body["tools"][0]["function"]["parameters"]
+        self.assertEqual(parameters["type"], "object")
+        self.assertEqual(parameters["properties"]["keys"]["type"], "array")
+        self.assertEqual(parameters["properties"]["keys"]["items"]["type"], "string")
+        returned_call = response.candidates[0].content.parts[0].function_call
+        self.assertEqual(returned_call.id, "call-2")
+        self.assertEqual(returned_call.args, {"keys": ["Enter"]})
 
 
 class _FakeStepSummarizer:

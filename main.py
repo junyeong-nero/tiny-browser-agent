@@ -120,11 +120,13 @@ def main() -> int:
             _run_ui_mode(browser_computer, args)
         else:
             subgoals = None
+            replan_callback = None
             if args.planner:
                 planner = PlannerAgent(
                     query=args.query,
                 )
                 subgoals = planner.plan()
+                replan_callback = planner.replan
                 print(f"Planner created {len(subgoals)} subgoal(s):")
                 for sg in subgoals:
                     print(f"  [{sg.id}] {sg.description}")
@@ -137,6 +139,7 @@ def main() -> int:
                 artifact_logger=artifact_logger,
                 grounding=grounding,
                 subgoals=subgoals,
+                replan_callback=replan_callback,
             )
             agent.agent_loop()
     return 0
