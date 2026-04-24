@@ -322,7 +322,11 @@ class PlaywrightBrowser:
             raise ValueError(f"ref {ref} is stale, request a new snapshot")
         if node.nth < 0:
             raise ValueError(f"NodeInfo.nth must be >= 0, got {node.nth} for ref {ref}")
-        locator = self._page.get_by_role(node.role, name=node.name)  # type: ignore[arg-type]
+        # Skip name param if empty to avoid selector matching empty name attribute
+        if node.name:
+            locator = self._page.get_by_role(node.role, name=node.name)  # type: ignore[arg-type]
+        else:
+            locator = self._page.get_by_role(node.role)
         return locator.nth(node.nth)
 
     def reload_page(self) -> EnvState:
