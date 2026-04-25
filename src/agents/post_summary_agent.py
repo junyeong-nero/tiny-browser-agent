@@ -276,6 +276,84 @@ NAVIGATION_ACTION_NAMES = {
 }
 
 
+ACTION_SUMMARY_TEMPLATES: dict[str, str] = {
+    "open_web_browser": "Opened the web browser",
+    "scroll_document": "Scrolled the document {direction}",
+    "wait_5_seconds": "Waited for 5 seconds",
+    "go_back": "Went back to the previous page",
+    "go_forward": "Went forward to the next page",
+    "search": "Opened the search page",
+}
+
+FALLBACK_REASON_TEMPLATES: dict[str, str] = {
+    "navigate": "Needed to open {url}.",
+    "click_at": "Needed to click the selected page location.",
+    "hover_at": "Needed to inspect the selected page location.",
+    "type_text_at": "Needed to enter text into the page.",
+    "scroll_document": "Needed to move the page view to continue.",
+    "scroll_at": "Needed to move the page view to continue.",
+    "wait_5_seconds": "Needed to wait for the page state to settle.",
+    "go_back": "Needed to return to the previous page.",
+    "go_forward": "Needed to move forward in browser history.",
+    "search": "Needed to open the search page.",
+    "key_combination": "Needed to trigger a keyboard shortcut.",
+    "drag_and_drop": "Needed to move an on-page element.",
+}
+
+PHASE_GROUPS: dict[str, tuple[str, str]] = {
+    "open_web_browser": ("phase-navigation", "페이지 이동"),
+    "search": ("phase-navigation", "페이지 이동"),
+    "navigate": ("phase-navigation", "페이지 이동"),
+    "go_back": ("phase-navigation", "페이지 이동"),
+    "go_forward": ("phase-navigation", "페이지 이동"),
+    "click_at": ("phase-interaction", "페이지 상호작용"),
+    "hover_at": ("phase-interaction", "페이지 상호작용"),
+    "type_text_at": ("phase-input", "입력 및 조작"),
+    "key_combination": ("phase-input", "입력 및 조작"),
+    "drag_and_drop": ("phase-input", "입력 및 조작"),
+}
+
+
+def _format_action_template(template: str, action_args: dict[str, Any]) -> str:
+    return template.format_map(_MissingArgs(action_args))
+
+
+class _MissingArgs(dict[str, Any]):
+    def __missing__(self, key: str) -> Any:
+        return None
+
+
+def _format_point_action(label: str, action_args: dict[str, Any]) -> str:
+    return f"{label} at ({action_args.get('x')}, {action_args.get('y')})"
+
+
+def _format_scroll_at(action_args: dict[str, Any]) -> str:
+    return (
+        f"Scrolled {action_args.get('direction')} at "
+        f"({action_args.get('x')}, {action_args.get('y')})"
+    )
+
+
+def _format_drag_and_drop(action_args: dict[str, Any]) -> str:
+    return (
+        f"Dragged from ({action_args.get('x')}, {action_args.get('y')}) to "
+        f"({action_args.get('destination_x')}, {action_args.get('destination_y')})"
+    )
+
+
+ACTION_SUMMARY_FORMATTERS = {
+    "click_at": lambda args: _format_point_action("Clicked", args),
+    "hover_at": lambda args: _format_point_action("Hovered", args),
+    "type_text_at": lambda args: _format_point_action("Typed text", args),
+    "scroll_at": _format_scroll_at,
+    "navigate": lambda args: f"Navigated to {args.get('url')}",
+    "key_combination": lambda args: f"Pressed key combination {args.get('keys')}",
+    "drag_and_drop": _format_drag_and_drop,
+}
+
+DEFAULT_PHASE = ("phase-observation", "페이지 확인")
+
+
 @dataclass(frozen=True)
 class ActionReviewContext:
     action_name: str
@@ -379,66 +457,22 @@ class ActionReviewService:
         action_name = function_call.name or "action"
         action_args = dict(function_call.args or {})
 
-        if action_name == "open_web_browser":
-            return "Opened the web browser"
-        if action_name == "click_at":
-            return f"Clicked at ({action_args.get('x')}, {action_args.get('y')})"
-        if action_name == "hover_at":
-            return f"Hovered at ({action_args.get('x')}, {action_args.get('y')})"
-        if action_name == "type_text_at":
-            return f"Typed text at ({action_args.get('x')}, {action_args.get('y')})"
-        if action_name == "scroll_document":
-            return f"Scrolled the document {action_args.get('direction')}"
-        if action_name == "scroll_at":
-            return (
-                f"Scrolled {action_args.get('direction')} at "
-                f"({action_args.get('x')}, {action_args.get('y')})"
-            )
-        if action_name == "wait_5_seconds":
-            return "Waited for 5 seconds"
-        if action_name == "go_back":
-            return "Went back to the previous page"
-        if action_name == "go_forward":
-            return "Went forward to the next page"
-        if action_name == "search":
-            return "Opened the search page"
-        if action_name == "navigate":
-            return f"Navigated to {action_args.get('url')}"
-        if action_name == "key_combination":
-            return f"Pressed key combination {action_args.get('keys')}"
-        if action_name == "drag_and_drop":
-            return (
-                f"Dragged from ({action_args.get('x')}, {action_args.get('y')}) to "
-                f"({action_args.get('destination_x')}, {action_args.get('destination_y')})"
-            )
+        formatter = ACTION_SUMMARY_FORMATTERS.get(action_name)
+        if formatter is not None:
+            return formatter(action_args)
+
+        template = ACTION_SUMMARY_TEMPLATES.get(action_name)
+        if template is not None:
+            return _format_action_template(template, action_args)
+
         return f"Executed {action_name}"
 
     def build_fallback_reason(self, function_call: types.FunctionCall) -> str:
         action_name = function_call.name or "action"
         action_args = dict(function_call.args or {})
-
-        if action_name == "navigate":
-            return f"Needed to open {action_args.get('url')}."
-        if action_name == "click_at":
-            return "Needed to click the selected page location."
-        if action_name == "hover_at":
-            return "Needed to inspect the selected page location."
-        if action_name == "type_text_at":
-            return "Needed to enter text into the page."
-        if action_name in {"scroll_document", "scroll_at"}:
-            return "Needed to move the page view to continue."
-        if action_name == "wait_5_seconds":
-            return "Needed to wait for the page state to settle."
-        if action_name == "go_back":
-            return "Needed to return to the previous page."
-        if action_name == "go_forward":
-            return "Needed to move forward in browser history."
-        if action_name == "search":
-            return "Needed to open the search page."
-        if action_name == "key_combination":
-            return "Needed to trigger a keyboard shortcut."
-        if action_name == "drag_and_drop":
-            return "Needed to move an on-page element."
+        template = FALLBACK_REASON_TEMPLATES.get(action_name)
+        if template is not None:
+            return _format_action_template(template, action_args)
         return f"Needed to execute {action_name}."
 
     def clean_reasoning_text(self, reasoning: Optional[str]) -> Optional[str]:
@@ -464,18 +498,7 @@ class ActionReviewService:
             }
 
         action_name = function_call.name or "action"
-        if action_name in {"open_web_browser", "search", "navigate", "go_back", "go_forward"}:
-            phase_id = "phase-navigation"
-            phase_label = "페이지 이동"
-        elif action_name in {"click_at", "hover_at"}:
-            phase_id = "phase-interaction"
-            phase_label = "페이지 상호작용"
-        elif action_name in {"type_text_at", "key_combination", "drag_and_drop"}:
-            phase_id = "phase-input"
-            phase_label = "입력 및 조작"
-        else:
-            phase_id = "phase-observation"
-            phase_label = "페이지 확인"
+        phase_id, phase_label = PHASE_GROUPS.get(action_name, DEFAULT_PHASE)
 
         return {
             "phase_id": phase_id,
