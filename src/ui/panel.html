@@ -606,7 +606,7 @@
     <div class="input-agent">
       <span class="name" id="agent-name">browser-agent</span>
       <span class="sep"> · </span>
-      <span id="agent-model">gemini</span>
+      <span id="agent-model">—</span>
     </div>
   </div>
 </footer>
@@ -619,6 +619,7 @@ const emptyState  = document.getElementById('empty-state');
 const input       = document.getElementById('input');
 const btn         = document.getElementById('btn');
 const inputShell  = document.getElementById('input-shell');
+const agentModel  = document.getElementById('agent-model');
 
 const sideTitle      = document.getElementById('side-title');
 const sideTask       = document.getElementById('side-task');
@@ -674,6 +675,10 @@ function setInputEnabled(enabled) {
   input.disabled = !enabled;
   btn.disabled   = !enabled;
   inputShell.classList.toggle('disabled', !enabled);
+}
+
+function setAgentModel(modelName) {
+  if (modelName) agentModel.textContent = modelName;
 }
 
 // ── Timeline helpers ───────────────────────────────────
@@ -1083,6 +1088,7 @@ function handleEvent(ev) {
     case 'session_ready':
       setStatus('connected', 'ready');
       setInputEnabled(true);
+      setAgentModel(ev.model_name);
       addRow('dim', 'agent ready.');
       break;
 
