@@ -49,13 +49,13 @@ def main() -> int:
         type=str,
         choices=("playwright",),
         default="playwright",
-        help="The computer use environment to use.",
+        help="The browser environment to use.",
     )
     parser.add_argument(
         "--initial_url",
         type=str,
         default="https://www.google.com",
-        help="The inital URL loaded for the computer.",
+        help="The initial URL loaded in the browser.",
     )
     parser.add_argument(
         "--highlight_mouse",
@@ -83,7 +83,7 @@ def main() -> int:
     parser.add_argument(
         "--grounding",
         choices=["vision", "text", "mixed"],
-        default="vision",
+        default="text",
         help=(
             "Page grounding mode: vision (screenshot+coords), "
             "text (ARIA snapshot+refs), or mixed (both). "

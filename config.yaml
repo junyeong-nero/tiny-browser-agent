@@ -1,7 +1,7 @@
 models:
   actor:
-    provider: gemini
-    model: gemini-2.5-computer-use-preview-10-2025
+    provider: openrouter
+    model: nvidia/nemotron-3-super-120b-a12b:free
   planner:
     provider: gemini
     model: gemini-3-flash-preview
