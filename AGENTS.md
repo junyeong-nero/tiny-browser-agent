@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-Application code lives in `src/`. The CLI entry point is the top-level `main.py`, which configures optional logging and starts `BrowserAgent.agent_loop()`. The main agent implementation lives in `src/agents/actor_agent.py`; `agent_loop()` is the outer loop and `run_one_iteration()` handles a single model/action step. The internal LLM boundary lives under `src/llm/`, where `src/llm/client.py` owns provider selection and retries and `src/llm/provider/` contains Gemini API bootstrap code. Browser environments are organized under `src/browser/`: `PlaywrightBrowser` is in `src/browser/playwright.py` and artifact logging is in `src/browser/artifact_logger.py`. Custom tool functions live in `src/tools/`. Tests live in `tests/` and currently cover the CLI, agent behavior, the LLM layer, and Playwright logging. Project metadata and test configuration live in `pyproject.toml`; dependency locking is in `uv.lock`.
+Application code lives in `src/`. The CLI entry point is the top-level `main.py`, which configures optional logging and starts `BrowserAgent.agent_loop()`. The main agent implementation lives in `src/agents/actor_agent.py`; `agent_loop()` is the outer loop and `run_one_iteration()` handles a single model/action step. The internal LLM boundary lives under `src/llm/`, where `src/llm/client.py` owns provider selection and retries and `src/llm/provider/` contains Gemini, OpenAI, and OpenRouter provider adapters. Browser environments are organized under `src/browser/`: `PlaywrightBrowser` is in `src/browser/playwright.py` and artifact logging is in `src/browser/artifact_logger.py`. Custom tool functions live in `src/tools/`. Tests live in `tests/` and currently cover the CLI, agent behavior, the LLM layer, and Playwright logging. Project metadata and test configuration live in `pyproject.toml`; dependency locking is in `uv.lock`.
 
 ## Build, Test, and Development Commands
 Use `uv` for local setup and execution.
@@ -19,7 +19,10 @@ Use `uv` for local setup and execution.
 Important CLI behavior:
 - `query` is a positional argument (not a flag).
 - `--log` saves Playwright video, per-step history, and `actions.jsonl`.
-- `--model` overrides the default Gemini model name.
+- `--model` overrides the default actor model from `config.yaml`.
+- The default actor is OpenRouter `nvidia/nemotron-3-super-120b-a12b:free`; the default planner is Gemini `gemini-3-flash-preview`.
+- `--grounding` defaults to `text`, which is compatible with standard function-calling providers such as OpenRouter.
+- `--planner` enables `PlannerAgent` and requires the configured planner provider credentials.
 
 ## Coding Style & Naming Conventions
 Follow standard Python style with 4-space indentation, explicit imports, and repo-consistent type hints. The codebase uses `snake_case` for functions, methods, variables, and modules, and `PascalCase` for classes such as `BrowserAgent`, `PlaywrightBrowser`, and `EnvState`. Prefer small focused methods and short, direct docstrings where behavior is not obvious, especially on interfaces and lifecycle methods. Existing code relies on Pydantic models and typed signatures (`Literal`, `Optional`, typed tuples/lists), so preserve that style instead of introducing untyped helpers.
@@ -31,4 +34,4 @@ Run tests with `pytest`, but note that the current suite is written in `unittest
 Recent history uses concise, imperative commit subjects. Prefer one focused change per commit. Pull requests should describe the behavioral change, note any config or dependency updates, and link the relevant issue when applicable.
 
 ## Security & Configuration Tips
-Do not hardcode secrets. Use the environment variables actually read by the code: `GEMINI_API_KEY`. Validate browser-related setup locally before opening a PR. Be careful with `--log`: it stores screenshots, DOM snapshots, metadata, action history (`actions.jsonl`), and Playwright video under `logs/history/<timestamp>/`, which can capture sensitive page content and URLs. Keep the existing Playwright launch hardening intact; the local backend intentionally does not disable the browser sandbox.
+Do not hardcode secrets. Use the environment variables actually read by the code: `OPENROUTER_API_KEY` for the default actor, `GEMINI_API_KEY` for the default planner, and `OPENAI_API_KEY` when OpenAI-backed summary or model configuration is enabled. Validate browser-related setup locally before opening a PR. Be careful with `--log`: it stores screenshots, DOM snapshots, metadata, action history (`actions.jsonl`), and Playwright video under `logs/history/<timestamp>/`, which can capture sensitive page content and URLs. Keep the existing Playwright launch hardening intact; the local backend intentionally does not disable the browser sandbox.

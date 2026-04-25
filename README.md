@@ -1,18 +1,19 @@
 # tiny-browser-agent
 
-Browser agent powered by Gemini Computer Use. Runs as a CLI using Playwright.
+Browser agent CLI built with Playwright and configurable LLM providers.
 
 ## Requirements
 
 - Python `>=3.12,<3.13`
 - `uv`
-- Gemini API key
+- API keys for the configured providers
 
 ## Quick Start
 
 ```bash
 uv sync --dev
 uv run playwright install chromium
+export OPENROUTER_API_KEY="YOUR_OPENROUTER_API_KEY"
 export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
 uv run main.py "Summarize this page"
 ```
@@ -60,18 +61,20 @@ Each `actions.jsonl` entry:
 | `--highlight_mouse` | Highlight cursor in screenshots. | `False` |
 | `--headless` | Launch Playwright headless (`True`/`False`). | `False` |
 | `--log` | Save video + per-step history + action history. | `False` |
-| `--model` | LLM model name. | `gemini-2.5-computer-use-preview-10-2025` |
+| `--model` | Actor model name. | `nvidia/nemotron-3-super-120b-a12b:free` |
+| `--grounding` | Page grounding mode: `text`, `vision`, or `mixed`. | `text` |
+| `--planner` | Decompose the query into subgoals before execution. | `False` |
 
 ## Environment Variables
 
 | Variable | Description |
 | - | - |
-| `GEMINI_API_KEY` | Gemini Developer API key. |
+| `OPENROUTER_API_KEY` / `OPENROUTER_BASE_URL` | OpenRouter key and optional base URL for the default actor. |
+| `GEMINI_API_KEY` | Gemini Developer API key for the planner when `--planner` is enabled. |
 | `ACTION_SUMMARY_PROVIDER` | `openai` or `openrouter`. Inferred from the matching API key if omitted. |
 | `ACTION_SUMMARY_MODEL` | Summarizer model (default `gpt-4o-mini`). |
 | `ACTION_SUMMARY_TIMEOUT_SECONDS` | Summarizer timeout (default `15`). |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | OpenAI key and optional base URL. |
-| `OPENROUTER_API_KEY` / `OPENROUTER_BASE_URL` | OpenRouter key and optional base URL. |
 | `COMPUTER_USE_FFMPEG_COMMAND` | Path to ffmpeg binary for video recording. |
 
 ## Project Layout
@@ -92,7 +95,7 @@ flowchart TD
     D --> F[BrowserAgent]
     F --> G[agent_loop]
     G --> H[run_one_iteration]
-    H --> I[Call Gemini]
+    H --> I[Call actor model]
     I --> J{Function calls?}
     J -->|No| K[done]
     J -->|Yes| L[execute action]
