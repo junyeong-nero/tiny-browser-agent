@@ -101,3 +101,78 @@ class TestGeminiProvider(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(ValueError, "GEMINI_API_KEY"):
                 GeminiProvider.from_env()
+
+class _FakeHTTPResponse:
+    def __init__(self, payload: str):
+        self._payload = payload.encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+class TestChatCompletionsProviders(unittest.TestCase):
+    @patch("llm.provider.chat_completion_http.request.urlopen")
+    @patch("llm.provider.chat_completion_http.ChatCompletionsProvider._build_ssl_context", return_value=None)
+    def test_openai_generate_text_posts_chat_completion_payload(self, _mock_ssl, mock_urlopen):
+        from llm.provider.openai import OpenAIProvider
+
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            '{"choices":[{"message":{"content":"  hello  "}}]}'
+        )
+        provider = OpenAIProvider(api_key="key", base_url="https://example.test/v1", timeout_seconds=3)
+
+        text = provider.generate_text(
+            model="model-a",
+            prompt="user prompt",
+            system_prompt="system prompt",
+            max_tokens=42,
+            temperature=0.5,
+            response_format={"type": "json_object"},
+        )
+
+        self.assertEqual(text, "hello")
+        http_request = mock_urlopen.call_args.args[0]
+        body = __import__("json").loads(http_request.data.decode("utf-8"))
+        self.assertEqual(http_request.full_url, "https://example.test/v1/chat/completions")
+        self.assertEqual(http_request.headers["Authorization"], "Bearer key")
+        self.assertEqual(body["model"], "model-a")
+        self.assertEqual(
+            body["messages"],
+            [
+                {"role": "system", "content": "system prompt"},
+                {"role": "user", "content": "user prompt"},
+            ],
+        )
+        self.assertEqual(body["max_tokens"], 42)
+        self.assertEqual(body["temperature"], 0.5)
+        self.assertEqual(body["response_format"], {"type": "json_object"})
+
+    @patch("llm.provider.chat_completion_http.request.urlopen")
+    @patch("llm.provider.chat_completion_http.ChatCompletionsProvider._build_ssl_context", return_value=None)
+    def test_openrouter_generate_text_includes_optional_headers(self, _mock_ssl, mock_urlopen):
+        from llm.provider.openrouter import OpenRouterProvider
+
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            '{"choices":[{"message":{"content":[{"type":"text","text":"part one"},{"type":"text","text":"part two"}]}}]}'
+        )
+        provider = OpenRouterProvider(
+            api_key="router-key",
+            base_url="https://router.test/api/v1/",
+            http_referer="https://app.test",
+            title="Tiny Browser Agent",
+        )
+
+        text = provider.generate_text(model="router-model", prompt="hello")
+
+        self.assertEqual(text, "part one\npart two")
+        http_request = mock_urlopen.call_args.args[0]
+        self.assertEqual(http_request.full_url, "https://router.test/api/v1/chat/completions")
+        self.assertEqual(http_request.headers["Authorization"], "Bearer router-key")
+        self.assertEqual(http_request.headers["Http-referer"], "https://app.test")
+        self.assertEqual(http_request.headers["X-title"], "Tiny Browser Agent")

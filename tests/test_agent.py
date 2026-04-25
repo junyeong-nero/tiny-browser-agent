@@ -20,6 +20,7 @@ from typing import cast
 from unittest.mock import MagicMock, patch
 from google.genai import types
 from agents.actor_agent import BrowserAgent, multiply_numbers
+from agents.post_summary_agent import ActionReviewService
 from agents.types import Subgoal
 from browser import EnvState
 from llm.client import LLMClient
@@ -389,7 +390,7 @@ class TestBrowserAgent(unittest.TestCase):
             self.assertEqual(metadata["function_call_index_within_step"], 1)
 
     def test_build_persisted_action_metadata_uses_fallback_reason_when_reasoning_missing(self):
-        metadata = self.agent._build_persisted_action_metadata(
+        metadata = ActionReviewService(query="test query").build_persisted_action_metadata(
             step_id=3,
             function_call_index=1,
             function_call=types.FunctionCall(
@@ -453,7 +454,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(review_metadata["reason"], "Needed to enter text into the page.")
 
     def test_build_review_metadata_for_action_creates_verification_item_for_typed_text_ambiguity(self):
-        review_metadata = self.agent._build_review_metadata_for_action(
+        review_metadata = ActionReviewService(query="test query").build_review_metadata_for_action(
             step_id=1,
             function_call_index=1,
             function_call=types.FunctionCall(
