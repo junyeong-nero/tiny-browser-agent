@@ -54,7 +54,7 @@ def main() -> int:
     parser.add_argument(
         "--initial_url",
         type=str,
-        default="https://www.google.com",
+        default="https://www.duckduckgo.com",
         help="The initial URL loaded in the browser.",
     )
     parser.add_argument(
