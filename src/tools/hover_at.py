@@ -1,10 +1,8 @@
 from browser import PlaywrightBrowser, EnvState
 
-from tools.types import denormalize_x, denormalize_y
+from tools.helpers import denormalized_point
 
 
 def handle_hover_at(computer: PlaywrightBrowser, args: dict) -> EnvState:
-    return computer.hover_at(
-        x=denormalize_x(args["x"], computer),
-        y=denormalize_y(args["y"], computer),
-    )
+    x, y = denormalized_point(args, computer)
+    return computer.hover_at(x=x, y=y)

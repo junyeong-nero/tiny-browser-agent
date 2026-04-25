@@ -2,12 +2,13 @@ from typing import Literal
 
 from browser import PlaywrightBrowser, EnvState
 
+from tools.helpers import resolve_ref_locator
+
 
 def handle_scroll_by_ref(computer: PlaywrightBrowser, args: dict) -> EnvState:
-    ref = int(args["ref"])
     direction: Literal["up", "down"] = args.get("direction", "down")
 
-    locator = computer.resolve_ref(ref)
+    locator = resolve_ref_locator(computer, args)
     locator.scroll_into_view_if_needed()
 
     bounding_box = locator.bounding_box()

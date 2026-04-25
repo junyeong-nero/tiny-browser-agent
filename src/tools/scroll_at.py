@@ -1,21 +1,20 @@
 from browser import PlaywrightBrowser, EnvState
 
-from tools.types import denormalize_x, denormalize_y
+from tools.helpers import denormalized_point, denormalized_scroll_magnitude
 
 
 def handle_scroll_at(computer: PlaywrightBrowser, args: dict) -> EnvState:
     direction = args["direction"]
-    magnitude = args.get("magnitude", 800)
-    if direction in ("up", "down"):
-        magnitude = denormalize_y(magnitude, computer)
-    elif direction in ("left", "right"):
-        magnitude = denormalize_x(magnitude, computer)
-    else:
-        raise ValueError("Unknown direction: ", direction)
+    magnitude = denormalized_scroll_magnitude(
+        direction,
+        args.get("magnitude", 800),
+        computer,
+    )
+    x, y = denormalized_point(args, computer)
 
     return computer.scroll_at(
-        x=denormalize_x(args["x"], computer),
-        y=denormalize_y(args["y"], computer),
+        x=x,
+        y=y,
         direction=direction,
         magnitude=magnitude,
     )

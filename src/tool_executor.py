@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from functools import partial
 import inspect
 from typing import Any
 
@@ -36,6 +37,27 @@ from tools.types import (
 from tools.wait_5_seconds import handle_wait_5_seconds
 
 
+TOOL_HANDLERS = {
+    "open_web_browser": handle_open_web_browser,
+    "click_at": handle_click_at,
+    "hover_at": handle_hover_at,
+    "type_text_at": handle_type_text_at,
+    "scroll_document": handle_scroll_document,
+    "scroll_at": handle_scroll_at,
+    "wait_5_seconds": handle_wait_5_seconds,
+    "go_back": handle_go_back,
+    "go_forward": handle_go_forward,
+    "search": handle_search,
+    "navigate": handle_navigate,
+    "key_combination": handle_key_combination,
+    "drag_and_drop": handle_drag_and_drop,
+    "click_by_ref": handle_click_by_ref,
+    "type_by_ref": handle_type_by_ref,
+    "hover_by_ref": handle_hover_by_ref,
+    "scroll_by_ref": handle_scroll_by_ref,
+}
+
+
 class BrowserToolExecutor:
     def __init__(
         self,
@@ -50,24 +72,8 @@ class BrowserToolExecutor:
             for custom_function in (custom_functions or [])
         }
         self._handlers: dict[str, Callable[[dict], ToolResult]] = {
-            "open_web_browser": lambda args: handle_open_web_browser(browser_computer, args),
-            "click_at": lambda args: handle_click_at(browser_computer, args),
-            "hover_at": lambda args: handle_hover_at(browser_computer, args),
-            "type_text_at": lambda args: handle_type_text_at(browser_computer, args),
-            "scroll_document": lambda args: handle_scroll_document(browser_computer, args),
-            "scroll_at": lambda args: handle_scroll_at(browser_computer, args),
-            "wait_5_seconds": lambda args: handle_wait_5_seconds(browser_computer, args),
-            "go_back": lambda args: handle_go_back(browser_computer, args),
-            "go_forward": lambda args: handle_go_forward(browser_computer, args),
-            "search": lambda args: handle_search(browser_computer, args),
-            "navigate": lambda args: handle_navigate(browser_computer, args),
-            "key_combination": lambda args: handle_key_combination(browser_computer, args),
-            "drag_and_drop": lambda args: handle_drag_and_drop(browser_computer, args),
-            # Semantic ref-based tools
-            "click_by_ref": lambda args: handle_click_by_ref(browser_computer, args),
-            "type_by_ref": lambda args: handle_type_by_ref(browser_computer, args),
-            "hover_by_ref": lambda args: handle_hover_by_ref(browser_computer, args),
-            "scroll_by_ref": lambda args: handle_scroll_by_ref(browser_computer, args),
+            name: partial(handler, browser_computer)
+            for name, handler in TOOL_HANDLERS.items()
         }
 
     def build_tools(

@@ -1,12 +1,17 @@
 from browser import PlaywrightBrowser, EnvState
 
-from tools.types import denormalize_x, denormalize_y
+from tools.helpers import denormalized_point
 
 
 def handle_drag_and_drop(computer: PlaywrightBrowser, args: dict) -> EnvState:
+    x, y = denormalized_point(args, computer)
+    destination_x, destination_y = denormalized_point(
+        {"x": args["destination_x"], "y": args["destination_y"]},
+        computer,
+    )
     return computer.drag_and_drop(
-        x=denormalize_x(args["x"], computer),
-        y=denormalize_y(args["y"], computer),
-        destination_x=denormalize_x(args["destination_x"], computer),
-        destination_y=denormalize_y(args["destination_y"], computer),
+        x=x,
+        y=y,
+        destination_x=destination_x,
+        destination_y=destination_y,
     )
