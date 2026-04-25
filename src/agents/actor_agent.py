@@ -521,48 +521,6 @@ class BrowserAgent:
             console.print(table)
             print()
 
-    def _clean_reasoning_text(self, reasoning: Optional[str]) -> Optional[str]:
-        return self._review_service.clean_reasoning_text(reasoning)
-
-    def _build_action_summary(self, function_call: types.FunctionCall) -> str:
-        return self._review_service.build_action_summary(function_call)
-
-    def _build_fallback_reason(self, function_call: types.FunctionCall) -> str:
-        return self._review_service.build_fallback_reason(function_call)
-
-    def _build_phase_metadata(
-        self,
-        function_call: types.FunctionCall | None,
-        reasoning: Optional[str],
-        step_id: int,
-        *,
-        final_result_summary: Optional[str] = None,
-    ) -> dict[str, Any]:
-        return self._review_service.build_phase_metadata(
-            function_call=function_call,
-            reasoning=reasoning,
-            step_id=step_id,
-            final_result_summary=final_result_summary,
-        )
-
-    def _build_persisted_action_metadata(
-        self,
-        step_id: int,
-        function_call_index: int,
-        function_call: types.FunctionCall,
-        reasoning: Optional[str],
-        ambiguity_candidate: AmbiguityCandidate | None = None,
-        artifacts: Optional[dict[str, Any]] = None,
-    ) -> dict[str, Any]:
-        return self._review_service.build_persisted_action_metadata(
-            step_id=step_id,
-            function_call_index=function_call_index,
-            function_call=function_call,
-            reasoning=reasoning,
-            ambiguity_candidate=ambiguity_candidate,
-            artifacts=artifacts,
-        )
-
     def _resolve_metadata_file_path(
         self,
         artifacts: Optional[dict[str, Any]],
@@ -634,12 +592,13 @@ class BrowserAgent:
             "name": function_call.name,
             "args": dict(function_call.args or {}),
         }
-        review_metadata = self._build_review_metadata_for_action(
+        review_metadata = self._review_service.build_review_metadata_for_action(
             step_id=step_id,
             function_call_index=function_call_index,
             function_call=executed_call.function_call,
             reasoning=reasoning,
             artifacts=executed_call.artifacts,
+            subgoal_id=self._current_subgoal_id,
         )
         self._record_step_review_metadata(step_id=step_id, review_metadata=review_metadata)
         self._enrich_persisted_action_metadata(
