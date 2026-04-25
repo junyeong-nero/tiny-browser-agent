@@ -214,14 +214,12 @@ class PlaywrightBrowser:
     def click_at(self, x: int, y: int) -> EnvState:
         self.highlight_mouse(x, y)
         self._page.mouse.click(x, y)
-        self._page.wait_for_load_state()
-        return self.current_state()
+        return self._state_after_load()
 
     def hover_at(self, x: int, y: int) -> EnvState:
         self.highlight_mouse(x, y)
         self._page.mouse.move(x, y)
-        self._page.wait_for_load_state()
-        return self.current_state()
+        return self._state_after_load()
 
     def type_text_at(
         self,
@@ -254,8 +252,7 @@ class PlaywrightBrowser:
         horizontal_scroll_amount = self.screen_size()[0] // 2
         sign = "" if direction == "right" else "-"
         self._page.evaluate(f"window.scrollBy({sign}{horizontal_scroll_amount}, 0); ")
-        self._page.wait_for_load_state()
-        return self.current_state()
+        return self._state_after_load()
 
     def scroll_document(self, direction: Literal["up", "down", "left", "right"]) -> EnvState:
         if direction == "down":
@@ -292,8 +289,7 @@ class PlaywrightBrowser:
             raise ValueError("Unsupported direction: ", direction)
 
         self._page.mouse.wheel(dx, dy)
-        self._page.wait_for_load_state()
-        return self.current_state()
+        return self._state_after_load()
 
     def wait_5_seconds(self) -> EnvState:
         time.sleep(5)
@@ -301,13 +297,11 @@ class PlaywrightBrowser:
 
     def go_back(self) -> EnvState:
         self._page.go_back()
-        self._page.wait_for_load_state()
-        return self.current_state()
+        return self._state_after_load()
 
     def go_forward(self) -> EnvState:
         self._page.go_forward()
-        self._page.wait_for_load_state()
-        return self.current_state()
+        return self._state_after_load()
 
     def search(self) -> EnvState:
         return self.navigate(self._search_engine_url)
@@ -315,8 +309,7 @@ class PlaywrightBrowser:
     def navigate(self, url: str) -> EnvState:
         normalized_url = url if url.startswith(("http://", "https://")) else "https://" + url
         self._page.goto(normalized_url)
-        self._page.wait_for_load_state()
-        return self.current_state()
+        return self._state_after_load()
 
     def take_aria_snapshot(self) -> AriaSnapshot:
         """Take a fresh ARIA snapshot, assign integer refs, and cache the ref map."""
@@ -352,8 +345,7 @@ class PlaywrightBrowser:
 
     def reload_page(self) -> EnvState:
         self._page.reload()
-        self._page.wait_for_load_state()
-        return self.current_state()
+        return self._state_after_load()
 
     def upload_file(self, x: int, y: int, path: str) -> EnvState:
         raw_path = Path(path).expanduser()
@@ -416,6 +408,10 @@ class PlaywrightBrowser:
         self._page.mouse.move(destination_x, destination_y)
         self._page.wait_for_load_state()
         self._page.mouse.up()
+        return self.current_state()
+
+    def _state_after_load(self) -> EnvState:
+        self._page.wait_for_load_state()
         return self.current_state()
 
     def current_state(self) -> EnvState:
