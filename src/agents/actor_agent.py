@@ -77,6 +77,7 @@ class BrowserAgent:
         subgoals: list[Subgoal] | None = None,
         replan_callback: Optional[Callable[[Subgoal, str, list[Subgoal]], list[Subgoal]]] = None,
         max_steps_per_subgoal: int = 15,
+        conversation_context: str | None = None,
     ):
         self._browser_computer = browser_computer
         self._query = query
@@ -119,11 +120,15 @@ class BrowserAgent:
             browser_computer=self._browser_computer,
             review_service=self._review_service,
         )
+        initial_prompt = self._build_initial_prompt(
+            query=self._query,
+            conversation_context=conversation_context,
+        )
         self._contents: list[Content] = [
             Content(
                 role="user",
                 parts=[
-                    Part(text=self._query),
+                    Part(text=initial_prompt),
                 ],
             )
         ]
@@ -149,6 +154,28 @@ class BrowserAgent:
                 include_thoughts=True
             ),
         )
+
+    @staticmethod
+    def _build_initial_prompt(
+        *,
+        query: str,
+        conversation_context: str | None,
+    ) -> str:
+        if not conversation_context:
+            return query
+        return (
+            "Conversation memory from previous tasks:\n"
+            f"{conversation_context}\n\n"
+            "Use this memory only to resolve references or continue the user's "
+            "apparent workflow. The current user task is authoritative; ignore "
+            "memory that is irrelevant or contradictory.\n\n"
+            "Current user task:\n"
+            f"{query}"
+        )
+
+    @property
+    def latest_url(self) -> str | None:
+        return self._latest_url
 
     @staticmethod
     def _validate_grounding_provider(
@@ -320,7 +347,7 @@ class BrowserAgent:
     ) -> Optional[types.GenerateContentResponse]:
         if self._verbose:
             with console.status(
-                "Generating response from Gemini Computer Use..."
+                "Generating response from actor model..."
             ):
                 return self._request_model_response_once(step_id)
         return self._request_model_response_once(step_id)
@@ -347,7 +374,7 @@ class BrowserAgent:
                     delay_seconds=delay,
                     error_message=str(e),
                 )
-                print(f"Gemini request failed (attempt {attempt}/{MODEL_REQUEST_MAX_ATTEMPTS}): {e}. Retrying in {delay:.1f}s...")
+                print(f"Model request failed (attempt {attempt}/{MODEL_REQUEST_MAX_ATTEMPTS}): {e}. Retrying in {delay:.1f}s...")
                 time.sleep(delay)
         self._emit_event(
             "step_error",
@@ -486,7 +513,7 @@ class BrowserAgent:
 
         table = Table(expand=True)
         table.add_column(
-            "Gemini Computer Use Reasoning", header_style="magenta", ratio=1
+            "Actor Reasoning", header_style="magenta", ratio=1
         )
         table.add_column("Function Call(s)", header_style="cyan", ratio=1)
         table.add_row(reasoning or "", "\n".join(function_call_strs))
