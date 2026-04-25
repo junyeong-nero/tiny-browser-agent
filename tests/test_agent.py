@@ -144,12 +144,12 @@ class TestBrowserAgent(unittest.TestCase):
             )
 
     @patch("agents.actor_agent.LLMClient.from_provider_name")
-    def test_default_config_provider_is_compatible_with_vision_grounding(
+    def test_default_config_provider_is_compatible_with_text_grounding(
         self,
         mock_from_provider_name,
     ):
         llm_client = MagicMock(spec=LLMClient)
-        llm_client.provider_name = "gemini_api"
+        llm_client.provider_name = "openrouter"
         llm_client.build_function_declaration.side_effect = (
             lambda callable_: types.FunctionDeclaration(
                 name=callable_.__name__,
@@ -163,12 +163,12 @@ class TestBrowserAgent(unittest.TestCase):
             browser_computer=self.mock_browser_computer,
             query="test query",
             model_name="test_model",
-            grounding="vision",
+            grounding="text",
             step_summarizer=None,
         )
 
-        mock_from_provider_name.assert_called_once_with("gemini")
-        self.assertEqual(agent._llm_client.provider_name, "gemini_api")
+        mock_from_provider_name.assert_called_once_with("openrouter")
+        self.assertEqual(agent._llm_client.provider_name, "openrouter")
 
     def test_generate_content_config_tools_match_expected_structure(self):
         tools = self.get_tools()
@@ -697,6 +697,24 @@ class TestBrowserAgent(unittest.TestCase):
                 {"role": "user", "text": "follow up"},
             ],
         )
+
+    def test_conversation_context_is_included_in_initial_prompt(self):
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="16 Pro price too",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            step_summarizer=None,
+            conversation_context="User previously asked for iPhone 17 Pro price.",
+        )
+
+        recent_messages = agent.get_recent_messages(limit=1)
+
+        self.assertEqual(len(recent_messages), 1)
+        self.assertEqual(recent_messages[0]["role"], "user")
+        self.assertIn("Conversation memory from previous tasks:", recent_messages[0]["text"])
+        self.assertIn("User previously asked for iPhone 17 Pro price.", recent_messages[0]["text"])
+        self.assertIn("Current user task:\n16 Pro price too", recent_messages[0]["text"])
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_emits_step_events(self, mock_get_model_response):
