@@ -192,6 +192,10 @@
     transition: fill 0.1s, stroke 0.1s;
   }
   .graph-node.root circle { stroke: var(--orange-dim); }
+  .graph-node.group circle { fill: var(--purple-bg); stroke: var(--purple); }
+  .graph-node.leaf circle { fill: var(--bg-inset); stroke: var(--fg-dim); }
+  .graph-node.changed circle { stroke: var(--warn); stroke-width: 2.4; }
+  .graph-node.changed text { fill: var(--warn); }
   .graph-node.current circle { fill: var(--teal); stroke: var(--teal); }
   .graph-node:hover circle { stroke: var(--orange); stroke-width: 2; }
   .graph-node text {
@@ -531,8 +535,8 @@
 
 <main id="main">
   <div class="view-tabs">
-    <button class="view-tab active" data-view="timeline">Timeline</button>
-    <button class="view-tab" data-view="graph">Graph</button>
+    <button type="button" class="view-tab active" data-view="timeline">Timeline</button>
+    <button type="button" class="view-tab" data-view="graph">Graph</button>
   </div>
   <div class="view-pane active" data-view="timeline" id="timeline-wrap">
     <div id="timeline">
@@ -540,7 +544,12 @@
     </div>
   </div>
   <div class="view-pane" data-view="graph" id="graph-wrap">
+    <div class="graph-mode-toggle" aria-label="graph mode">
+      <button type="button" class="graph-mode-btn active" data-graph-mode="trajectory">Trajectory</button>
+      <button type="button" class="graph-mode-btn" data-graph-mode="state">Browser State</button>
+    </div>
     <svg id="graph-svg">
+      <title>Browser agent graph</title>
       <defs>
         <marker id="graph-arrow" viewBox="0 -5 10 10" refX="14" refY="0"
                 markerWidth="7" markerHeight="7" orient="auto">
@@ -601,7 +610,7 @@
   <div class="input-shell" id="input-shell">
     <div class="input-row">
       <textarea id="input" placeholder="describe what you want the agent to do…" rows="1" disabled></textarea>
-      <button id="btn" disabled>run</button>
+      <button id="btn" type="button" disabled>run</button>
     </div>
     <div class="input-agent">
       <span class="name" id="agent-name">browser-agent</span>
@@ -634,6 +643,7 @@ let reconnectDelay = 1000;
 let ws = null;
 
 let subgoals = [];
+let pendingReplanFailedSubgoalId = null;
 // activity[step_id] = { step, subgoalId, phaseId, what, why, outcome }
 let activity = [];
 const MAX_ACTIVITY = 80;
@@ -643,6 +653,8 @@ let trajectoryNodes = new Map();
 let trajectoryRoots = [];
 let trajectoryLastKey = null;
 let trajectoryCurrentKey = null;
+let graphMode = 'trajectory';
+let currentStateGraph = null;
 
 // ── WebSocket ──────────────────────────────────────────
 function connect() {
@@ -721,11 +733,13 @@ function addBlock(cls, html) {
 // ── Sidebar helpers ────────────────────────────────────
 function resetSidebar() {
   subgoals = [];
+  pendingReplanFailedSubgoalId = null;
   activity = [];
   trajectoryNodes = new Map();
   trajectoryRoots = [];
   trajectoryLastKey = null;
   trajectoryCurrentKey = null;
+  currentStateGraph = null;
   trajectoryEdges.clear();
   sideTask.className = 'side-empty';
   sideTask.textContent = 'no active task.';
@@ -749,6 +763,23 @@ function setSubgoals(list) {
     status: 'pending',
   }));
   renderPlan();
+}
+
+function replaceSubgoalsAfterFailed(failedId, revisedList) {
+  const failedIdx = subgoals.findIndex(s => String(s.id) === String(failedId));
+  if (failedIdx === -1) {
+    setSubgoals(revisedList);
+    renderActivity();
+    return;
+  }
+  const revisedSubgoals = (revisedList || []).map(sg => ({
+    id: sg.id,
+    description: sg.description,
+    status: 'pending',
+  }));
+  subgoals = subgoals.slice(0, failedIdx + 1).concat(revisedSubgoals);
+  renderPlan();
+  renderActivity();
 }
 
 function updateSubgoalStatus(id, status) {
@@ -899,7 +930,53 @@ function recordNavigation(url, stepId) {
   updateGraph();
 }
 
-// ── d3 force graph ─────────────────────────────────────
+function buildTrajectoryGraphData() {
+  const nodes = Array.from(trajectoryNodes.values()).map(src => ({
+    id: src.id,
+    label: trajectoryLabelFor(src),
+    type: 'trajectory',
+    fullUrl: src.fullUrl,
+    host: src.host,
+    path: src.path,
+    visits: src.visits,
+    firstStep: src.firstStep,
+    lastStep: src.lastStep,
+    isRoot: trajectoryRoots.includes(src.id),
+    isCurrent: src.id === trajectoryCurrentKey,
+  }));
+  const idSet = new Set(nodes.map(n => n.id));
+  const links = Array.from(trajectoryEdges.values())
+    .filter(e => idSet.has(e.source) && idSet.has(e.target))
+    .map(e => ({ source: e.source, target: e.target, count: e.count }));
+  return { nodes, links, mode: 'trajectory' };
+}
+
+function trajectoryLabelFor(n) {
+  const p = n.path && n.path !== '/' ? n.path : '';
+  const short = (n.host || '') + (p ? (p.length > 18 ? p.slice(0, 17) + '…' : p) : '');
+  return short || n.id;
+}
+
+function buildStateGraphData() {
+  if (!currentStateGraph) return { nodes: [], links: [], mode: 'state' };
+  return {
+    nodes: (currentStateGraph.nodes || []).map(node => ({ ...node })),
+    links: (currentStateGraph.links || []).map(link => ({ ...link })),
+    mode: 'state',
+  };
+}
+
+function selectedGraphData() {
+  return graphMode === 'state' ? buildStateGraphData() : buildTrajectoryGraphData();
+}
+
+function recordBrowserStateGraph(artifacts) {
+  if (!artifacts || !artifacts.state_graph) return;
+  currentStateGraph = artifacts.state_graph;
+  updateGraph();
+}
+
+// ── d3 graph renderer ──────────────────────────────────
 const graph = (() => {
   const svgEl = document.getElementById('graph-svg');
   const wrapEl = document.getElementById('graph-wrap');
@@ -929,6 +1006,7 @@ const graph = (() => {
   let linkSel = linkG.selectAll('line');
   let nodesData = [];
   let linksData = [];
+  let activeMode = 'trajectory';
 
   function resize() {
     const { width, height } = wrapEl.getBoundingClientRect();
@@ -946,13 +1024,11 @@ const graph = (() => {
     nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
   }
 
-  function labelFor(n) {
-    const p = n.path && n.path !== '/' ? n.path : '';
-    const short = (n.host || '') + (p ? (p.length > 18 ? p.slice(0, 17) + '…' : p) : '');
-    return short || n.id;
-  }
-
   function showTooltip(event, d) {
+    if (activeMode === 'state') {
+      showStateTooltip(event, d);
+      return;
+    }
     const outgoing = linksData.filter(l =>
       (l.source.id || l.source) === d.id
     ).length;
@@ -967,6 +1043,15 @@ const graph = (() => {
       `<div class="tt-row"><span>first step</span><span class="v">#${d.firstStep ?? '—'}</span></div>` +
       `<div class="tt-row"><span>last step</span><span class="v">#${d.lastStep ?? '—'}</span></div>` +
       `<div class="tt-row"><span>out / in</span><span class="v">${outgoing} / ${incoming}</span></div>`;
+    tooltip.classList.remove('hidden');
+    moveTooltip(event);
+  }
+  function showStateTooltip(event, d) {
+    tooltip.innerHTML =
+      `<div class="tt-url">${escHtml(d.label || d.id)}</div>` +
+      `<div class="tt-row"><span>type</span><span class="v">${escHtml(d.type || '—')}</span></div>` +
+      `<div class="tt-row"><span>value</span><span class="v">${escHtml(d.full_value || d.value || '—')}</span></div>` +
+      `<div class="tt-row"><span>source</span><span class="v">${escHtml(d.source_path || '—')}</span></div>`;
     tooltip.classList.remove('hidden');
     moveTooltip(event);
   }
@@ -994,27 +1079,23 @@ const graph = (() => {
       });
   }
 
-  function update() {
-    // Build fresh nodes + links arrays, preserving positions for existing nodes.
+  function update(payload) {
+    activeMode = payload.mode || 'trajectory';
+    emptyEl.textContent = activeMode === 'state'
+      ? 'no BrowserState graph metadata yet.'
+      : 'no navigation yet.';
+
+    if (activeMode === 'state') {
+      updateTree(payload.nodes || [], payload.links || []);
+      return;
+    }
+
     const prevById = new Map(nodesData.map(n => [n.id, n]));
-    nodesData = Array.from(trajectoryNodes.values()).map(src => {
+    nodesData = (payload.nodes || []).map(src => {
       const prev = prevById.get(src.id);
-      return Object.assign(prev || {}, {
-        id: src.id,
-        fullUrl: src.fullUrl,
-        host: src.host,
-        path: src.path,
-        visits: src.visits,
-        firstStep: src.firstStep,
-        lastStep: src.lastStep,
-        isRoot: trajectoryRoots.includes(src.id),
-        isCurrent: src.id === trajectoryCurrentKey,
-      });
+      return Object.assign(prev || {}, src);
     });
-    const idSet = new Set(nodesData.map(n => n.id));
-    linksData = Array.from(trajectoryEdges.values())
-      .filter(e => idSet.has(e.source) && idSet.has(e.target))
-      .map(e => ({ source: e.source, target: e.target, count: e.count }));
+    linksData = (payload.links || []).map(e => ({ ...e }));
 
     emptyEl.style.display = nodesData.length ? 'none' : 'flex';
 
@@ -1038,13 +1119,91 @@ const graph = (() => {
     nodeSel = enter.merge(nodeSel);
     nodeSel
       .classed('root', d => d.isRoot)
+      .classed('group', false)
+      .classed('leaf', false)
+      .classed('changed', false)
       .classed('current', d => d.isCurrent);
     nodeSel.select('circle').attr('r', d => 6 + Math.min(8, Math.log2(d.visits + 1) * 2));
-    nodeSel.select('text').text(labelFor);
+    nodeSel.select('text').text(d => d.label || d.id);
 
     simulation.nodes(nodesData);
     simulation.force('link').links(linksData);
     simulation.alpha(0.6).restart();
+  }
+
+  function updateTree(nodes, links) {
+    simulation.stop();
+    nodesData = layoutTree(nodes, links);
+    linksData = links.map(e => ({ ...e }));
+    emptyEl.style.display = nodesData.length ? 'none' : 'flex';
+
+    linkSel = linkG.selectAll('line').data(linksData, d =>
+      (d.source.id || d.source) + '|' + (d.target.id || d.target)
+    );
+    linkSel.exit().remove();
+    linkSel = linkSel.enter().append('line').attr('class', 'graph-link').merge(linkSel);
+    linkSel
+      .attr('stroke-width', d => d.count ? Math.min(3, 1 + Math.log2(d.count + 1)) : 1.2);
+    positionTreeLinks();
+
+    nodeSel = nodeG.selectAll('g.graph-node').data(nodesData, d => d.id);
+    nodeSel.exit().remove();
+    const enter = nodeSel.enter().append('g')
+      .attr('class', 'graph-node')
+      .call(treeDrag())
+      .on('mouseenter', showTooltip)
+      .on('mousemove', moveTooltip)
+      .on('mouseleave', hideTooltip);
+    enter.append('circle').attr('r', 8);
+    enter.append('text').attr('dx', 12).attr('dy', 4);
+    nodeSel = enter.merge(nodeSel);
+    nodeSel
+      .classed('root', d => d.type === 'root' || d.isRoot)
+      .classed('group', d => d.type === 'group')
+      .classed('leaf', d => d.type === 'leaf')
+      .classed('changed', d => Boolean(d.changed))
+      .classed('current', false)
+      .attr('transform', d => `translate(${d.x},${d.y})`);
+    nodeSel.select('circle').attr('r', d => d.type === 'leaf' ? 5 : 8);
+    nodeSel.select('text').text(d => d.label || d.id);
+    positionTreeLinks();
+  }
+
+  function treeDrag() {
+    return d3.drag()
+      .on('drag', function(event, d) {
+        d.x = event.x;
+        d.y = event.y;
+        d3.select(this).attr('transform', `translate(${d.x},${d.y})`);
+        positionTreeLinks();
+      });
+  }
+
+  function positionTreeLinks() {
+    const byId = new Map(nodesData.map(n => [n.id, n]));
+    linkSel
+      .attr('x1', d => (byId.get(d.source.id || d.source) || {}).x || 0)
+      .attr('y1', d => (byId.get(d.source.id || d.source) || {}).y || 0)
+      .attr('x2', d => (byId.get(d.target.id || d.target) || {}).x || 0)
+      .attr('y2', d => (byId.get(d.target.id || d.target) || {}).y || 0);
+  }
+
+  function layoutTree(nodes, links) {
+    const byId = new Map(nodes.map(n => [n.id, { ...n, children: [] }]));
+    links.forEach(link => {
+      const parent = byId.get(link.source.id || link.source);
+      const child = byId.get(link.target.id || link.target);
+      if (parent && child) parent.children.push(child);
+    });
+    const rootNode = byId.get('browser') || nodes.find(n => n.type === 'root') || nodes[0];
+    if (!rootNode) return [];
+    const rootHierarchy = d3.hierarchy(rootNode, d => d.children);
+    d3.tree().nodeSize([42, 170])(rootHierarchy);
+    return rootHierarchy.descendants().map(d => ({
+      ...d.data,
+      x: d.y - 260,
+      y: d.x,
+    }));
   }
 
   function reset() {
@@ -1054,6 +1213,9 @@ const graph = (() => {
     nodeG.selectAll('*').remove();
     hideTooltip();
     emptyEl.style.display = 'flex';
+    emptyEl.textContent = graphMode === 'state'
+      ? 'no BrowserState graph metadata yet.'
+      : 'no navigation yet.';
     simulation.nodes([]);
     simulation.force('link').links([]);
   }
@@ -1061,7 +1223,7 @@ const graph = (() => {
   return { update, reset, resize };
 })();
 
-function updateGraph() { graph.update(); }
+function updateGraph() { graph.update(selectedGraphData()); }
 function resetGraph()  { graph.reset(); }
 
 // Tab switching (Timeline ↔ Graph)
@@ -1071,12 +1233,23 @@ function resetGraph()  { graph.reset(); }
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
       const view = tab.dataset.view;
-      tabs.forEach(t => t.classList.toggle('active', t === tab));
-      panes.forEach(p => p.classList.toggle('active', p.dataset.view === view));
+      tabs.forEach(t => { t.classList.toggle('active', t === tab); });
+      panes.forEach(p => { p.classList.toggle('active', p.dataset.view === view); });
       if (view === 'graph') {
         graph.resize();
-        graph.update();
+        updateGraph();
       }
+    });
+  });
+})();
+
+(function setupGraphModeToggle() {
+  const buttons = document.querySelectorAll('.graph-mode-btn');
+  buttons.forEach(button => {
+    button.addEventListener('click', () => {
+      graphMode = button.dataset.graphMode || 'trajectory';
+      buttons.forEach(btn => { btn.classList.toggle('active', btn === button); });
+      updateGraph();
     });
   });
 })();
@@ -1123,6 +1296,7 @@ function handleEvent(ev) {
     }
 
     case 'planner_replanning':
+      pendingReplanFailedSubgoalId = ev.failed_subgoal_id;
       addRow('warn', `replanning · subgoal ${escHtml(ev.failed_subgoal_id)} failed`);
       break;
 
@@ -1134,7 +1308,11 @@ function handleEvent(ev) {
       addBlock('orange',
         `<div class="title">replan <span class="pill">${items.length}</span></div>${lines}`
       );
-      setSubgoals(items);
+      replaceSubgoalsAfterFailed(
+        ev.failed_subgoal_id != null ? ev.failed_subgoal_id : pendingReplanFailedSubgoalId,
+        items
+      );
+      pendingReplanFailedSubgoalId = null;
       break;
     }
 
@@ -1202,6 +1380,7 @@ function handleEvent(ev) {
     }
 
     case 'action_executed':
+      recordBrowserStateGraph(ev.artifacts);
       if (ev.env_state && ev.env_state.url) {
         metaUrl.textContent = ev.env_state.url;
         addRow('dim', `@ <span class="url">${escHtml(ev.env_state.url)}</span>`);
