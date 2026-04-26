@@ -46,6 +46,10 @@ history/step-*.json  # step metadata
 video/               # Playwright recording (session_60fps.mp4 if ffmpeg available)
 ```
 
+Step metadata includes a compact `state_graph` object that mirrors the current
+`BrowserState` hierarchy without embedding raw screenshot bytes. The UI Graph tab
+can switch between the navigation trajectory and this Browser State graph.
+
 Each `actions.jsonl` entry:
 
 ```json
@@ -86,6 +90,23 @@ Each `actions.jsonl` entry:
 - `src/tools/` — custom browser action functions
 - `src/tool_executor.py` — tool dispatch and serialization
 - `tests/` — pytest suite
+
+## BrowserState model
+
+Browser actions now return a hierarchical `BrowserState` shape:
+
+```text
+BrowserState
+├── PageState(url, title, html_path, a11y_path)
+├── ViewportState(screenshot, width, height, scroll_x, scroll_y)
+└── InteractionState(focused_element, available_refs, last_action)
+```
+
+`EnvState` remains available as a compatibility subclass, so existing imports and
+`state.url` / `state.screenshot` access continue to work during migration.
+Remove this shim only after all callers have migrated to `BrowserState.page.url`
+and `BrowserState.viewport.screenshot`, and after the public tool/agent response
+contract no longer accepts flat `EnvState(screenshot=..., url=...)` construction.
 
 ## Agent Pipeline
 
