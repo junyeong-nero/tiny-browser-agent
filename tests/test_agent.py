@@ -130,6 +130,16 @@ class TestBrowserAgent(unittest.TestCase):
             self.fail("Expected automatic function calling config")
         self.assertTrue(automatic_function_calling.disable)
 
+    def test_actor_uses_browser_system_instruction(self):
+        system_instruction = self.agent._generate_content_config.system_instruction
+        self.assertIsInstance(system_instruction, types.Content)
+        assert isinstance(system_instruction, types.Content)
+        self.assertEqual(system_instruction.role, "system")
+        self.assertIsNotNone(system_instruction.parts)
+        text = "\n".join(part.text or "" for part in system_instruction.parts or [])
+        self.assertIn("browser automation agent", text)
+        self.assertIn("Ground every browser action", text)
+
     def test_vision_grounding_rejects_non_computer_use_provider(self):
         llm_client = MagicMock(spec=LLMClient)
         llm_client.provider_name = "openrouter"

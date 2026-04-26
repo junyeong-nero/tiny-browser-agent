@@ -70,6 +70,24 @@ class TestPlannerAgentPlan:
         config = call_kwargs.kwargs.get("config") or call_kwargs.args[2]
         assert config.response_mime_type == "application/json"
 
+    def test_uses_system_instruction_for_planning_prompt(self):
+        client = _mock_llm_client(SAMPLE_PLAN)
+        planner = PlannerAgent(query="test", llm_client=client)
+        planner.plan()
+
+        call_kwargs = client.generate_content.call_args
+        contents = call_kwargs.kwargs.get("contents") or call_kwargs.args[1]
+        config = call_kwargs.kwargs.get("config") or call_kwargs.args[2]
+
+        system_text = "\n".join(
+            part.text or "" for part in config.system_instruction.parts or []
+        )
+        user_text = "\n".join(part.text or "" for part in contents[0].parts or [])
+
+        assert "planning agent for a web browser automation system" in system_text
+        assert "Respond ONLY with a JSON array of subgoals" in system_text
+        assert user_text == "User query:\ntest"
+
     def test_invalid_json_no_array_returns_empty_list(self):
         client = MagicMock()
         part = MagicMock()
@@ -128,3 +146,42 @@ class TestPlannerAgentReplan:
         )
         # start_id = 5 + 1 = 6, so first new subgoal gets id 6 (index 0 + start_id)
         assert subgoals[0].id == 6
+
+    def test_replan_completed_event_includes_failed_subgoal_id(self):
+        events = []
+        client = _mock_llm_client(
+            [{"id": 99, "description": "Fallback step", "success_criteria": "Done"}]
+        )
+        planner = PlannerAgent(query="test", llm_client=client, event_sink=events.append)
+
+        failed = Subgoal(id=5, description="Failed step", success_criteria="N/A")
+        planner.replan(
+            current_subgoal=failed,
+            failure_reason="Timeout",
+            remaining=[],
+        )
+
+        replanned = next(event for event in events if event["type"] == "planner_replanned")
+        assert replanned["failed_subgoal_id"] == 5
+
+    def test_replan_uses_replan_system_instruction(self):
+        client = _mock_llm_client(
+            [{"id": 99, "description": "Fallback step", "success_criteria": "Done"}]
+        )
+        planner = PlannerAgent(query="test", llm_client=client)
+
+        failed = Subgoal(id=5, description="Failed step", success_criteria="N/A")
+        planner.replan(
+            current_subgoal=failed,
+            failure_reason="Timeout",
+            remaining=[],
+        )
+
+        call_kwargs = client.generate_content.call_args
+        config = call_kwargs.kwargs.get("config") or call_kwargs.args[2]
+        system_text = "\n".join(
+            part.text or "" for part in config.system_instruction.parts or []
+        )
+
+        assert "A subgoal has failed or become blocked" in system_text
+        assert "Avoid repeating the failed path" in system_text
