@@ -12,6 +12,7 @@ class TestMain(unittest.TestCase):
         mock_args = MagicMock()
         mock_args.env = 'playwright'
         mock_args.initial_url = 'test_url'
+        mock_args.search_engine_url = 'search_url'
         mock_args.highlight_mouse = True
         mock_args.headless = True
         mock_args.query = 'test_query'
@@ -27,6 +28,7 @@ class TestMain(unittest.TestCase):
         mock_playwright_browser.assert_called_once_with(
             screen_size=main.PLAYWRIGHT_SCREEN_SIZE,
             initial_url='test_url',
+            search_engine_url='search_url',
             highlight_mouse=True,
             headless=True,
             artifact_logger=ANY,
@@ -48,6 +50,7 @@ class TestMain(unittest.TestCase):
         mock_args = MagicMock()
         mock_args.env = 'playwright'
         mock_args.initial_url = 'https://www.google.com'
+        mock_args.search_engine_url = 'https://duckduckgo.com'
         mock_args.highlight_mouse = False
         mock_args.headless = False
         mock_args.query = 'test_query'
@@ -74,6 +77,7 @@ class TestMain(unittest.TestCase):
         mock_args = MagicMock()
         mock_args.env = 'playwright'
         mock_args.initial_url = 'https://www.google.com'
+        mock_args.search_engine_url = 'https://duckduckgo.com'
         mock_args.highlight_mouse = False
         mock_args.headless = False
         mock_args.query = 'test_query'
@@ -89,6 +93,7 @@ class TestMain(unittest.TestCase):
         mock_playwright_browser.assert_called_once_with(
             screen_size=main.PLAYWRIGHT_SCREEN_SIZE,
             initial_url='https://www.google.com',
+            search_engine_url='https://duckduckgo.com',
             highlight_mouse=False,
             headless=False,
             artifact_logger=ANY,

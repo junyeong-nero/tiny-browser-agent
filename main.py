@@ -58,6 +58,12 @@ def main() -> int:
         help="The initial URL loaded in the browser.",
     )
     parser.add_argument(
+        "--search_engine_url",
+        type=str,
+        default="https://www.duckduckgo.com",
+        help="The URL opened when the agent uses the search tool.",
+    )
+    parser.add_argument(
         "--highlight_mouse",
         action="store_true",
         default=False,
@@ -110,6 +116,7 @@ def main() -> int:
     env = PlaywrightBrowser(
         screen_size=PLAYWRIGHT_SCREEN_SIZE,
         initial_url=args.initial_url,
+        search_engine_url=args.search_engine_url,
         highlight_mouse=args.highlight_mouse,
         headless=args.headless,
         artifact_logger=artifact_logger,
