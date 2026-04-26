@@ -26,6 +26,29 @@ from agents.actor_agent import BrowserAgent
 
 
 class TestPlaywrightLogging(unittest.TestCase):
+    def test_search_uses_duckduckgo_by_default(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        computer.navigate = MagicMock(
+            return_value=computer.current_state
+        )
+
+        computer.search()
+
+        computer.navigate.assert_called_once_with("https://www.duckduckgo.com")
+
+    def test_search_uses_configured_search_engine_url(self):
+        computer = PlaywrightBrowser(
+            screen_size=(1440, 900),
+            search_engine_url="https://example.com/search",
+        )
+        computer.navigate = MagicMock(
+            return_value=computer.current_state
+        )
+
+        computer.search()
+
+        computer.navigate.assert_called_once_with("https://example.com/search")
+
     @patch("browser.playwright.time.sleep", return_value=None)
     def test_current_state_writes_history_files_when_logging_enabled(self, _mock_sleep):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -35,15 +58,29 @@ class TestPlaywrightLogging(unittest.TestCase):
             )
             computer._page = MagicMock()
             computer._page.url = "https://example.com"
+            computer._page.title.return_value = "Example Domain"
+            computer._page.viewport_size = {"width": 1440, "height": 900}
+            computer._page.evaluate.return_value = {"scrollX": 10, "scrollY": 20}
             computer._page.screenshot.return_value = b"png-bytes"
             computer._page.content.return_value = "<html>example</html>"
             computer._page.locator.return_value.aria_snapshot.return_value = "- document\n"
+            computer._aria_ref_map = {2: MagicMock(), 1: MagicMock()}
+            computer._mark_last_action("navigate")
 
             state = computer.current_state()
 
             history_dir = Path(tmp_dir) / "history"
             self.assertEqual(state.url, "https://example.com")
             self.assertEqual(state.screenshot, b"png-bytes")
+            self.assertEqual(state.page.title, "Example Domain")
+            self.assertEqual(state.page.html_path, "step-0001.html")
+            self.assertEqual(state.page.a11y_path, "step-0001.a11y.yaml")
+            self.assertEqual(state.viewport.width, 1440)
+            self.assertEqual(state.viewport.height, 900)
+            self.assertEqual(state.viewport.scroll_x, 10)
+            self.assertEqual(state.viewport.scroll_y, 20)
+            self.assertEqual(state.interaction.available_refs, [1, 2])
+            self.assertEqual(state.interaction.last_action, "navigate")
             self.assertTrue((history_dir / "step-0001.png").exists())
             self.assertTrue((history_dir / "step-0001.html").exists())
             self.assertTrue((history_dir / "step-0001.json").exists())
@@ -57,6 +94,11 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(metadata["a11y_path"], "step-0001.a11y.yaml")
             self.assertEqual(metadata["a11y_source"], "body_locator_aria_snapshot")
             self.assertEqual(metadata["a11y_capture_status"], "captured")
+            self.assertIn("nodes", metadata["state_graph"])
+            self.assertIn("links", metadata["state_graph"])
+            self.assertEqual(metadata["state_graph"]["nodes"][0]["id"], "browser")
+            nodes_by_id = {node["id"]: node for node in metadata["state_graph"]["nodes"]}
+            self.assertEqual(nodes_by_id["interaction.last_action"]["full_value"], "navigate")
             latest_metadata = computer.latest_artifact_metadata()
             self.assertIsNotNone(latest_metadata)
             if latest_metadata is None:
@@ -77,6 +119,9 @@ class TestPlaywrightLogging(unittest.TestCase):
             )
             computer._page = MagicMock()
             computer._page.url = "https://example.com"
+            computer._page.title.return_value = "Example Domain"
+            computer._page.viewport_size = {"width": 1440, "height": 900}
+            computer._page.evaluate.return_value = {"scrollX": 0, "scrollY": 0}
             computer._page.screenshot.return_value = b"png-bytes"
             computer._page.content.return_value = "<html>example</html>"
             computer._page.locator.return_value.aria_snapshot.side_effect = RuntimeError(
@@ -105,6 +150,9 @@ class TestPlaywrightLogging(unittest.TestCase):
             )
             computer._page = MagicMock()
             computer._page.url = "https://example.com"
+            computer._page.title.return_value = "Example Domain"
+            computer._page.viewport_size = {"width": 1440, "height": 900}
+            computer._page.evaluate.return_value = {"scrollX": 0, "scrollY": 0}
             computer._page.screenshot.return_value = b"png-bytes"
             computer._page.content.return_value = "<html>example</html>"
             computer._page.locator.return_value.aria_snapshot.return_value = "- document\n"

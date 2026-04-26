@@ -8,20 +8,16 @@ import time
 from pathlib import Path
 from typing import Any, Literal, Optional, cast
 
-import pydantic
 import termcolor
 import playwright.sync_api
 from playwright.sync_api import sync_playwright
 
 from .aria_snapshot import AriaSnapshot, NodeInfo, build_aria_snapshot
 from .artifact_logger import ArtifactLogger
+from .state import BrowserState, EnvState, InteractionState, PageState, ViewportState
+from .state_graph import browser_state_to_graph
 
 FRAME_CAPTURE_FPS = 60
-
-
-class EnvState(pydantic.BaseModel):
-    screenshot: bytes
-    url: str
 
 
 PLAYWRIGHT_INSTALL_HINT = (
@@ -79,8 +75,8 @@ class PlaywrightBrowser:
     def __init__(
         self,
         screen_size: tuple[int, int],
-        initial_url: str = "https://www.google.com",
-        search_engine_url: str = "https://www.google.com",
+        initial_url: str = "https://www.duckduckgo.com",
+        search_engine_url: str = "https://www.duckduckgo.com",
         highlight_mouse: bool = False,
         headless: bool = False,
         artifact_logger: Optional[ArtifactLogger] = None,
@@ -99,6 +95,8 @@ class PlaywrightBrowser:
         self._frame_stop = threading.Event()
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
         self._aria_ref_map: dict[int, NodeInfo] | None = None
+        self._previous_state: BrowserState | None = None
+        self._pending_last_action: str | None = None
 
     def set_artifact_logger(self, artifact_logger: ArtifactLogger) -> None:
         """Swap the artifact logger (e.g. when starting a new session task).
@@ -209,14 +207,17 @@ class PlaywrightBrowser:
         self._playwright.stop()
 
     def open_web_browser(self) -> EnvState:
+        self._mark_last_action("open_web_browser")
         return self.current_state()
 
     def click_at(self, x: int, y: int) -> EnvState:
+        self._mark_last_action("click_at")
         self.highlight_mouse(x, y)
         self._page.mouse.click(x, y)
         return self._state_after_load()
 
     def hover_at(self, x: int, y: int) -> EnvState:
+        self._mark_last_action("hover_at")
         self.highlight_mouse(x, y)
         self._page.mouse.move(x, y)
         return self._state_after_load()
@@ -229,6 +230,7 @@ class PlaywrightBrowser:
         press_enter: bool = False,
         clear_before_typing: bool = True,
     ) -> EnvState:
+        self._mark_last_action("type_text_at")
         self.highlight_mouse(x, y)
         self._page.mouse.click(x, y)
         self._page.wait_for_load_state()
@@ -249,12 +251,14 @@ class PlaywrightBrowser:
         return self.current_state()
 
     def _horizontal_document_scroll(self, direction: Literal["left", "right"]) -> EnvState:
+        self._mark_last_action("scroll_document")
         horizontal_scroll_amount = self.screen_size()[0] // 2
         sign = "" if direction == "right" else "-"
         self._page.evaluate(f"window.scrollBy({sign}{horizontal_scroll_amount}, 0); ")
         return self._state_after_load()
 
     def scroll_document(self, direction: Literal["up", "down", "left", "right"]) -> EnvState:
+        self._mark_last_action("scroll_document")
         if direction == "down":
             return self.key_combination(["PageDown"])
         elif direction == "up":
@@ -271,6 +275,7 @@ class PlaywrightBrowser:
         direction: Literal["up", "down", "left", "right"],
         magnitude: int = 800,
     ) -> EnvState:
+        self._mark_last_action("scroll_at")
         self.highlight_mouse(x, y)
         self._page.mouse.move(x, y)
         self._page.wait_for_load_state()
@@ -292,21 +297,26 @@ class PlaywrightBrowser:
         return self._state_after_load()
 
     def wait_5_seconds(self) -> EnvState:
+        self._mark_last_action("wait_5_seconds")
         time.sleep(5)
         return self.current_state()
 
     def go_back(self) -> EnvState:
+        self._mark_last_action("go_back")
         self._page.go_back()
         return self._state_after_load()
 
     def go_forward(self) -> EnvState:
+        self._mark_last_action("go_forward")
         self._page.go_forward()
         return self._state_after_load()
 
     def search(self) -> EnvState:
+        self._mark_last_action("search")
         return self.navigate(self._search_engine_url)
 
     def navigate(self, url: str) -> EnvState:
+        self._mark_last_action("navigate")
         normalized_url = url if url.startswith(("http://", "https://")) else "https://" + url
         self._page.goto(normalized_url)
         return self._state_after_load()
@@ -344,10 +354,12 @@ class PlaywrightBrowser:
         return locator.nth(node.nth)
 
     def reload_page(self) -> EnvState:
+        self._mark_last_action("reload_page")
         self._page.reload()
         return self._state_after_load()
 
     def upload_file(self, x: int, y: int, path: str) -> EnvState:
+        self._mark_last_action("upload_file")
         raw_path = Path(path).expanduser()
         if not raw_path.is_absolute():
             raise ValueError(f"upload_file requires an absolute path; got: {path}")
@@ -388,6 +400,7 @@ class PlaywrightBrowser:
         }
 
     def key_combination(self, keys: list[str]) -> EnvState:
+        self._mark_last_action("key_combination")
         keys = [PLAYWRIGHT_KEY_MAP.get(k.lower(), k) for k in keys]
         for key in keys[:-1]:
             self._page.keyboard.down(key)
@@ -399,6 +412,7 @@ class PlaywrightBrowser:
     def drag_and_drop(
         self, x: int, y: int, destination_x: int, destination_y: int
     ) -> EnvState:
+        self._mark_last_action("drag_and_drop")
         self.highlight_mouse(x, y)
         self._page.mouse.move(x, y)
         self._page.wait_for_load_state()
@@ -420,8 +434,79 @@ class PlaywrightBrowser:
         screenshot_bytes = self._page.screenshot(type="png", full_page=False)
         with self._frame_lock:
             self._frame_buffer = screenshot_bytes
-        self._write_history_snapshot(screenshot_bytes)
-        return EnvState(screenshot=screenshot_bytes, url=self._page.url)
+        viewport_width, viewport_height = self.screen_size()
+        scroll_x, scroll_y = self._scroll_position()
+        available_refs = sorted(self._aria_ref_map.keys()) if self._aria_ref_map else []
+        last_action = self._pending_last_action
+        self._pending_last_action = None
+        state = EnvState(
+            page=PageState(
+                url=self._page.url,
+                title=self._page.title(),
+            ),
+            viewport=ViewportState(
+                screenshot=screenshot_bytes,
+                width=viewport_width,
+                height=viewport_height,
+                scroll_x=scroll_x,
+                scroll_y=scroll_y,
+            ),
+            interaction=InteractionState(
+                focused_element=self._focused_element(),
+                available_refs=available_refs,
+                last_action=last_action,
+            ),
+        )
+        previous_state = self._previous_state
+        artifact_metadata = self._write_history_snapshot(state, previous_state)
+        self._previous_state = state
+        if artifact_metadata is None:
+            return state
+        return EnvState(
+            page=state.page.model_copy(
+                update={
+                    "html_path": self._artifact_path(artifact_metadata, "html_path"),
+                    "a11y_path": self._artifact_path(artifact_metadata, "a11y_path"),
+                }
+            ),
+            viewport=state.viewport,
+            interaction=state.interaction,
+        )
+
+    def _scroll_position(self) -> tuple[int, int]:
+        position = self._page.evaluate(
+            "() => ({ scrollX: window.scrollX, scrollY: window.scrollY })"
+        )
+        if not isinstance(position, dict):
+            return 0, 0
+        return int(position.get("scrollX", 0)), int(position.get("scrollY", 0))
+
+    def _focused_element(self) -> str | None:
+        focused = self._page.evaluate(
+            """
+            () => {
+              const el = document.activeElement;
+              if (!el || el === document.body) return null;
+              const tag = el.tagName ? el.tagName.toLowerCase() : '';
+              const id = el.id ? `#${el.id}` : '';
+              const name = el.getAttribute && el.getAttribute('name')
+                ? `[name=${el.getAttribute('name')}]`
+                : '';
+              return `${tag}${id}${name}` || null;
+            }
+            """
+        )
+        return focused if isinstance(focused, str) else None
+
+    def _artifact_path(self, metadata: dict[str, Any] | None, key: str) -> str | None:
+        if metadata is None:
+            return None
+        value = metadata.get(key)
+        return value if isinstance(value, str) else None
+
+    def _mark_last_action(self, action_name: str) -> None:
+        if self._pending_last_action is None:
+            self._pending_last_action = action_name
 
     def screen_size(self) -> tuple[int, int]:
         viewport_size = self._page.viewport_size
@@ -514,8 +599,11 @@ class PlaywrightBrowser:
                 frame = self._frame_buffer
             if frame is None or self._ffmpeg_proc is None:
                 continue
+            stdin = self._ffmpeg_proc.stdin
+            if stdin is None:
+                break
             try:
-                self._ffmpeg_proc.stdin.write(frame)
+                stdin.write(frame)
             except (BrokenPipeError, OSError):
                 break
 
@@ -561,10 +649,14 @@ class PlaywrightBrowser:
             "a11y_capture_error": None,
         }
 
-    def _write_history_snapshot(self, screenshot_bytes: bytes):
+    def _write_history_snapshot(
+        self,
+        state: BrowserState,
+        previous_state: BrowserState | None = None,
+    ) -> dict[str, Any] | None:
         history_dir = self.history_dir()
         if not history_dir:
-            return
+            return None
 
         self._prepare_log_dirs()
         next_step = 1
@@ -573,14 +665,25 @@ class PlaywrightBrowser:
             next_step = int(latest_metadata["step"]) + 1
         step_name = f"step-{next_step:04d}"
         a11y_metadata = self._capture_a11y_snapshot(step_name)
-        self._artifact_logger.write_snapshot(
-            screenshot_bytes=screenshot_bytes,
-            url=self._page.url,
+        state_for_metadata = state.model_copy(
+            update={
+                "page": state.page.model_copy(
+                    update={
+                        "html_path": f"{step_name}.html",
+                        "a11y_path": a11y_metadata["a11y_path"],
+                    }
+                )
+            }
+        )
+        return self._artifact_logger.write_snapshot(
+            screenshot_bytes=state.viewport.screenshot,
+            url=state.page.url,
             html=self._page.content(),
             a11y_path=a11y_metadata["a11y_path"],
             metadata_extra={
                 "a11y_source": a11y_metadata["a11y_source"],
                 "a11y_capture_status": a11y_metadata["a11y_capture_status"],
                 "a11y_capture_error": a11y_metadata["a11y_capture_error"],
+                "state_graph": browser_state_to_graph(state_for_metadata, previous_state),
             },
         )
