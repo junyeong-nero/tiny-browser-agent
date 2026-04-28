@@ -29,12 +29,14 @@ class ChatCompletionsProvider:
         name: str,
         error_prefix: str,
         timeout_seconds: float = 15.0,
+        extra_body: dict[str, Any] | None = None,
     ):
         self._api_key = api_key
         self._chat_completions_url = f"{base_url.rstrip('/')}/chat/completions"
         self._timeout_seconds = timeout_seconds
         self.name = name
         self._error_prefix = error_prefix
+        self._extra_body = extra_body or {}
         self._client = None
 
     @property
@@ -106,7 +108,7 @@ class ChatCompletionsProvider:
         }
         if response_format is not None:
             body["response_format"] = response_format
-        return body
+        return self._with_extra_body(body)
 
     def _build_content_body(
         self,
@@ -126,6 +128,8 @@ class ChatCompletionsProvider:
             "messages": messages,
         }
 
+        self._apply_generation_config(body, config)
+
         tools = []
         if config.tools:
             for tool in config.tools:
@@ -134,7 +138,24 @@ class ChatCompletionsProvider:
                         tools.append(declaration_to_openai_tool(decl))
             if tools:
                 body["tools"] = [{"type": "function", "function": f} for f in tools]
-        return body
+        return self._with_extra_body(body)
+
+    def _apply_generation_config(
+        self,
+        body: dict[str, Any],
+        config: types.GenerateContentConfig,
+    ) -> None:
+        if config.temperature is not None:
+            body["temperature"] = config.temperature
+        if config.top_p is not None:
+            body["top_p"] = config.top_p
+        if config.max_output_tokens is not None:
+            body["max_tokens"] = config.max_output_tokens
+
+    def _with_extra_body(self, body: dict[str, Any]) -> dict[str, Any]:
+        if not self._extra_body:
+            return body
+        return {**body, **self._extra_body}
 
     def _post_json(self, body: dict[str, Any]) -> dict[str, Any]:
         http_request = request.Request(
