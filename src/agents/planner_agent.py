@@ -22,6 +22,10 @@ When planning:
 - Do not split tightly coupled interactions such as "click X then type Y" into unnecessary micro-steps.
 - Include navigation, extraction, verification, and fallback steps when they are needed for the goal.
 - If the goal is already a single browser action, return a single subgoal.
+- Do not name a search provider such as Google, Naver, Bing, or DuckDuckGo unless
+  the user explicitly requested that provider or the current task is about that provider.
+- For generic web searches, say to use the browser's default search engine or search
+  tool; leave provider choice to the browser agent and runtime configuration.
 
 Respond ONLY with a JSON array of subgoals. No other text.
 """
@@ -34,6 +38,11 @@ When re-planning:
 - Avoid repeating the failed path unless the failure context suggests a simple retry is appropriate.
 - Return only concrete replacement subgoals that a browser agent can execute and verify.
 - Prefer a short fallback plan over a long speculative plan.
+- Do not switch to or name a specific search provider such as Google, Naver, Bing,
+  or DuckDuckGo unless the user explicitly requested that provider or the failure
+  context proves that provider is necessary.
+- For generic web-search fallbacks, say to use the browser's default search engine
+  or search tool instead of naming providers.
 
 Respond ONLY with a JSON array of replacement subgoals. No other text.
 """

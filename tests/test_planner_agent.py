@@ -86,6 +86,8 @@ class TestPlannerAgentPlan:
 
         assert "planning agent for a web browser automation system" in system_text
         assert "Respond ONLY with a JSON array of subgoals" in system_text
+        assert "Do not name a search provider" in system_text
+        assert "browser's default search engine" in system_text
         assert user_text == "User query:\ntest"
 
     def test_invalid_json_no_array_returns_empty_list(self):
@@ -185,3 +187,5 @@ class TestPlannerAgentReplan:
 
         assert "A subgoal has failed or become blocked" in system_text
         assert "Avoid repeating the failed path" in system_text
+        assert "Do not switch to or name a specific search provider" in system_text
+        assert "browser's default search engine" in system_text
