@@ -6,7 +6,7 @@ from pathlib import Path
 from agents.actor_agent import BrowserAgent
 from agents.types import GroundingMode
 from browser import ArtifactLogger, PlaywrightBrowser
-from ui.bridge import emit, task_queue
+from ui.bridge import emit, register_event_sink, task_queue, unregister_event_sink
 
 
 MAX_CONVERSATION_MEMORY_ITEMS = 5
@@ -79,8 +79,20 @@ class BrowserSession:
         self._conversation_memory = self._conversation_memory[-MAX_CONVERSATION_MEMORY_ITEMS:]
 
     def run_task(self, query: str) -> None:
-        emit({"type": "task_started", "query": query})
         artifact_logger = self._make_artifact_logger()
+        sink_registered = self._log_enabled
+        if sink_registered:
+            artifact_logger.record_session_meta(
+                {
+                    "query": query,
+                    "model_name": self._model_name,
+                    "grounding": self._grounding,
+                    "started_at": datetime.now().isoformat(timespec="seconds"),
+                    "use_planner": self._use_planner,
+                }
+            )
+            register_event_sink(artifact_logger.record_event)
+        emit({"type": "task_started", "query": query})
         self._browser.set_artifact_logger(artifact_logger)
         conversation_context = self._format_conversation_memory()
 
@@ -108,14 +120,18 @@ class BrowserSession:
             conversation_context=conversation_context,
         )
         try:
-            agent.agent_loop()
-        except Exception as exc:
-            emit({"type": "step_error", "step_id": -1, "error_message": str(exc)})
-            self._browser.reset_to_blank()
-            emit({"type": "task_failed", "query": query, "error_message": str(exc)})
-            return
-        self._remember_completed_task(query, agent)
-        emit({"type": "task_complete", "query": query})
+            try:
+                agent.agent_loop()
+            except Exception as exc:
+                emit({"type": "step_error", "step_id": -1, "error_message": str(exc)})
+                self._browser.reset_to_blank()
+                emit({"type": "task_failed", "query": query, "error_message": str(exc)})
+                return
+            self._remember_completed_task(query, agent)
+            emit({"type": "task_complete", "query": query})
+        finally:
+            if sink_registered:
+                unregister_event_sink(artifact_logger.record_event)
 
     def run(self) -> None:
         """Block until the session ends (None sentinel in task_queue)."""

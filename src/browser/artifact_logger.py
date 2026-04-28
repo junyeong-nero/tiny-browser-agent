@@ -10,6 +10,8 @@ class ArtifactLogger:
         self._history_dir = self._log_dir / "history" if self._log_dir else None
         self._video_dir = self._log_dir / "video" if self._log_dir else None
         self._actions_file = self._log_dir / "actions.jsonl" if self._log_dir else None
+        self._events_file = self._log_dir / "events.jsonl" if self._log_dir else None
+        self._session_file = self._log_dir / "session.json" if self._log_dir else None
         self._history_step = 0
         self._latest_artifact_metadata: dict[str, Any] | None = None
 
@@ -29,6 +31,28 @@ class ArtifactLogger:
         if self._latest_artifact_metadata is None:
             return None
         return dict(self._latest_artifact_metadata)
+
+
+    def record_event(self, event: dict[str, Any]) -> None:
+        """Append a replayable UI event to events.jsonl."""
+        if not self._events_file:
+            return
+        self._log_dir.mkdir(parents=True, exist_ok=True)  # type: ignore[union-attr]
+        entry = {"ts": time.time(), **event}
+        with self._events_file.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+
+    def record_session_meta(self, meta: dict[str, Any]) -> None:
+        """Write session metadata once for replay session listings."""
+        if not self._session_file:
+            return
+        self._log_dir.mkdir(parents=True, exist_ok=True)  # type: ignore[union-attr]
+        if self._session_file.exists():
+            return
+        self._session_file.write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2, default=str) + "\n",
+            encoding="utf-8",
+        )
 
     def record_action(
         self,
