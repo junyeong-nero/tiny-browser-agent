@@ -51,7 +51,8 @@
       "Bash(/Users/junyeong-nero/workspace/tiny-browser-agent/.venv/bin/pytest /Users/junyeong-nero/workspace/tiny-browser-agent/tests/ -q)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Read(//dev/**)"
     ]
   }
 }
