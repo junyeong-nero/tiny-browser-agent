@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from ui.bridge import register_ws, set_server_loop, task_queue, unregister_ws
+from ui.replay import router as replay_router
 
 _PANEL_HTML = (Path(__file__).parent / "panel.html").read_text(encoding="utf-8")
 
@@ -31,6 +32,7 @@ def _find_free_port(start: int, count: int) -> int:
 
 
 app = FastAPI()
+app.include_router(replay_router)
 
 
 class TaskRequest(BaseModel):
