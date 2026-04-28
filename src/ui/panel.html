@@ -192,11 +192,11 @@
     transition: fill 0.1s, stroke 0.1s;
   }
   .graph-node.root circle { stroke: var(--orange-dim); }
-  .graph-node.group circle { fill: var(--purple-bg); stroke: var(--purple); }
-  .graph-node.leaf circle { fill: var(--bg-inset); stroke: var(--fg-dim); }
-  .graph-node.changed circle { stroke: var(--warn); stroke-width: 2.4; }
-  .graph-node.changed text { fill: var(--warn); }
+  .graph-node.url circle { stroke: var(--teal-dim); }
+  .graph-node.viewport circle { stroke: var(--orange-dim); fill: rgba(255, 176, 97, 0.08); }
+  .graph-node.action circle { stroke: var(--green); fill: rgba(95, 214, 156, 0.08); }
   .graph-node.current circle { fill: var(--teal); stroke: var(--teal); }
+  .graph-node.drillable circle { cursor: pointer; }
   .graph-node:hover circle { stroke: var(--orange); stroke-width: 2; }
   .graph-node text {
     fill: var(--fg-dim);
@@ -221,6 +221,32 @@
     z-index: 20;
     box-shadow: 0 4px 14px rgba(0,0,0,0.4);
   }
+  .graph-breadcrumb {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    z-index: 10;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-dim);
+    background: rgba(15, 18, 24, 0.78);
+    border: 1px solid var(--border);
+    padding: 5px 7px;
+  }
+  .graph-breadcrumb button {
+    background: transparent;
+    border: 0;
+    color: var(--teal);
+    font-family: inherit;
+    font-size: inherit;
+    cursor: pointer;
+    padding: 0;
+  }
+  .graph-breadcrumb button:hover { color: var(--orange); }
+  .graph-breadcrumb .sep { color: var(--fg-mute); }
   .graph-tooltip.hidden { display: none; }
   .graph-tooltip .tt-url {
     color: var(--orange);
@@ -510,6 +536,68 @@
   .input-agent .name  { color: var(--teal); font-weight: 600; }
   .input-agent .sep   { color: var(--fg-mute); }
 
+
+  /* ── Replay controls ── */
+  .mode-badge {
+    border: 1px solid var(--orange-dim);
+    color: var(--orange);
+    padding: 1px 7px;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .mode-badge.hidden, #sessions-panel.hidden { display: none; }
+  #sessions-btn, #live-btn { padding: 2px 8px; font-size: 11px; }
+  #sessions-panel {
+    position: fixed;
+    top: 42px;
+    right: 14px;
+    width: min(520px, calc(100vw - 28px));
+    max-height: 70vh;
+    overflow: auto;
+    background: var(--bg-soft);
+    border: 1px solid var(--border-hi);
+    z-index: 40;
+    box-shadow: 0 12px 40px rgba(0,0,0,.35);
+  }
+  .sessions-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg);
+    font-weight: 600;
+  }
+  #sessions-list { display: flex; flex-direction: column; }
+  .session-item {
+    text-align: left;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg);
+    padding: 9px 12px;
+    font-weight: 400;
+  }
+  .session-item:hover { background: var(--bg-inset); color: var(--fg); }
+  .session-item .meta { color: var(--fg-dim); font-size: 11px; margin-top: 2px; }
+  #replay-controls {
+    display: none;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-soft);
+  }
+  #replay-controls.active { display: flex; }
+  #replay-slider { flex: 1; accent-color: var(--teal); }
+  #replay-speed {
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border-hi);
+    font-family: var(--mono);
+    font-size: 11.5px;
+  }
+
   #empty-state {
     flex: 1;
     display: flex;
@@ -531,9 +619,33 @@
     <span id="status-label">connecting…</span>
   </span>
   <span class="spacer"></span>
+  <span class="mode-badge hidden" id="replay-badge">replay</span>
+  <button id="live-btn" type="button" hidden>Live</button>
+  <button id="sessions-btn" type="button">Sessions</button>
 </header>
 
+<div id="sessions-panel" class="hidden" aria-label="saved sessions">
+  <div class="sessions-head">
+    <span>Saved sessions</span>
+    <button id="sessions-close" type="button">×</button>
+  </div>
+  <div id="sessions-list"><div class="session-item"><span class="meta">loading…</span></div></div>
+</div>
+
 <main id="main">
+  <div id="replay-controls">
+    <button id="replay-prev" type="button">⏮</button>
+    <button id="replay-play" type="button">⏯</button>
+    <button id="replay-next" type="button">⏭</button>
+    <select id="replay-speed" aria-label="replay speed">
+      <option value="1">1×</option>
+      <option value="4">4×</option>
+      <option value="16">16×</option>
+      <option value="instant">instant</option>
+    </select>
+    <input id="replay-slider" type="range" min="0" max="0" value="0" aria-label="replay progress">
+    <span id="replay-progress">0/0</span>
+  </div>
   <div class="view-tabs">
     <button type="button" class="view-tab active" data-view="timeline">Timeline</button>
     <button type="button" class="view-tab" data-view="graph">Graph</button>
@@ -544,10 +656,6 @@
     </div>
   </div>
   <div class="view-pane" data-view="graph" id="graph-wrap">
-    <div class="graph-mode-toggle" aria-label="graph mode">
-      <button type="button" class="graph-mode-btn active" data-graph-mode="trajectory">Trajectory</button>
-      <button type="button" class="graph-mode-btn" data-graph-mode="state">Browser State</button>
-    </div>
     <svg id="graph-svg">
       <title>Browser agent graph</title>
       <defs>
@@ -557,6 +665,7 @@
         </marker>
       </defs>
     </svg>
+    <div id="graph-breadcrumb" class="graph-breadcrumb"></div>
     <div id="graph-empty">no navigation yet.</div>
     <div id="graph-tooltip" class="graph-tooltip hidden"></div>
   </div>
@@ -629,6 +738,19 @@ const input       = document.getElementById('input');
 const btn         = document.getElementById('btn');
 const inputShell  = document.getElementById('input-shell');
 const agentModel  = document.getElementById('agent-model');
+const sessionsBtn = document.getElementById('sessions-btn');
+const sessionsPanel = document.getElementById('sessions-panel');
+const sessionsClose = document.getElementById('sessions-close');
+const sessionsList = document.getElementById('sessions-list');
+const replayBadge = document.getElementById('replay-badge');
+const liveBtn = document.getElementById('live-btn');
+const replayControls = document.getElementById('replay-controls');
+const replayPrev = document.getElementById('replay-prev');
+const replayPlay = document.getElementById('replay-play');
+const replayNext = document.getElementById('replay-next');
+const replaySpeed = document.getElementById('replay-speed');
+const replaySlider = document.getElementById('replay-slider');
+const replayProgress = document.getElementById('replay-progress');
 
 const sideTitle      = document.getElementById('side-title');
 const sideTask       = document.getElementById('side-task');
@@ -641,6 +763,12 @@ const metaState      = document.getElementById('meta-state');
 let isRunning = false;
 let reconnectDelay = 1000;
 let ws = null;
+let replayMode = false;
+let replayPaused = true;
+let replayEvents = [];
+let replayIndex = 0;
+let replayTimer = null;
+let replaySessionId = null;
 
 let subgoals = [];
 let pendingReplanFailedSubgoalId = null;
@@ -653,23 +781,28 @@ let trajectoryNodes = new Map();
 let trajectoryRoots = [];
 let trajectoryLastKey = null;
 let trajectoryCurrentKey = null;
-let graphMode = 'trajectory';
-let currentStateGraph = null;
 
 // ── WebSocket ──────────────────────────────────────────
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onopen = () => {
     reconnectDelay = 1000;
-    setStatus('connected', 'ready');
-    if (!isRunning) setInputEnabled(true);
+    if (replayMode) {
+      setReplayUi(true);
+    } else {
+      setStatus('connected', 'ready');
+      if (!isRunning) setInputEnabled(true);
+    }
   };
   ws.onmessage = (e) => {
+    if (replayMode) return;
     try { handleEvent(JSON.parse(e.data)); } catch (_) {}
   };
   ws.onclose = () => {
-    setStatus('disconnected', 'disconnected');
-    setInputEnabled(false);
+    if (!replayMode) {
+      setStatus('disconnected', 'disconnected');
+      setInputEnabled(false);
+    }
     setTimeout(() => {
       reconnectDelay = Math.min(reconnectDelay * 2, 10000);
       connect();
@@ -687,6 +820,10 @@ function setInputEnabled(enabled) {
   input.disabled = !enabled;
   btn.disabled   = !enabled;
   inputShell.classList.toggle('disabled', !enabled);
+}
+
+function resetTimeline() {
+  timeline.replaceChildren();
 }
 
 function setAgentModel(modelName) {
@@ -739,8 +876,11 @@ function resetSidebar() {
   trajectoryRoots = [];
   trajectoryLastKey = null;
   trajectoryCurrentKey = null;
-  currentStateGraph = null;
   trajectoryEdges.clear();
+  trajectoryViewports.clear();
+  trajectoryActions.clear();
+  graphDrilldown = { level: 'url', urlId: null, viewportId: null };
+  actionSequence = 0;
   sideTask.className = 'side-empty';
   sideTask.textContent = 'no active task.';
   renderPlan();
@@ -879,10 +1019,15 @@ function renderActivity() {
   sideActivity.innerHTML = parts.join('');
 }
 
-// ── Trajectory state ───────────────────────────────────
-// Also tracks directed edges (A→B with visit count) so that revisits that
-// traverse new edges show up as additional links in the d3 graph.
+// ── Hierarchical graph state ────────────────────────────
+// URL → viewport → action. Each level preserves chronological DAG edges;
+// clicking a URL narrows to its viewport states, then clicking a viewport
+// narrows to its action steps.
 const trajectoryEdges = new Map(); // key: "src|dst" → {source, target, count}
+const trajectoryViewports = new Map(); // id → viewport node
+const trajectoryActions = new Map(); // id → action node
+let graphDrilldown = { level: 'url', urlId: null, viewportId: null };
+let actionSequence = 0;
 
 function parseUrlParts(url) {
   try {
@@ -895,8 +1040,68 @@ function parseUrlParts(url) {
   }
 }
 
+function stateGraphLeaf(artifacts, leafId) {
+  const nodes = artifacts && artifacts.state_graph && artifacts.state_graph.nodes;
+  if (!Array.isArray(nodes)) return null;
+  return nodes.find(n => n && n.id === leafId) || null;
+}
+
+function viewportInfoFromArtifacts(artifacts) {
+  const sizeLeaf = stateGraphLeaf(artifacts, 'viewport.size');
+  const scrollLeaf = stateGraphLeaf(artifacts, 'viewport.scroll');
+  const screenshotLeaf = stateGraphLeaf(artifacts, 'viewport.screenshot');
+  const size = (sizeLeaf && (sizeLeaf.full_value || sizeLeaf.value)) || 'unknown size';
+  const scroll = (scrollLeaf && (scrollLeaf.full_value || scrollLeaf.value)) || 'x=0, y=0';
+  const screenshot = screenshotLeaf && (screenshotLeaf.full_value || screenshotLeaf.value);
+  const artifactStep = artifacts && artifacts.step != null ? artifacts.step : null;
+  return {
+    key: `${size}|${scroll}`,
+    size,
+    scroll,
+    screenshot: screenshot || '',
+    artifactStep,
+  };
+}
+
+function scrollLabel(scroll) {
+  const match = String(scroll || '').match(/x=(\d+), y=(\d+)/);
+  if (!match) return String(scroll || 'visible area');
+  const x = Number(match[1]);
+  const y = Number(match[2]);
+  if (x === 0 && y === 0) return 'Top of page';
+  if (x === 0) return `Scrolled ${y}px down`;
+  if (y === 0) return `Scrolled ${x}px right`;
+  return `Scrolled x=${x}, y=${y}`;
+}
+
+function viewportLabel(viewport, stepId) {
+  const stepLabel = stepId != null ? `Screen #${stepId}` : 'Screen view';
+  return `${stepLabel} · ${scrollLabel(viewport.scroll)}`;
+}
+
+function actionLabel(actionName, args) {
+  const values = args || {};
+  if (actionName === 'navigate') return `Open ${values.url || 'page'}`;
+  if (actionName === 'search') return 'Open search page';
+  if (actionName === 'open_web_browser') return 'Open browser';
+  if (actionName === 'go_back') return 'Go back';
+  if (actionName === 'go_forward') return 'Go forward';
+  if (actionName === 'reload_page') return 'Reload page';
+  if (actionName === 'click_at') return `Click at (${values.x}, ${values.y})`;
+  if (actionName === 'click_by_ref') return `Click “${values.ref}”`;
+  if (actionName === 'hover_at') return `Hover at (${values.x}, ${values.y})`;
+  if (actionName === 'type_text_at') return 'Type text';
+  if (actionName === 'type_by_ref') return `Type into “${values.ref}”`;
+  if (actionName === 'key_combination') return `Press ${Array.isArray(values.keys) ? values.keys.join(' + ') : values.keys || 'keys'}`;
+  if (actionName === 'scroll_document') return `Scroll ${values.direction || 'page'}`;
+  if (actionName === 'scroll_at') return `Scroll ${values.direction || 'area'}`;
+  if (actionName === 'wait_5_seconds') return 'Wait for page';
+  if (actionName === 'drag_and_drop') return 'Drag and drop';
+  return String(actionName || 'Action').replace(/_/g, ' ');
+}
+
 function recordNavigation(url, stepId) {
-  if (!url || url === 'about:blank') return;
+  if (!url || url === 'about:blank') return null;
   const { key, host, path, full } = parseUrlParts(url);
 
   let node = trajectoryNodes.get(key);
@@ -905,6 +1110,9 @@ function recordNavigation(url, stepId) {
       id: key, fullUrl: full, host, path,
       parent: trajectoryLastKey,
       childrenKeys: new Set(),
+      viewportIds: new Set(),
+      actionIds: new Set(),
+      viewportSequence: [],
       visits: 0,
       firstStep: stepId,
       lastStep: stepId,
@@ -927,28 +1135,198 @@ function recordNavigation(url, stepId) {
 
   trajectoryLastKey = key;
   trajectoryCurrentKey = key;
+  return node;
+}
+
+function recordActionExecution(ev) {
+  if (!ev || !ev.env_state || !ev.env_state.url) return;
+  const urlNode = recordNavigation(ev.env_state.url, ev.step_id);
+  if (!urlNode) return;
+
+  const viewport = viewportInfoFromArtifacts(ev.artifacts);
+  const viewportId = `viewport|${urlNode.id}|${viewport.key}`;
+  let viewportNode = trajectoryViewports.get(viewportId);
+  if (!viewportNode) {
+    viewportNode = {
+      id: viewportId,
+      urlId: urlNode.id,
+      label: viewportLabel(viewport, ev.step_id),
+      type: 'viewport',
+      size: viewport.size,
+      scroll: viewport.scroll,
+      screenshot: viewport.screenshot,
+      artifactStep: viewport.artifactStep,
+      visits: 0,
+      firstStep: ev.step_id,
+      lastStep: ev.step_id,
+      actionIds: new Set(),
+      actionSequence: [],
+    };
+    trajectoryViewports.set(viewportId, viewportNode);
+    urlNode.viewportIds.add(viewportId);
+  }
+  viewportNode.visits += 1;
+  viewportNode.lastStep = ev.step_id;
+  if (viewport.screenshot) viewportNode.screenshot = viewport.screenshot;
+  if (viewport.artifactStep != null) viewportNode.artifactStep = viewport.artifactStep;
+  urlNode.viewportSequence.push(viewportId);
+
+  const action = ev.action || {};
+  const actionName = action.name || 'action';
+  const actionArgs = action.args || {};
+  const actionOrder = actionSequence++;
+  const actionId = `action|${ev.step_id}|${actionOrder}`;
+  const actionNode = {
+    id: actionId,
+    urlId: urlNode.id,
+    viewportId,
+    label: `#${ev.step_id} ${actionLabel(actionName, actionArgs)}`,
+    type: 'action',
+    actionName,
+    args: actionArgs,
+    step: ev.step_id,
+    order: actionOrder,
+    fullUrl: urlNode.fullUrl,
+    visits: 1,
+    firstStep: ev.step_id,
+    lastStep: ev.step_id,
+  };
+  trajectoryActions.set(actionId, actionNode);
+  viewportNode.actionIds.add(actionId);
+  viewportNode.actionSequence.push(actionId);
+  urlNode.actionIds.add(actionId);
   updateGraph();
 }
 
+function buildSequentialLinks(sequence, allowedIds, rootId = null) {
+  const edges = new Map();
+  let previous = rootId;
+  for (const id of sequence || []) {
+    if (!allowedIds.has(id)) continue;
+    if (previous && previous !== id) {
+      const edgeKey = `${previous}|${id}`;
+      const edge = edges.get(edgeKey);
+      if (edge) edge.count += 1;
+      else edges.set(edgeKey, { source: previous, target: id, count: 1 });
+    }
+    previous = id;
+  }
+  return Array.from(edges.values());
+}
+
 function buildTrajectoryGraphData() {
+  if (graphDrilldown.level === 'viewport' && graphDrilldown.urlId) {
+    return buildViewportGraphData(graphDrilldown.urlId);
+  }
+  if (graphDrilldown.level === 'action' && graphDrilldown.viewportId) {
+    return buildActionGraphData(graphDrilldown.viewportId);
+  }
+  return buildUrlGraphData();
+}
+
+function buildUrlGraphData() {
   const nodes = Array.from(trajectoryNodes.values()).map(src => ({
     id: src.id,
     label: trajectoryLabelFor(src),
-    type: 'trajectory',
+    type: 'url',
     fullUrl: src.fullUrl,
     host: src.host,
     path: src.path,
     visits: src.visits,
     firstStep: src.firstStep,
     lastStep: src.lastStep,
+    viewportCount: src.viewportIds ? src.viewportIds.size : 0,
+    actionCount: src.actionIds ? src.actionIds.size : 0,
     isRoot: trajectoryRoots.includes(src.id),
     isCurrent: src.id === trajectoryCurrentKey,
+    drillable: !!(src.viewportIds && src.viewportIds.size),
   }));
   const idSet = new Set(nodes.map(n => n.id));
   const links = Array.from(trajectoryEdges.values())
     .filter(e => idSet.has(e.source) && idSet.has(e.target))
     .map(e => ({ source: e.source, target: e.target, count: e.count }));
-  return { nodes, links, mode: 'trajectory' };
+  return { nodes, links, mode: 'url', breadcrumb: [] };
+}
+
+function buildViewportGraphData(urlId) {
+  const urlNode = trajectoryNodes.get(urlId);
+  if (!urlNode) {
+    graphDrilldown = { level: 'url', urlId: null, viewportId: null };
+    return buildUrlGraphData();
+  }
+  const root = {
+    id: urlNode.id,
+    label: trajectoryLabelFor(urlNode),
+    type: 'url',
+    fullUrl: urlNode.fullUrl,
+    host: urlNode.host,
+    path: urlNode.path,
+    visits: urlNode.visits,
+    firstStep: urlNode.firstStep,
+    lastStep: urlNode.lastStep,
+    viewportCount: urlNode.viewportIds.size,
+    actionCount: urlNode.actionIds.size,
+    isRoot: true,
+    isCurrent: urlNode.id === trajectoryCurrentKey,
+  };
+  const viewports = Array.from(urlNode.viewportIds || [])
+    .map(id => trajectoryViewports.get(id))
+    .filter(Boolean)
+    .map(vp => ({
+      id: vp.id,
+      label: vp.label,
+      type: 'viewport',
+      urlId: vp.urlId,
+      size: vp.size,
+      scroll: vp.scroll,
+      screenshot: vp.screenshot,
+      visits: vp.visits,
+      firstStep: vp.firstStep,
+      lastStep: vp.lastStep,
+      actionCount: vp.actionIds.size,
+      drillable: !!vp.actionIds.size,
+    }));
+  const viewportIds = new Set(viewports.map(vp => vp.id));
+  const links = buildSequentialLinks(urlNode.viewportSequence, viewportIds, root.id);
+  return {
+    nodes: [root, ...viewports],
+    links,
+    mode: 'viewport',
+    breadcrumb: [{ label: 'URLs', level: 'url' }],
+  };
+}
+
+function buildActionGraphData(viewportId) {
+  const viewportNode = trajectoryViewports.get(viewportId);
+  if (!viewportNode) {
+    graphDrilldown = { level: 'url', urlId: null, viewportId: null };
+    return buildUrlGraphData();
+  }
+  const urlNode = trajectoryNodes.get(viewportNode.urlId);
+  const root = {
+    id: viewportNode.id,
+    label: viewportNode.label,
+    type: 'viewport',
+    urlId: viewportNode.urlId,
+    size: viewportNode.size,
+    scroll: viewportNode.scroll,
+    screenshot: viewportNode.screenshot,
+    visits: viewportNode.visits,
+    firstStep: viewportNode.firstStep,
+    lastStep: viewportNode.lastStep,
+    actionCount: viewportNode.actionIds.size,
+    isRoot: true,
+  };
+  const actions = Array.from(viewportNode.actionIds || [])
+    .map(id => trajectoryActions.get(id))
+    .filter(Boolean)
+    .sort((a, b) => (a.step - b.step) || (a.order - b.order))
+    .map(action => ({ ...action, argsText: formatArgs(action.args || {}) }));
+  const actionIds = new Set(actions.map(action => action.id));
+  const links = buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id);
+  const crumbs = [{ label: 'URLs', level: 'url' }];
+  if (urlNode) crumbs.push({ label: trajectoryLabelFor(urlNode), level: 'viewport', urlId: urlNode.id });
+  return { nodes: [root, ...actions], links, mode: 'action', breadcrumb: crumbs };
 }
 
 function trajectoryLabelFor(n) {
@@ -957,22 +1335,22 @@ function trajectoryLabelFor(n) {
   return short || n.id;
 }
 
-function buildStateGraphData() {
-  if (!currentStateGraph) return { nodes: [], links: [], mode: 'state' };
-  return {
-    nodes: (currentStateGraph.nodes || []).map(node => ({ ...node })),
-    links: (currentStateGraph.links || []).map(link => ({ ...link })),
-    mode: 'state',
-  };
-}
-
 function selectedGraphData() {
-  return graphMode === 'state' ? buildStateGraphData() : buildTrajectoryGraphData();
+  return buildTrajectoryGraphData();
 }
 
-function recordBrowserStateGraph(artifacts) {
-  if (!artifacts || !artifacts.state_graph) return;
-  currentStateGraph = artifacts.state_graph;
+function drillGraphNode(d) {
+  if (!d || !d.drillable) return;
+  if (d.type === 'url') {
+    graphDrilldown = { level: 'viewport', urlId: d.id, viewportId: null };
+  } else if (d.type === 'viewport') {
+    graphDrilldown = { level: 'action', urlId: d.urlId, viewportId: d.id };
+  }
+  updateGraph();
+}
+
+function setGraphDrilldown(next) {
+  graphDrilldown = next;
   updateGraph();
 }
 
@@ -981,6 +1359,7 @@ const graph = (() => {
   const svgEl = document.getElementById('graph-svg');
   const wrapEl = document.getElementById('graph-wrap');
   const emptyEl = document.getElementById('graph-empty');
+  const breadcrumbEl = document.getElementById('graph-breadcrumb');
   const tooltip = document.getElementById('graph-tooltip');
 
   const svg = d3.select(svgEl);
@@ -1006,7 +1385,6 @@ const graph = (() => {
   let linkSel = linkG.selectAll('line');
   let nodesData = [];
   let linksData = [];
-  let activeMode = 'trajectory';
 
   function resize() {
     const { width, height } = wrapEl.getBoundingClientRect();
@@ -1025,33 +1403,30 @@ const graph = (() => {
   }
 
   function showTooltip(event, d) {
-    if (activeMode === 'state') {
-      showStateTooltip(event, d);
-      return;
-    }
     const outgoing = linksData.filter(l =>
       (l.source.id || l.source) === d.id
     ).length;
     const incoming = linksData.filter(l =>
       (l.target.id || l.target) === d.id
     ).length;
-    tooltip.innerHTML =
-      `<div class="tt-url">${escHtml(d.fullUrl)}</div>` +
-      `<div class="tt-row"><span>host</span><span class="v">${escHtml(d.host || '—')}</span></div>` +
-      `<div class="tt-row"><span>path</span><span class="v">${escHtml(d.path || '/')}</span></div>` +
-      `<div class="tt-row"><span>visits</span><span class="v">${d.visits}</span></div>` +
-      `<div class="tt-row"><span>first step</span><span class="v">#${d.firstStep ?? '—'}</span></div>` +
-      `<div class="tt-row"><span>last step</span><span class="v">#${d.lastStep ?? '—'}</span></div>` +
-      `<div class="tt-row"><span>out / in</span><span class="v">${outgoing} / ${incoming}</span></div>`;
-    tooltip.classList.remove('hidden');
-    moveTooltip(event);
-  }
-  function showStateTooltip(event, d) {
-    tooltip.innerHTML =
-      `<div class="tt-url">${escHtml(d.label || d.id)}</div>` +
-      `<div class="tt-row"><span>type</span><span class="v">${escHtml(d.type || '—')}</span></div>` +
-      `<div class="tt-row"><span>value</span><span class="v">${escHtml(d.full_value || d.value || '—')}</span></div>` +
-      `<div class="tt-row"><span>source</span><span class="v">${escHtml(d.source_path || '—')}</span></div>`;
+    const rows = [];
+    const title = d.fullUrl || d.label || d.id;
+    rows.push(`<div class="tt-row"><span>level</span><span class="v">${escHtml(d.type || '—')}</span></div>`);
+    if (d.host) rows.push(`<div class="tt-row"><span>host</span><span class="v">${escHtml(d.host)}</span></div>`);
+    if (d.path) rows.push(`<div class="tt-row"><span>path</span><span class="v">${escHtml(d.path || '/')}</span></div>`);
+    if (d.size) rows.push(`<div class="tt-row"><span>size</span><span class="v">${escHtml(d.size)}</span></div>`);
+    if (d.scroll) rows.push(`<div class="tt-row"><span>scroll</span><span class="v">${escHtml(d.scroll)}</span></div>`);
+    if (d.screenshot) rows.push(`<div class="tt-row"><span>shot</span><span class="v">${escHtml(d.screenshot)}</span></div>`);
+    if (d.actionName) rows.push(`<div class="tt-row"><span>action</span><span class="v">${escHtml(d.actionName)}</span></div>`);
+    if (d.argsText) rows.push(`<div class="tt-row"><span>args</span><span class="v">${escHtml(d.argsText)}</span></div>`);
+    if (d.visits != null) rows.push(`<div class="tt-row"><span>visits</span><span class="v">${d.visits}</span></div>`);
+    if (d.viewportCount != null) rows.push(`<div class="tt-row"><span>viewports</span><span class="v">${d.viewportCount}</span></div>`);
+    if (d.actionCount != null) rows.push(`<div class="tt-row"><span>actions</span><span class="v">${d.actionCount}</span></div>`);
+    rows.push(`<div class="tt-row"><span>first step</span><span class="v">#${d.firstStep ?? d.step ?? '—'}</span></div>`);
+    rows.push(`<div class="tt-row"><span>last step</span><span class="v">#${d.lastStep ?? d.step ?? '—'}</span></div>`);
+    rows.push(`<div class="tt-row"><span>out / in</span><span class="v">${outgoing} / ${incoming}</span></div>`);
+    if (d.drillable) rows.push(`<div class="tt-row"><span>click</span><span class="v">narrow down</span></div>`);
+    tooltip.innerHTML = `<div class="tt-url">${escHtml(title)}</div>` + rows.join('');
     tooltip.classList.remove('hidden');
     moveTooltip(event);
   }
@@ -1079,16 +1454,31 @@ const graph = (() => {
       });
   }
 
-  function update(payload) {
-    activeMode = payload.mode || 'trajectory';
-    emptyEl.textContent = activeMode === 'state'
-      ? 'no BrowserState graph metadata yet.'
-      : 'no navigation yet.';
+  function renderBreadcrumb(payload) {
+    const crumbs = (payload && payload.breadcrumb) || [];
+    const parts = [];
+    crumbs.forEach((crumb, idx) => {
+      parts.push(`<button type="button" data-idx="${idx}">${escHtml(crumb.label)}</button>`);
+      parts.push('<span class="sep">/</span>');
+    });
+    const current = payload.mode === 'url' ? 'URLs' : (payload.mode === 'viewport' ? 'viewports' : 'actions');
+    parts.push(`<span>${escHtml(current)}</span>`);
+    breadcrumbEl.innerHTML = parts.join('');
+    breadcrumbEl.querySelectorAll('button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const crumb = crumbs[Number(btn.dataset.idx || 0)];
+        if (!crumb || crumb.level === 'url') {
+          setGraphDrilldown({ level: 'url', urlId: null, viewportId: null });
+        } else if (crumb.level === 'viewport') {
+          setGraphDrilldown({ level: 'viewport', urlId: crumb.urlId, viewportId: null });
+        }
+      });
+    });
+  }
 
-    if (activeMode === 'state') {
-      updateTree(payload.nodes || [], payload.links || []);
-      return;
-    }
+  function update(payload) {
+    emptyEl.textContent = payload.mode === 'url' ? 'no navigation yet.' : 'no child nodes yet.';
+    renderBreadcrumb(payload);
 
     const prevById = new Map(nodesData.map(n => [n.id, n]));
     nodesData = (payload.nodes || []).map(src => {
@@ -1111,6 +1501,7 @@ const graph = (() => {
     const enter = nodeSel.enter().append('g')
       .attr('class', 'graph-node')
       .call(drag())
+      .on('click', (event, d) => { event.stopPropagation(); drillGraphNode(d); })
       .on('mouseenter', showTooltip)
       .on('mousemove', moveTooltip)
       .on('mouseleave', hideTooltip);
@@ -1119,11 +1510,12 @@ const graph = (() => {
     nodeSel = enter.merge(nodeSel);
     nodeSel
       .classed('root', d => d.isRoot)
-      .classed('group', false)
-      .classed('leaf', false)
-      .classed('changed', false)
+      .classed('url', d => d.type === 'url')
+      .classed('viewport', d => d.type === 'viewport')
+      .classed('action', d => d.type === 'action')
+      .classed('drillable', d => !!d.drillable)
       .classed('current', d => d.isCurrent);
-    nodeSel.select('circle').attr('r', d => 6 + Math.min(8, Math.log2(d.visits + 1) * 2));
+    nodeSel.select('circle').attr('r', d => 6 + Math.min(8, Math.log2((d.visits || 1) + 1) * 2));
     nodeSel.select('text').text(d => d.label || d.id);
 
     simulation.nodes(nodesData);
@@ -1131,80 +1523,6 @@ const graph = (() => {
     simulation.alpha(0.6).restart();
   }
 
-  function updateTree(nodes, links) {
-    simulation.stop();
-    nodesData = layoutTree(nodes, links);
-    linksData = links.map(e => ({ ...e }));
-    emptyEl.style.display = nodesData.length ? 'none' : 'flex';
-
-    linkSel = linkG.selectAll('line').data(linksData, d =>
-      (d.source.id || d.source) + '|' + (d.target.id || d.target)
-    );
-    linkSel.exit().remove();
-    linkSel = linkSel.enter().append('line').attr('class', 'graph-link').merge(linkSel);
-    linkSel
-      .attr('stroke-width', d => d.count ? Math.min(3, 1 + Math.log2(d.count + 1)) : 1.2);
-    positionTreeLinks();
-
-    nodeSel = nodeG.selectAll('g.graph-node').data(nodesData, d => d.id);
-    nodeSel.exit().remove();
-    const enter = nodeSel.enter().append('g')
-      .attr('class', 'graph-node')
-      .call(treeDrag())
-      .on('mouseenter', showTooltip)
-      .on('mousemove', moveTooltip)
-      .on('mouseleave', hideTooltip);
-    enter.append('circle').attr('r', 8);
-    enter.append('text').attr('dx', 12).attr('dy', 4);
-    nodeSel = enter.merge(nodeSel);
-    nodeSel
-      .classed('root', d => d.type === 'root' || d.isRoot)
-      .classed('group', d => d.type === 'group')
-      .classed('leaf', d => d.type === 'leaf')
-      .classed('changed', d => Boolean(d.changed))
-      .classed('current', false)
-      .attr('transform', d => `translate(${d.x},${d.y})`);
-    nodeSel.select('circle').attr('r', d => d.type === 'leaf' ? 5 : 8);
-    nodeSel.select('text').text(d => d.label || d.id);
-    positionTreeLinks();
-  }
-
-  function treeDrag() {
-    return d3.drag()
-      .on('drag', function(event, d) {
-        d.x = event.x;
-        d.y = event.y;
-        d3.select(this).attr('transform', `translate(${d.x},${d.y})`);
-        positionTreeLinks();
-      });
-  }
-
-  function positionTreeLinks() {
-    const byId = new Map(nodesData.map(n => [n.id, n]));
-    linkSel
-      .attr('x1', d => (byId.get(d.source.id || d.source) || {}).x || 0)
-      .attr('y1', d => (byId.get(d.source.id || d.source) || {}).y || 0)
-      .attr('x2', d => (byId.get(d.target.id || d.target) || {}).x || 0)
-      .attr('y2', d => (byId.get(d.target.id || d.target) || {}).y || 0);
-  }
-
-  function layoutTree(nodes, links) {
-    const byId = new Map(nodes.map(n => [n.id, { ...n, children: [] }]));
-    links.forEach(link => {
-      const parent = byId.get(link.source.id || link.source);
-      const child = byId.get(link.target.id || link.target);
-      if (parent && child) parent.children.push(child);
-    });
-    const rootNode = byId.get('browser') || nodes.find(n => n.type === 'root') || nodes[0];
-    if (!rootNode) return [];
-    const rootHierarchy = d3.hierarchy(rootNode, d => d.children);
-    d3.tree().nodeSize([42, 170])(rootHierarchy);
-    return rootHierarchy.descendants().map(d => ({
-      ...d.data,
-      x: d.y - 260,
-      y: d.x,
-    }));
-  }
 
   function reset() {
     nodesData = [];
@@ -1212,10 +1530,9 @@ const graph = (() => {
     linkG.selectAll('*').remove();
     nodeG.selectAll('*').remove();
     hideTooltip();
+    breadcrumbEl.innerHTML = '<span>URLs</span>';
     emptyEl.style.display = 'flex';
-    emptyEl.textContent = graphMode === 'state'
-      ? 'no BrowserState graph metadata yet.'
-      : 'no navigation yet.';
+    emptyEl.textContent = 'no navigation yet.';
     simulation.nodes([]);
     simulation.force('link').links([]);
   }
@@ -1239,17 +1556,6 @@ function resetGraph()  { graph.reset(); }
         graph.resize();
         updateGraph();
       }
-    });
-  });
-})();
-
-(function setupGraphModeToggle() {
-  const buttons = document.querySelectorAll('.graph-mode-btn');
-  buttons.forEach(button => {
-    button.addEventListener('click', () => {
-      graphMode = button.dataset.graphMode || 'trajectory';
-      buttons.forEach(btn => { btn.classList.toggle('active', btn === button); });
-      updateGraph();
     });
   });
 })();
@@ -1380,11 +1686,14 @@ function handleEvent(ev) {
     }
 
     case 'action_executed':
-      recordBrowserStateGraph(ev.artifacts);
       if (ev.env_state && ev.env_state.url) {
         metaUrl.textContent = ev.env_state.url;
         addRow('dim', `@ <span class="url">${escHtml(ev.env_state.url)}</span>`);
-        recordNavigation(ev.env_state.url, ev.step_id);
+        recordActionExecution(ev);
+      }
+      if (replayMode && replaySessionId && ev.artifacts && ev.artifacts.screenshot_path) {
+        const href = `/sessions/${encodeURIComponent(replaySessionId)}/artifacts/history/${encodeURIComponent(ev.artifacts.screenshot_path)}`;
+        addRow('dim', `<a target="_blank" rel="noreferrer" href="${href}">[shot]</a>`);
       }
       break;
 
@@ -1456,6 +1765,131 @@ function escHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+
+// ── Replay mode ───────────────────────────────────────
+function setReplayUi(active) {
+  replayMode = active;
+  replayBadge.classList.toggle('hidden', !active);
+  liveBtn.hidden = !active;
+  replayControls.classList.toggle('active', active);
+  setInputEnabled(!active && !isRunning && ws && ws.readyState === WebSocket.OPEN);
+  if (active) setStatus('connected', 'replay');
+}
+
+function replayDelay(prev, next) {
+  if (!prev || !next) return 120;
+  const speed = replaySpeed.value;
+  if (speed === 'instant') return 0;
+  const raw = Math.max(40, Math.min(1200, ((next.ts || 0) - (prev.ts || 0)) * 1000));
+  return raw / Number(speed || 1);
+}
+
+function updateReplayProgress() {
+  replaySlider.max = String(Math.max(0, replayEvents.length));
+  replaySlider.value = String(replayIndex);
+  replayProgress.textContent = `${replayIndex}/${replayEvents.length}`;
+}
+
+function dispatchReplayEvent(ev) {
+  handleEvent(ev);
+  setReplayUi(true);
+}
+
+function replayStepForward() {
+  if (replayIndex >= replayEvents.length) {
+    replayPaused = true;
+    updateReplayProgress();
+    return;
+  }
+  const prev = replayEvents[replayIndex - 1];
+  const ev = replayEvents[replayIndex];
+  replayIndex += 1;
+  dispatchReplayEvent(ev);
+  updateReplayProgress();
+  if (!replayPaused) {
+    const next = replayEvents[replayIndex];
+    replayTimer = setTimeout(replayStepForward, replayDelay(prev || ev, next || ev));
+  }
+}
+
+function replayTo(index) {
+  clearTimeout(replayTimer);
+  replayPaused = true;
+  const target = Math.max(0, Math.min(index, replayEvents.length));
+  resetTimeline();
+  resetSidebar();
+  setReplayUi(true);
+  replayIndex = 0;
+  while (replayIndex < target) replayStepForward();
+  replayPaused = true;
+  updateReplayProgress();
+}
+
+async function loadSessions() {
+  sessionsList.innerHTML = '<div class="session-item"><span class="meta">loading…</span></div>';
+  const res = await fetch('/sessions');
+  const data = await res.json();
+  const sessions = data.sessions || [];
+  if (!sessions.length) {
+    sessionsList.innerHTML = '<div class="session-item"><span class="meta">no saved sessions</span></div>';
+    return;
+  }
+  sessionsList.innerHTML = '';
+  sessions.forEach(session => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'session-item';
+    const query = session.query || 'unknown task';
+    btn.innerHTML = `▶ ${escHtml(session.id)} · “${escHtml(query.slice(0, 80))}”` +
+      `<div class="meta">${escHtml(session.step_count || 0)} steps · ${session.has_events ? 'events' : 'synthetic'}${session.model ? ' · ' + escHtml(session.model) : ''}</div>`;
+    btn.addEventListener('click', () => startReplay(session.id));
+    sessionsList.appendChild(btn);
+  });
+}
+
+async function startReplay(sessionId) {
+  const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/events`);
+  const data = await res.json();
+  replaySessionId = sessionId;
+  replayEvents = data.events || [];
+  replayIndex = 0;
+  replayPaused = true;
+  resetTimeline();
+  resetSidebar();
+  setReplayUi(true);
+  updateReplayProgress();
+  sessionsPanel.classList.add('hidden');
+}
+
+sessionsBtn.addEventListener('click', () => {
+  sessionsPanel.classList.toggle('hidden');
+  if (!sessionsPanel.classList.contains('hidden')) loadSessions();
+});
+sessionsClose.addEventListener('click', () => sessionsPanel.classList.add('hidden'));
+liveBtn.addEventListener('click', () => {
+  clearTimeout(replayTimer);
+  replayPaused = true;
+  replayEvents = [];
+  replayIndex = 0;
+  replaySessionId = null;
+  resetTimeline();
+  resetSidebar();
+  setReplayUi(false);
+  setStatus(ws && ws.readyState === WebSocket.OPEN ? 'connected' : 'disconnected', ws && ws.readyState === WebSocket.OPEN ? 'ready' : 'disconnected');
+});
+replayPlay.addEventListener('click', () => {
+  replayPaused = !replayPaused;
+  clearTimeout(replayTimer);
+  if (!replayPaused) replayStepForward();
+});
+replayNext.addEventListener('click', () => {
+  replayPaused = true;
+  clearTimeout(replayTimer);
+  replayStepForward();
+});
+replayPrev.addEventListener('click', () => replayTo(Math.max(0, replayIndex - 1)));
+replaySlider.addEventListener('input', () => replayTo(Number(replaySlider.value || 0)));
 
 // ── Task submission ────────────────────────────────────
 async function submitTask() {
