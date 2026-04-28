@@ -798,6 +798,90 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(events[-1]["final_reasoning"], agent.final_reasoning)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_subgoal_loop_retries_missing_final_reasoning_before_failing(
+        self,
+        mock_get_model_response,
+    ):
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            step_summarizer=None,
+            max_steps_per_subgoal=3,
+        )
+        mock_get_model_response.side_effect = [
+            self.make_response([]),
+            self.make_response([types.Part(text="SUBGOAL_DONE: verified page state")]),
+        ]
+
+        result, reason = agent._run_subgoal_loop(
+            Subgoal(id=3, description="Verify page", success_criteria="Page verified")
+        )
+
+        self.assertEqual(result, "done")
+        self.assertEqual(reason, "SUBGOAL_DONE: verified page state")
+        self.assertEqual(mock_get_model_response.call_count, 2)
+        self.assertIn(
+            "without the required SUBGOAL_DONE: or SUBGOAL_FAILED: marker",
+            agent.get_recent_messages(limit=2)[0]["text"],
+        )
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_subgoal_loop_retries_plain_final_text_for_required_marker(
+        self,
+        mock_get_model_response,
+    ):
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            step_summarizer=None,
+            max_steps_per_subgoal=3,
+        )
+        mock_get_model_response.side_effect = [
+            self.make_response([types.Part(text="The page is verified.")]),
+            self.make_response([types.Part(text="SUBGOAL_DONE: the page is verified")]),
+        ]
+
+        result, reason = agent._run_subgoal_loop(
+            Subgoal(id=3, description="Verify page", success_criteria="Page verified")
+        )
+
+        self.assertEqual(result, "done")
+        self.assertEqual(reason, "SUBGOAL_DONE: the page is verified")
+        self.assertEqual(mock_get_model_response.call_count, 2)
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_subgoal_loop_reports_empty_final_status_after_retry_budget(
+        self,
+        mock_get_model_response,
+    ):
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            step_summarizer=None,
+            max_steps_per_subgoal=2,
+        )
+        mock_get_model_response.side_effect = [
+            self.make_response([]),
+            self.make_response([]),
+        ]
+
+        result, reason = agent._run_subgoal_loop(
+            Subgoal(id=3, description="Verify page", success_criteria="Page verified")
+        )
+
+        self.assertEqual(result, "failed")
+        self.assertEqual(
+            reason,
+            "Subgoal 3 did not produce a final status message after 2 step(s).",
+        )
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_builds_final_result_summary_for_chat(self, mock_get_model_response):
         events = []
         step_summarizer = MagicMock()

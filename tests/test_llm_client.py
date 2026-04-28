@@ -95,12 +95,32 @@ class TestLLMClient(unittest.TestCase):
         self.assertEqual(client.provider_name, "gemini_computer_use")
         mock_provider_from_env.assert_called_once_with(name="gemini_computer_use")
 
+    @patch("llm.client.NvidiaProvider.from_env")
+    def test_from_provider_name_uses_nvidia(self, mock_provider_from_env):
+        provider = MagicMock()
+        provider.name = "nvidia"
+        mock_provider_from_env.return_value = provider
+
+        client = LLMClient.from_provider_name("nvidia")
+
+        self.assertEqual(client.provider_name, "nvidia")
+        mock_provider_from_env.assert_called_once_with()
+
 
 class TestGeminiProvider(unittest.TestCase):
     def test_gemini_provider_requires_api_key(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(ValueError, "GEMINI_API_KEY"):
                 GeminiProvider.from_env()
+
+
+class TestNvidiaProvider(unittest.TestCase):
+    def test_nvidia_provider_requires_api_key(self):
+        from llm.provider.nvidia import NvidiaProvider
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "NVIDIA_API_KEY"):
+                NvidiaProvider.from_env()
 
 class _FakeHTTPResponse:
     def __init__(self, payload: str):
@@ -176,3 +196,48 @@ class TestChatCompletionsProviders(unittest.TestCase):
         self.assertEqual(http_request.headers["Authorization"], "Bearer router-key")
         self.assertEqual(http_request.headers["Http-referer"], "https://app.test")
         self.assertEqual(http_request.headers["X-title"], "Tiny Browser Agent")
+
+    @patch("llm.provider.chat_completion_http.request.urlopen")
+    @patch("llm.provider.chat_completion_http.ChatCompletionsProvider._build_ssl_context", return_value=None)
+    def test_nvidia_generate_content_includes_thinking_extra_body(self, _mock_ssl, mock_urlopen):
+        from google.genai import types
+
+        from llm.provider.nvidia import NvidiaProvider
+
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            '{"choices":[{"message":{"reasoning_content":"think","content":"answer"}}]}'
+        )
+        provider = NvidiaProvider(
+            api_key="nvidia-key",
+            base_url="https://integrate.test/v1",
+            reasoning_effort="high",
+            timeout_seconds=3,
+        )
+
+        response = provider.generate_content(
+            model="deepseek-ai/deepseek-v4-flash",
+            contents=[types.Content(role="user", parts=[types.Part(text="hello")])],
+            config=types.GenerateContentConfig(
+                temperature=1,
+                top_p=0.95,
+                max_output_tokens=16384,
+            ),
+        )
+
+        http_request = mock_urlopen.call_args.args[0]
+        body = __import__("json").loads(http_request.data.decode("utf-8"))
+        self.assertEqual(http_request.full_url, "https://integrate.test/v1/chat/completions")
+        self.assertEqual(http_request.headers["Authorization"], "Bearer nvidia-key")
+        self.assertEqual(body["model"], "deepseek-ai/deepseek-v4-flash")
+        self.assertEqual(body["temperature"], 1)
+        self.assertEqual(body["top_p"], 0.95)
+        self.assertEqual(body["max_tokens"], 16384)
+        self.assertEqual(
+            body["chat_template_kwargs"],
+            {"thinking": True, "reasoning_effort": "high"},
+        )
+
+        parts = response.candidates[0].content.parts
+        self.assertEqual(parts[0].text, "think")
+        self.assertTrue(parts[0].thought)
+        self.assertEqual(parts[1].text, "answer")
