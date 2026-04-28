@@ -39,7 +39,14 @@ from agents.types import GroundingMode, Subgoal
 from browser import ArtifactLogger, build_browser_action_functions, EnvState, PlaywrightBrowser
 from llm import LLMClient
 from tool_executor import BrowserToolExecutor, prune_old_aria_parts, prune_old_screenshot_parts
-from tools.types import ToolBatchResult, ToolResult, is_env_state_result
+from tools.types import (
+    ExecutedCall,
+    ToolBatchResult,
+    ToolResult,
+    build_tool_error_payload,
+    extract_tool_argument_error,
+    is_env_state_result,
+)
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 _UNSET_STEP_SUMMARIZER: object = object()
@@ -489,6 +496,60 @@ class BrowserAgent:
             return True
         return False
 
+    def _should_retry_unsupported_function_call(
+        self,
+        step_id: int,
+        candidate: Candidate,
+        function_calls: list[types.FunctionCall],
+    ) -> bool:
+        unsupported_names = [
+            function_call.name or "<missing name>"
+            for function_call in function_calls
+            if not self._tool_executor.supports_function(function_call.name)
+        ]
+        if not unsupported_names:
+            return False
+
+        # The model turn is not executable and may be rejected by chat-completion
+        # providers if replayed without a matching tool response. Remove it and
+        # ask the model for a fresh response using only supported tools.
+        if self._contents and self._contents[-1].role == "model":
+            self._contents.pop()
+
+        allowed_names = sorted(
+            {
+                declaration.name
+                for tool in (self._generate_content_config.tools or [])
+                for declaration in (tool.function_declarations or [])
+                if declaration.name
+            }
+        )
+        allowed_summary = ", ".join(allowed_names) if allowed_names else "the declared browser tools"
+        unsupported_summary = ", ".join(unsupported_names)
+        error_message = (
+            f"Unsupported function call(s): {unsupported_summary}. "
+            "Retrying model turn with a corrective instruction."
+        )
+        self._emit_event(
+            "step_error",
+            step_id=step_id,
+            error_message=error_message,
+        )
+        self.append_user_message(
+            "Your previous response used an unsupported function call "
+            f"({unsupported_summary}). Retry the previous step using only supported "
+            f"tools: {allowed_summary}. If you intended to finish a planner subgoal, "
+            "do not call SUBGOAL_DONE or SUBGOAL_FAILED as tools; write a final text "
+            "message beginning with 'SUBGOAL_DONE:' or 'SUBGOAL_FAILED:' instead."
+        )
+        self._emit_event(
+            "step_complete",
+            step_id=step_id,
+            status="retry",
+            error_message=error_message,
+        )
+        return True
+
     def _complete_without_function_calls(
         self,
         step_id: int,
@@ -591,6 +652,33 @@ class BrowserAgent:
             review_metadata=review_metadata,
         )
 
+    @staticmethod
+    def _build_tool_execution_error_message(
+        function_call: types.FunctionCall,
+        exc: Exception,
+    ) -> str:
+        tool_name = function_call.name or "<missing name>"
+        return (
+            f"Tool execution failed for {tool_name}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+
+    def _build_tool_execution_error_call(
+        self,
+        function_call: types.FunctionCall,
+        exc: Exception,
+    ) -> ExecutedCall:
+        error_message = self._build_tool_execution_error_message(function_call, exc)
+        return ExecutedCall(
+            function_call=function_call,
+            result=build_tool_error_payload(
+                tool_name=function_call.name,
+                error_type=type(exc).__name__,
+                error_message=error_message,
+            ),
+            artifacts=None,
+        )
+
     def _execute_single_function_call(
         self,
         step_id: int,
@@ -599,11 +687,34 @@ class BrowserAgent:
         reasoning: Optional[str],
         extra_fr_fields: dict[str, Any],
     ) -> FunctionResponse:
-        if self._verbose:
-            with console.status("Sending command to Computer..."):
-                executed_call = self._tool_executor.execute_call(function_call)
+        argument_error = extract_tool_argument_error(function_call.args)
+        if argument_error is not None:
+            error_message = str(argument_error.get("error") or "Malformed tool arguments.")
+            self._emit_event(
+                "step_error",
+                step_id=step_id,
+                error_message=error_message,
+            )
+            executed_call = ExecutedCall(
+                function_call=function_call,
+                result=argument_error,
+                artifacts=None,
+            )
         else:
-            executed_call = self._tool_executor.execute_call(function_call)
+            try:
+                if self._verbose:
+                    with console.status("Sending command to Computer..."):
+                        executed_call = self._tool_executor.execute_call(function_call)
+                else:
+                    executed_call = self._tool_executor.execute_call(function_call)
+            except Exception as exc:  # noqa: BLE001
+                error_message = self._build_tool_execution_error_message(function_call, exc)
+                self._emit_event(
+                    "step_error",
+                    step_id=step_id,
+                    error_message=error_message,
+                )
+                executed_call = self._build_tool_execution_error_call(function_call, exc)
 
         fc_result = executed_call.result
         action_payload = {
@@ -749,6 +860,13 @@ class BrowserAgent:
             step_id,
             candidate,
             reasoning,
+            function_calls,
+        ):
+            return "CONTINUE"
+
+        if self._should_retry_unsupported_function_call(
+            step_id,
+            candidate,
             function_calls,
         ):
             return "CONTINUE"

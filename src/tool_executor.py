@@ -123,6 +123,12 @@ class BrowserToolExecutor:
             artifacts = self._latest_artifact_metadata()
         return ExecutedCall(function_call=action, result=result, artifacts=artifacts)
 
+    def supports_function(self, name: str | None) -> bool:
+        """Return whether `name` can be executed by this executor."""
+        if name is None:
+            return False
+        return name in self._handlers or name in self._custom_functions
+
     def serialize_function_response(
         self,
         executed_call: ExecutedCall,

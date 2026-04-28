@@ -24,6 +24,7 @@ from agents.post_summary_agent import ActionReviewService
 from agents.types import Subgoal
 from browser import EnvState
 from llm.client import LLMClient
+from tools.types import TOOL_ARGUMENT_ERROR_KEY
 
 
 class TestBrowserAgent(unittest.TestCase):
@@ -289,6 +290,50 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(len(self.agent._contents), 3)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_retries_unsupported_function_call(
+        self,
+        mock_get_model_response,
+    ):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        unsupported_call = types.FunctionCall(
+            id="chatcmpl-tool-a28e2a0058d8c7b4",
+            name="SUBGOAL_DONE",
+            args={},
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [types.Part(function_call=unsupported_call)]
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        self.mock_browser_computer.navigate.assert_not_called()
+        self.assertEqual(len(agent._contents), 2)
+        retry_prompt = agent._contents[-1].parts[0].text or ""
+        self.assertEqual(agent._contents[-1].role, "user")
+        self.assertIn("unsupported function call", retry_prompt.lower())
+        self.assertIn("SUBGOAL_DONE", retry_prompt)
+        self.assertNotIn(
+            unsupported_call,
+            [
+                part.function_call
+                for content in agent._contents
+                for part in (content.parts or [])
+            ],
+        )
+        self.assertEqual(events[-1]["type"], "step_complete")
+        self.assertEqual(events[-1]["status"], "retry")
+        self.assertIn("Unsupported function", events[-2]["error_message"])
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_env_state_function_response(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -343,6 +388,80 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(function_response.name, multiply_numbers.__name__)
         self.assertEqual(function_response.response, {"result": 6})
         self.assertIsNone(function_response.parts)
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_serializes_tool_execution_errors(self, mock_get_model_response):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        function_call = types.FunctionCall(name="navigate", args={})
+        mock_get_model_response.return_value = self.make_response(
+            [types.Part(function_call=function_call)]
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        self.mock_browser_computer.navigate.assert_not_called()
+        tool_turn = agent._contents[-1]
+        function_response = self.get_function_response(tool_turn)
+        self.assertEqual(function_response.name, "navigate")
+        self.assertEqual(function_response.response["status"], "error")
+        self.assertEqual(function_response.response["tool_name"], "navigate")
+        self.assertEqual(function_response.response["error_type"], "KeyError")
+        error_response_message = function_response.response.get("error") or ""
+        self.assertIn("Tool execution failed for navigate", error_response_message)
+        step_errors = [event for event in events if event["type"] == "step_error"]
+        self.assertEqual(len(step_errors), 1)
+        step_error_message = step_errors[0].get("error_message") or ""
+        self.assertIn("Tool execution failed for navigate", step_error_message)
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_serializes_malformed_tool_argument_errors(self, mock_get_model_response):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        function_call = types.FunctionCall(
+            name="navigate",
+            args={
+                TOOL_ARGUMENT_ERROR_KEY: {
+                    "status": "error",
+                    "tool_name": "navigate",
+                    "error_type": "JSONDecodeError",
+                    "error": "Malformed tool arguments JSON for navigate: bad payload",
+                }
+            },
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [types.Part(function_call=function_call)]
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        self.mock_browser_computer.navigate.assert_not_called()
+        function_response = self.get_function_response(agent._contents[-1])
+        self.assertEqual(function_response.response["status"], "error")
+        self.assertEqual(function_response.response["error_type"], "JSONDecodeError")
+        self.assertEqual(function_response.response["tool_name"], "navigate")
+        error_message = function_response.response.get("error") or ""
+        self.assertIn("Malformed tool arguments JSON", error_message)
+        step_errors = [event for event in events if event["type"] == "step_error"]
+        self.assertEqual(len(step_errors), 1)
+        step_error_message = step_errors[0].get("error_message") or ""
+        self.assertIn("Malformed tool arguments JSON", step_error_message)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_enriches_browser_metadata_with_reasoning(
@@ -720,12 +839,13 @@ class TestBrowserAgent(unittest.TestCase):
         )
 
         recent_messages = agent.get_recent_messages(limit=1)
+        initial_text = recent_messages[0]["text"] or ""
 
         self.assertEqual(len(recent_messages), 1)
         self.assertEqual(recent_messages[0]["role"], "user")
-        self.assertIn("Conversation memory from previous tasks:", recent_messages[0]["text"])
-        self.assertIn("User previously asked for iPhone 17 Pro price.", recent_messages[0]["text"])
-        self.assertIn("Current user task:\n16 Pro price too", recent_messages[0]["text"])
+        self.assertIn("Conversation memory from previous tasks:", initial_text)
+        self.assertIn("User previously asked for iPhone 17 Pro price.", initial_text)
+        self.assertIn("Current user task:\n16 Pro price too", initial_text)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_emits_step_events(self, mock_get_model_response):
@@ -788,10 +908,11 @@ class TestBrowserAgent(unittest.TestCase):
         ):
             agent.agent_loop()
 
+        final_reasoning = agent.final_reasoning or ""
         self.assertIsNotNone(agent.final_reasoning)
-        self.assertIn("All planner subgoals completed.", agent.final_reasoning)
-        self.assertIn("[1] Open example: SUBGOAL_DONE: opened example.com", agent.final_reasoning)
-        self.assertIn("[2] Summarize page: SUBGOAL_DONE: summarized page", agent.final_reasoning)
+        self.assertIn("All planner subgoals completed.", final_reasoning)
+        self.assertIn("[1] Open example: SUBGOAL_DONE: opened example.com", final_reasoning)
+        self.assertIn("[2] Summarize page: SUBGOAL_DONE: summarized page", final_reasoning)
         self.assertEqual(events[-2]["type"], "review_metadata_extracted")
         self.assertEqual(events[-2]["phase_id"], "phase-complete")
         self.assertEqual(events[-1]["type"], "step_complete")
@@ -822,9 +943,10 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(result, "done")
         self.assertEqual(reason, "SUBGOAL_DONE: verified page state")
         self.assertEqual(mock_get_model_response.call_count, 2)
+        retry_message = agent.get_recent_messages(limit=2)[0]["text"] or ""
         self.assertIn(
             "without the required SUBGOAL_DONE: or SUBGOAL_FAILED: marker",
-            agent.get_recent_messages(limit=2)[0]["text"],
+            retry_message,
         )
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
