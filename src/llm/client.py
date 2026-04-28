@@ -5,9 +5,15 @@ from typing import Literal
 import termcolor
 from google.genai import types
 
-from .provider import BaseProvider, GeminiProvider, OpenAIProvider, OpenRouterProvider
+from .provider import (
+    BaseProvider,
+    GeminiProvider,
+    NvidiaProvider,
+    OpenAIProvider,
+    OpenRouterProvider,
+)
 
-ProviderName = Literal["gemini", "openai", "openrouter"]
+ProviderName = Literal["gemini", "openai", "openrouter", "nvidia"]
 
 
 class LLMError(Exception):
@@ -41,6 +47,8 @@ class LLMClient:
             return cls(provider=OpenAIProvider.from_env())
         if provider_name == "openrouter":
             return cls(provider=OpenRouterProvider.from_env())
+        if provider_name == "nvidia":
+            return cls(provider=NvidiaProvider.from_env())
         name_map = {
             "gemini_api": "gemini_api",
             "gemini_text": "gemini_text",

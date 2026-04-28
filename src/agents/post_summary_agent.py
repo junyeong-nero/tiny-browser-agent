@@ -8,6 +8,7 @@ import config as app_config
 
 from google.genai import types
 
+from llm.provider.nvidia import NvidiaProvider
 from llm.provider.openai import OpenAIProvider
 from llm.provider.openrouter import OpenRouterProvider
 
@@ -84,9 +85,9 @@ class ActionStepSummarizer:
         configured_provider = os.environ.get(
             "ACTION_SUMMARY_PROVIDER", summary_config.provider
         ).strip().lower()
-        if configured_provider not in {"openai", "openrouter"}:
+        if configured_provider not in {"openai", "openrouter", "nvidia"}:
             raise ValueError(
-                f"Unsupported ACTION_SUMMARY_PROVIDER '{configured_provider}'. Expected 'openai' or 'openrouter'."
+                f"Unsupported ACTION_SUMMARY_PROVIDER '{configured_provider}'. Expected 'openai', 'openrouter', or 'nvidia'."
             )
         if not cls._provider_has_credentials(configured_provider):
             return None
@@ -95,11 +96,12 @@ class ActionStepSummarizer:
         if not model:
             raise ValueError("ACTION_SUMMARY_MODEL must not be empty when summarization is enabled.")
 
-        provider = (
-            OpenAIProvider.from_env()
-            if configured_provider == "openai"
-            else OpenRouterProvider.from_env()
-        )
+        providers = {
+            "openai": OpenAIProvider.from_env,
+            "openrouter": OpenRouterProvider.from_env,
+            "nvidia": NvidiaProvider.from_env,
+        }
+        provider = providers[configured_provider]()
 
         return cls(
             provider=provider,
@@ -113,6 +115,8 @@ class ActionStepSummarizer:
             return bool(os.environ.get("OPENAI_API_KEY", "").strip())
         if provider_name == "openrouter":
             return bool(os.environ.get("OPENROUTER_API_KEY", "").strip())
+        if provider_name == "nvidia":
+            return bool(os.environ.get("NVIDIA_API_KEY", "").strip())
         return False
 
     def summarize_action(

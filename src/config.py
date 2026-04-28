@@ -4,8 +4,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, field_validator
 import yaml
 
-LLMProviderName = Literal["gemini", "openai", "openrouter"]
-SummaryProviderName = Literal["openai", "openrouter"]
+LLMProviderName = Literal["gemini", "openai", "openrouter", "nvidia"]
+SummaryProviderName = Literal["openai", "openrouter", "nvidia"]
 
 _CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.yaml"
 
