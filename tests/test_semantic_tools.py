@@ -59,6 +59,22 @@ class TestClickByRef:
         }
         assert result == browser.current_state.return_value
 
+    def test_selects_hidden_option_when_click_times_out_as_not_visible(self):
+        browser, _ = _make_browser_with_snapshot('- combobox "Region"\n  - option "Ulsan"\n')
+        mock_locator = MagicMock()
+        mock_locator.click.side_effect = PlaywrightTimeoutError("element is not visible")
+        mock_locator.evaluate.return_value = True
+        browser.resolve_ref.return_value = mock_locator
+
+        from tools.click_by_ref import handle_click_by_ref
+        result = handle_click_by_ref(browser, {"ref": 2})
+
+        browser.resolve_ref.assert_called_once_with(2)
+        mock_locator.click.assert_called_once_with(timeout=5000)
+        mock_locator.evaluate.assert_called_once()
+        assert "HTMLOptionElement" in mock_locator.evaluate.call_args.args[0]
+        assert result == browser.current_state.return_value
+
     def test_stale_ref_raises(self):
         browser, _ = _make_browser_with_snapshot()
         browser.resolve_ref.side_effect = ValueError("ref 99 is stale, request a new snapshot")

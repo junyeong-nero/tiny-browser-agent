@@ -1,5 +1,7 @@
 from typing import Literal
 
+from browser.aria_snapshot import NodeInfo
+
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
@@ -31,7 +33,20 @@ def resolve_ref_locator(computer: PlaywrightBrowser, args: dict):
     return computer.resolve_ref(int(args["ref"]))
 
 
-def click_locator(locator) -> None:
+def resolve_ref_node(computer: PlaywrightBrowser, args: dict) -> NodeInfo | None:
+    """Return cached ARIA node metadata when available.
+
+    ``resolve_ref`` remains the source of truth for stale-ref validation; this
+    helper is intentionally best-effort so tests and non-Playwright browser
+    doubles do not need to expose a full ARIA cache.
+    """
+    ref_map = getattr(computer, "_aria_ref_map", None)
+    if not ref_map:
+        return None
+    return ref_map.get(int(args["ref"]))
+
+
+def click_locator(locator, node: NodeInfo | None = None) -> None:
     """Click a locator, falling back when Playwright's hit target is overlaid.
 
     Some responsive navigation bars render both a semantic button and a link in
@@ -43,11 +58,48 @@ def click_locator(locator) -> None:
     try:
         locator.click(timeout=CLICK_TIMEOUT_MS)
     except (PlaywrightTimeoutError, PlaywrightError) as exc:
-        if not _is_pointer_interception_error(exc):
-            raise
-        locator.click(force=True, timeout=CLICK_TIMEOUT_MS)
+        if _is_pointer_interception_error(exc):
+            locator.click(force=True, timeout=CLICK_TIMEOUT_MS)
+            return
+        if _is_hidden_select_option_error(exc, node):
+            _select_option_locator(locator)
+            return
+        raise
 
 
 def _is_pointer_interception_error(exc: Exception) -> bool:
     message = str(exc).lower()
     return "intercepts pointer events" in message
+
+
+def _is_hidden_select_option_error(exc: Exception, node: NodeInfo | None) -> bool:
+    """Detect the Playwright failure raised when clicking a native <option>."""
+    if node is None or node.role != "option":
+        return False
+    message = str(exc).lower()
+    return "element is not visible" in message or "not visible" in message
+
+
+def _select_option_locator(locator) -> None:
+    """Select a resolved <option> without requiring the option popup to be visible.
+
+    Native ``<option>`` elements are not independently visible/clickable in
+    Chromium; selecting them requires mutating the owning ``<select>`` and
+    dispatching the same events that application code listens for.
+    """
+    selected = locator.evaluate(
+        """
+        (option) => {
+            if (!(option instanceof HTMLOptionElement)) return false;
+            const select = option.closest('select');
+            if (!select) return false;
+            select.value = option.value;
+            option.selected = true;
+            select.dispatchEvent(new Event('input', { bubbles: true }));
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+        }
+        """
+    )
+    if not selected:
+        raise RuntimeError("resolved option ref is not inside a selectable <select>")
