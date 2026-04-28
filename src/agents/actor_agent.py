@@ -826,12 +826,29 @@ class BrowserAgent:
                     )
                 status = self.run_one_iteration()
                 steps += 1
+                final_text = (self.final_reasoning or "").strip()
+                if status == "COMPLETE" and not self._has_subgoal_marker(final_text):
+                    if steps >= self._max_steps_per_subgoal:
+                        break
+                    self.append_user_message(
+                        "The previous turn ended this subgoal without the required "
+                        "SUBGOAL_DONE: or SUBGOAL_FAILED: marker. Inspect the latest "
+                        "browser state and respond with exactly one final subgoal "
+                        "status message using the required marker. If the previous "
+                        "turn produced no text because of a transient model error, "
+                        "retry the subgoal decision now."
+                    )
+                    self.final_reasoning = None
+                    status = "CONTINUE"
         finally:
             self._current_subgoal_id = None
 
         final_text = (self.final_reasoning or "").strip()
         if not final_text:
-            return "failed", f"Subgoal {subgoal.id} ended without any final reasoning."
+            return "failed", (
+                f"Subgoal {subgoal.id} did not produce a final status message after "
+                f"{steps} step(s)."
+            )
         upper = final_text.upper()
         if "SUBGOAL_FAILED" in upper:
             return "failed", final_text
@@ -841,6 +858,11 @@ class BrowserAgent:
         return "failed", (
             f"Subgoal {subgoal.id} completed without declaring success. Final text: {final_text[:200]}"
         )
+
+    @staticmethod
+    def _has_subgoal_marker(final_text: str) -> bool:
+        upper = final_text.upper()
+        return "SUBGOAL_DONE" in upper or "SUBGOAL_FAILED" in upper
 
     def _build_subgoal_plan_summary(
         self,
