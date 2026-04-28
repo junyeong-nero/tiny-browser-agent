@@ -39,6 +39,8 @@ uv run main.py "오늘 서울 날씨 알려줘" --log
 `--log` writes artifacts under `logs/history/<timestamp>/`:
 
 ```text
+session.json         # task/model metadata for replay listings
+events.jsonl         # faithful UI event stream for replay
 actions.jsonl        # action history (one JSON record per step)
 history/step-*.png   # screenshot per step
 history/step-*.html  # DOM snapshot
@@ -46,9 +48,12 @@ history/step-*.json  # step metadata
 video/               # Playwright recording (session_60fps.mp4 if ffmpeg available)
 ```
 
-Step metadata includes a compact `state_graph` object that mirrors the current
-`BrowserState` hierarchy without embedding raw screenshot bytes. The UI Graph tab
-can switch between the navigation trajectory and this Browser State graph.
+New logged sessions include `events.jsonl`, which lets the web UI replay the same
+timeline, plan, activity, and navigation graph that appeared during the live run.
+Start `uv run main.py --ui --log`, click **Sessions** in the header, and select a
+saved `logs/history/<timestamp>/` entry to replay it with pause, step, speed, and
+progress controls. Older sessions without `events.jsonl` are replayed from a
+synthetic stream built from `actions.jsonl` and `history/step-*.json`.
 
 Each `actions.jsonl` entry:
 
