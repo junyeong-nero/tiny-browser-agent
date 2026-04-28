@@ -2,6 +2,7 @@ import os
 from urllib import request  # re-exported for provider tests that patch urlopen
 
 from .chat_completion_http import ChatCompletionsProvider
+from .env_config import optional_env, parse_timeout_seconds, require_env
 
 
 class OpenAIProvider(ChatCompletionsProvider):
@@ -22,18 +23,14 @@ class OpenAIProvider(ChatCompletionsProvider):
 
     @classmethod
     def from_env(cls) -> "OpenAIProvider":
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY must be set when OpenAI summarization is enabled.")
-
-        timeout_value = os.environ.get("ACTION_SUMMARY_TIMEOUT_SECONDS", "15")
-        try:
-            timeout_seconds = float(timeout_value)
-        except ValueError as exc:
-            raise ValueError("ACTION_SUMMARY_TIMEOUT_SECONDS must be a number.") from exc
+        api_key = require_env(
+            "OPENAI_API_KEY",
+            "OPENAI_API_KEY must be set when OpenAI summarization is enabled.",
+        )
 
         return cls(
             api_key=api_key,
-            base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-            timeout_seconds=timeout_seconds,
+            base_url=optional_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            or "https://api.openai.com/v1",
+            timeout_seconds=parse_timeout_seconds(),
         )

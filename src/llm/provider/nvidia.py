@@ -2,6 +2,7 @@ import os
 from urllib import request  # re-exported for provider tests that patch urlopen
 
 from .chat_completion_http import ChatCompletionsProvider
+from .env_config import optional_env, parse_timeout_seconds, require_env
 
 
 class NvidiaProvider(ChatCompletionsProvider):
@@ -30,22 +31,18 @@ class NvidiaProvider(ChatCompletionsProvider):
 
     @classmethod
     def from_env(cls) -> "NvidiaProvider":
-        api_key = os.environ.get("NVIDIA_API_KEY")
-        if not api_key:
-            raise ValueError("NVIDIA_API_KEY must be set when NVIDIA provider is enabled.")
-
-        timeout_value = os.environ.get("ACTION_SUMMARY_TIMEOUT_SECONDS", "15")
-        try:
-            timeout_seconds = float(timeout_value)
-        except ValueError as exc:
-            raise ValueError("ACTION_SUMMARY_TIMEOUT_SECONDS must be a number.") from exc
+        api_key = require_env(
+            "NVIDIA_API_KEY",
+            "NVIDIA_API_KEY must be set when NVIDIA provider is enabled.",
+        )
 
         return cls(
             api_key=api_key,
-            base_url=os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
-            thinking=_parse_bool(os.environ.get("NVIDIA_THINKING", "true")),
-            reasoning_effort=os.environ.get("NVIDIA_REASONING_EFFORT", "high"),
-            timeout_seconds=timeout_seconds,
+            base_url=optional_env("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+            or "https://integrate.api.nvidia.com/v1",
+            thinking=_parse_bool(optional_env("NVIDIA_THINKING", "true") or "true"),
+            reasoning_effort=optional_env("NVIDIA_REASONING_EFFORT", "high") or "high",
+            timeout_seconds=parse_timeout_seconds(),
         )
 
 

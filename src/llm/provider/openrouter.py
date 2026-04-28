@@ -2,6 +2,7 @@ import os
 from urllib import request  # re-exported for provider tests that patch urlopen
 
 from .chat_completion_http import ChatCompletionsProvider
+from .env_config import optional_env, parse_timeout_seconds, require_env
 
 
 class OpenRouterProvider(ChatCompletionsProvider):
@@ -26,22 +27,18 @@ class OpenRouterProvider(ChatCompletionsProvider):
 
     @classmethod
     def from_env(cls) -> "OpenRouterProvider":
-        api_key = os.environ.get("OPENROUTER_API_KEY")
-        if not api_key:
-            raise ValueError("OPENROUTER_API_KEY must be set when OpenRouter summarization is enabled.")
-
-        timeout_value = os.environ.get("ACTION_SUMMARY_TIMEOUT_SECONDS", "15")
-        try:
-            timeout_seconds = float(timeout_value)
-        except ValueError as exc:
-            raise ValueError("ACTION_SUMMARY_TIMEOUT_SECONDS must be a number.") from exc
+        api_key = require_env(
+            "OPENROUTER_API_KEY",
+            "OPENROUTER_API_KEY must be set when OpenRouter summarization is enabled.",
+        )
 
         return cls(
             api_key=api_key,
-            base_url=os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-            http_referer=os.environ.get("OPENROUTER_HTTP_REFERER"),
-            title=os.environ.get("OPENROUTER_TITLE"),
-            timeout_seconds=timeout_seconds,
+            base_url=optional_env("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+            or "https://openrouter.ai/api/v1",
+            http_referer=optional_env("OPENROUTER_HTTP_REFERER"),
+            title=optional_env("OPENROUTER_TITLE"),
+            timeout_seconds=parse_timeout_seconds(),
         )
 
     def _build_headers(self) -> dict[str, str]:

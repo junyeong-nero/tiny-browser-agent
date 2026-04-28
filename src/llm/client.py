@@ -1,19 +1,40 @@
 import time
 from collections.abc import Callable
-from typing import Literal
+from typing import Literal, Protocol
 
 import termcolor
 from google.genai import types
 
 from .provider import (
-    BaseProvider,
     GeminiProvider,
     NvidiaProvider,
     OpenAIProvider,
     OpenRouterProvider,
 )
 
-ProviderName = Literal["gemini", "openai", "openrouter", "nvidia"]
+ProviderName = Literal[
+    "gemini",
+    "gemini_api",
+    "gemini_text",
+    "gemini_computer_use",
+    "openai",
+    "openrouter",
+    "nvidia",
+]
+
+ProviderFactory = Callable[
+    [], "ProviderProtocol"
+]
+
+PROVIDER_FACTORIES: dict[str, ProviderFactory] = {
+    "gemini": lambda: GeminiProvider.from_env(),
+    "gemini_api": lambda: GeminiProvider.from_env(),
+    "gemini_text": lambda: GeminiProvider.from_env(name="gemini_text"),
+    "gemini_computer_use": lambda: GeminiProvider.from_env(name="gemini_computer_use"),
+    "openai": lambda: OpenAIProvider.from_env(),
+    "openrouter": lambda: OpenRouterProvider.from_env(),
+    "nvidia": lambda: NvidiaProvider.from_env(),
+}
 
 
 class LLMError(Exception):
@@ -24,10 +45,28 @@ class EmptyResponseError(LLMError):
     pass
 
 
+class ProviderProtocol(Protocol):
+    name: str
+
+    @property
+    def sdk_client(self): ...
+
+    def build_function_declaration(
+        self, callable_: Callable[..., object]
+    ) -> types.FunctionDeclaration: ...
+
+    def generate_content(
+        self,
+        model: str,
+        contents: list[types.Content],
+        config: types.GenerateContentConfig,
+    ) -> types.GenerateContentResponse: ...
+
+
 class LLMClient:
     def __init__(
         self,
-        provider: BaseProvider,
+        provider: ProviderProtocol,
         max_retries: int = 5,
         base_delay_s: int = 1,
     ):
@@ -40,23 +79,11 @@ class LLMClient:
         return cls(provider=GeminiProvider.from_env())
 
     @classmethod
-    def from_provider_name(cls, provider_name: ProviderName) -> "LLMClient":
-        if provider_name == "gemini":
-            return cls(provider=GeminiProvider.from_env())
-        if provider_name == "openai":
-            return cls(provider=OpenAIProvider.from_env())
-        if provider_name == "openrouter":
-            return cls(provider=OpenRouterProvider.from_env())
-        if provider_name == "nvidia":
-            return cls(provider=NvidiaProvider.from_env())
-        name_map = {
-            "gemini_api": "gemini_api",
-            "gemini_text": "gemini_text",
-            "gemini_computer_use": "gemini_computer_use",
-        }
-        if provider_name in name_map:
-            return cls(provider=GeminiProvider.from_env(name=name_map[provider_name]))
-        raise ValueError(f"Unsupported LLM provider '{provider_name}'.")
+    def from_provider_name(cls, provider_name: str) -> "LLMClient":
+        factory = PROVIDER_FACTORIES.get(provider_name)
+        if factory is None:
+            raise ValueError(f"Unsupported LLM provider '{provider_name}'.")
+        return cls(provider=factory())
 
     @classmethod
     def for_computer_use(cls) -> "LLMClient":

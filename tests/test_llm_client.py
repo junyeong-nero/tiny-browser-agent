@@ -106,6 +106,32 @@ class TestLLMClient(unittest.TestCase):
         self.assertEqual(client.provider_name, "nvidia")
         mock_provider_from_env.assert_called_once_with()
 
+    @patch("llm.client.OpenAIProvider.from_env")
+    def test_from_provider_name_uses_openai(self, mock_provider_from_env):
+        provider = MagicMock()
+        provider.name = "openai"
+        mock_provider_from_env.return_value = provider
+
+        client = LLMClient.from_provider_name("openai")
+
+        self.assertEqual(client.provider_name, "openai")
+        mock_provider_from_env.assert_called_once_with()
+
+    @patch("llm.client.OpenRouterProvider.from_env")
+    def test_from_provider_name_uses_openrouter(self, mock_provider_from_env):
+        provider = MagicMock()
+        provider.name = "openrouter"
+        mock_provider_from_env.return_value = provider
+
+        client = LLMClient.from_provider_name("openrouter")
+
+        self.assertEqual(client.provider_name, "openrouter")
+        mock_provider_from_env.assert_called_once_with()
+
+    def test_from_provider_name_rejects_unsupported_provider(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported LLM provider 'unknown'"):
+            LLMClient.from_provider_name("unknown")
+
 
 class TestGeminiProvider(unittest.TestCase):
     def test_gemini_provider_requires_api_key(self):
@@ -121,6 +147,83 @@ class TestNvidiaProvider(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(ValueError, "NVIDIA_API_KEY"):
                 NvidiaProvider.from_env()
+
+    def test_nvidia_provider_from_env_uses_shared_timeout_and_flags(self):
+        from llm.provider.nvidia import NvidiaProvider
+
+        with patch.dict(
+            os.environ,
+            {
+                "NVIDIA_API_KEY": "nvidia-key",
+                "NVIDIA_BASE_URL": "https://integrate.test/v1",
+                "NVIDIA_THINKING": "off",
+                "NVIDIA_REASONING_EFFORT": "medium",
+                "ACTION_SUMMARY_TIMEOUT_SECONDS": "7.5",
+            },
+            clear=True,
+        ):
+            provider = NvidiaProvider.from_env()
+
+        self.assertEqual(provider._chat_completions_url, "https://integrate.test/v1/chat/completions")
+        self.assertEqual(provider._timeout_seconds, 7.5)
+        self.assertEqual(
+            provider._extra_body,
+            {"chat_template_kwargs": {"thinking": False, "reasoning_effort": "medium"}},
+        )
+
+
+class TestChatCompletionProviderEnvBootstrap(unittest.TestCase):
+    def test_openai_provider_from_env_uses_timeout_and_base_url(self):
+        from llm.provider.openai import OpenAIProvider
+
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "openai-key",
+                "OPENAI_BASE_URL": "https://openai.test/v1",
+                "ACTION_SUMMARY_TIMEOUT_SECONDS": "8.5",
+            },
+            clear=True,
+        ):
+            provider = OpenAIProvider.from_env()
+
+        self.assertEqual(provider._chat_completions_url, "https://openai.test/v1/chat/completions")
+        self.assertEqual(provider._timeout_seconds, 8.5)
+
+    def test_openrouter_provider_from_env_uses_optional_headers(self):
+        from llm.provider.openrouter import OpenRouterProvider
+
+        with patch.dict(
+            os.environ,
+            {
+                "OPENROUTER_API_KEY": "router-key",
+                "OPENROUTER_BASE_URL": "https://router.test/v1",
+                "OPENROUTER_HTTP_REFERER": "https://app.test",
+                "OPENROUTER_TITLE": "Tiny Browser Agent",
+                "ACTION_SUMMARY_TIMEOUT_SECONDS": "9",
+            },
+            clear=True,
+        ):
+            provider = OpenRouterProvider.from_env()
+
+        self.assertEqual(provider._chat_completions_url, "https://router.test/v1/chat/completions")
+        self.assertEqual(provider._timeout_seconds, 9.0)
+        self.assertEqual(provider._http_referer, "https://app.test")
+        self.assertEqual(provider._title, "Tiny Browser Agent")
+
+    def test_provider_from_env_rejects_invalid_timeout(self):
+        from llm.provider.openai import OpenAIProvider
+
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_API_KEY": "openai-key",
+                "ACTION_SUMMARY_TIMEOUT_SECONDS": "not-a-number",
+            },
+            clear=True,
+        ):
+            with self.assertRaisesRegex(ValueError, "ACTION_SUMMARY_TIMEOUT_SECONDS"):
+                OpenAIProvider.from_env()
 
 class _FakeHTTPResponse:
     def __init__(self, payload: str):
