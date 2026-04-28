@@ -201,6 +201,10 @@ def payload_to_response(payload: dict[str, Any]) -> types.GenerateContentRespons
         text_content = message.get("content") or ""
 
         parts = []
+        reasoning_text = _extract_reasoning_text(message)
+        if reasoning_text:
+            parts.append(types.Part(text=reasoning_text, thought=True))
+
         text = _extract_message_text(text_content)
         if text:
             parts.append(types.Part(text=text))
@@ -299,4 +303,12 @@ def _extract_message_text(content: Any) -> str:
             if isinstance(item, dict) and item.get("type") == "text"
         ]
         return "\n".join(part for part in text_parts if part).strip()
+    return ""
+
+
+def _extract_reasoning_text(message: dict[str, Any]) -> str:
+    for key in ("reasoning", "reasoning_content"):
+        value = message.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
     return ""
