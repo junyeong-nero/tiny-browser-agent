@@ -14,6 +14,7 @@ from agents.planner_agent import PlannerAgent
 from agents.types import GroundingMode
 from browser import ArtifactLogger, PlaywrightBrowser
 import config as app_config
+from ui.bridge import emit, register_event_sink, unregister_event_sink
 
 
 PLAYWRIGHT_SCREEN_SIZE = (1600, 900)
@@ -128,27 +129,49 @@ def main() -> int:
         else:
             subgoals = None
             replan_callback = None
-            if args.planner:
-                planner = PlannerAgent(
-                    query=args.query,
+            if args.log:
+                artifact_logger.record_session_meta(
+                    {
+                        "query": args.query,
+                        "model_name": args.model,
+                        "grounding": args.grounding,
+                        "started_at": datetime.now().isoformat(timespec="seconds"),
+                        "use_planner": args.planner,
+                    }
                 )
-                subgoals = planner.plan()
-                replan_callback = planner.replan
-                print(f"Planner created {len(subgoals)} subgoal(s):")
-                for sg in subgoals:
-                    print(f"  [{sg.id}] {sg.description}")
+                register_event_sink(artifact_logger.record_event)
+            emit({"type": "task_started", "query": args.query})
+            try:
+                if args.planner:
+                    planner_kwargs = {"query": args.query}
+                    if args.log:
+                        planner_kwargs["event_sink"] = emit
+                    planner = PlannerAgent(**planner_kwargs)
+                    subgoals = planner.plan()
+                    replan_callback = planner.replan
+                    print(f"Planner created {len(subgoals)} subgoal(s):")
+                    for sg in subgoals:
+                        print(f"  [{sg.id}] {sg.description}")
 
-            grounding: GroundingMode = args.grounding
-            agent = BrowserAgent(
-                browser_computer=browser_computer,
-                query=args.query,
-                model_name=args.model,
-                artifact_logger=artifact_logger,
-                grounding=grounding,
-                subgoals=subgoals,
-                replan_callback=replan_callback,
-            )
-            agent.agent_loop()
+                grounding: GroundingMode = args.grounding
+                agent = BrowserAgent(
+                    browser_computer=browser_computer,
+                    query=args.query,
+                    model_name=args.model,
+                    event_sink=emit if args.log else None,
+                    artifact_logger=artifact_logger,
+                    grounding=grounding,
+                    subgoals=subgoals,
+                    replan_callback=replan_callback,
+                )
+                agent.agent_loop()
+                emit({"type": "task_complete", "query": args.query})
+            except Exception as exc:
+                emit({"type": "task_failed", "query": args.query, "error_message": str(exc)})
+                raise
+            finally:
+                if args.log:
+                    unregister_event_sink(artifact_logger.record_event)
     return 0
 
 
