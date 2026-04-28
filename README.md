@@ -74,8 +74,10 @@ Each `actions.jsonl` entry:
 | Variable | Description |
 | - | - |
 | `OPENROUTER_API_KEY` / `OPENROUTER_BASE_URL` | OpenRouter key and optional base URL for the default actor. |
+| `NVIDIA_API_KEY` / `NVIDIA_BASE_URL` | NVIDIA NIM-compatible OpenAI chat completions key and optional base URL. |
+| `NVIDIA_THINKING` / `NVIDIA_REASONING_EFFORT` | NVIDIA chat template thinking controls (defaults: `true` / `high`). |
 | `GEMINI_API_KEY` | Gemini Developer API key for the planner when `--planner` is enabled. |
-| `ACTION_SUMMARY_PROVIDER` | `openai` or `openrouter`. Inferred from the matching API key if omitted. |
+| `ACTION_SUMMARY_PROVIDER` | `openai`, `openrouter`, or `nvidia`. Inferred from the matching API key if omitted. |
 | `ACTION_SUMMARY_MODEL` | Summarizer model (default `gpt-4o-mini`). |
 | `ACTION_SUMMARY_TIMEOUT_SECONDS` | Summarizer timeout (default `15`). |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | OpenAI key and optional base URL. |

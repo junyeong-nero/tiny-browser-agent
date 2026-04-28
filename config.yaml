@@ -10,5 +10,5 @@ models:
     model: gpt-4o-mini
 
 # Supported providers:
-#   actor/planner: gemini, openai, openrouter
-#   summary: openai, openrouter
+#   actor/planner: gemini, openai, openrouter, nvidia
+#   summary: openai, openrouter, nvidia
