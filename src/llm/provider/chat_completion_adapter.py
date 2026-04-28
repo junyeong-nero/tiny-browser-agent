@@ -5,6 +5,8 @@ from typing import Any, Literal, get_args, get_origin
 
 from google.genai import types
 
+from tools.types import TOOL_ARGUMENT_ERROR_KEY, build_tool_argument_parse_error
+
 
 _SCHEMA_TYPE_MAP = {
     "OBJECT": "object",
@@ -83,7 +85,7 @@ def annotation_to_json_schema(annotation: Any) -> dict[str, Any]:
     return {"type": "string"}
 
 
-def _literal_base_schema(values: list[Any]) -> dict[str, str]:
+def _literal_base_schema(values: list[Any]) -> dict[str, Any]:
     if values and all(isinstance(value, bool) for value in values):
         return {"type": "boolean"}
     if values and all(isinstance(value, int) and not isinstance(value, bool) for value in values):
@@ -215,8 +217,14 @@ def payload_to_response(payload: dict[str, Any]) -> types.GenerateContentRespons
             args_str = func.get("arguments", "{}")
             try:
                 args = json.loads(args_str) if isinstance(args_str, str) else args_str
-            except json.JSONDecodeError:
-                args = {}
+            except json.JSONDecodeError as exc:
+                args = {
+                    TOOL_ARGUMENT_ERROR_KEY: build_tool_argument_parse_error(
+                        tool_name=func_name,
+                        raw_arguments=args_str,
+                        exc=exc,
+                    )
+                }
             parts.append(
                 types.Part(
                     function_call=types.FunctionCall(
