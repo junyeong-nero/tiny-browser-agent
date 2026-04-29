@@ -3,9 +3,21 @@ from unittest.mock import MagicMock
 
 from google.genai import types
 
-from agents.actor_agent import multiply_numbers
+from browser.aria_snapshot import NodeInfo
 from browser import build_browser_action_functions, EnvState
-from tool_executor import BrowserToolExecutor, prune_old_screenshot_parts
+from tool_executor import (
+    MAX_ARIA_SNAPSHOT_CHARS,
+    BrowserToolExecutor,
+    compact_aria_snapshot_text,
+    prune_old_aria_parts,
+    prune_old_screenshot_parts,
+)
+from tools.types import ExecutedCall
+
+
+def multiply_numbers(x: float, y: float) -> dict:
+    """Multiplies two numbers."""
+    return {"result": x * y}
 
 
 class TestBrowserToolExecutor(unittest.TestCase):
@@ -22,7 +34,16 @@ class TestBrowserToolExecutor(unittest.TestCase):
             browser_computer=self.mock_browser_computer,
             custom_functions=[
                 multiply_numbers,
-                *build_browser_action_functions(self.mock_browser_computer),
+                *build_browser_action_functions(
+                    self.mock_browser_computer,
+                    include=(
+                        "reload_page",
+                        "switch_to_next_tab",
+                        "switch_to_previous_tab",
+                        "get_accessibility_tree",
+                        "upload_file",
+                    ),
+                ),
             ],
         )
 
@@ -110,17 +131,6 @@ class TestBrowserToolExecutor(unittest.TestCase):
             ["Meta", "Shift", "P"]
         )
 
-    def test_execute_press_key_delegates_to_key_combination(self):
-        env_state = EnvState(screenshot=b"screenshot", url="https://example.com")
-        self.mock_browser_computer.key_combination.return_value = env_state
-
-        result = self.executor.execute(
-            types.FunctionCall(name="press_key", args={"key": "Escape"})
-        )
-
-        self.mock_browser_computer.key_combination.assert_called_once_with(["Escape"])
-        self.assertEqual(result, env_state)
-
     def test_execute_reload_page_delegates_to_browser_computer(self):
         env_state = EnvState(screenshot=b"screenshot", url="https://example.com")
         self.mock_browser_computer.reload_page.return_value = env_state
@@ -128,6 +138,24 @@ class TestBrowserToolExecutor(unittest.TestCase):
         result = self.executor.execute(types.FunctionCall(name="reload_page", args={}))
 
         self.mock_browser_computer.reload_page.assert_called_once_with()
+        self.assertEqual(result, env_state)
+
+    def test_execute_switch_to_next_tab_delegates_to_browser_computer(self):
+        env_state = EnvState(screenshot=b"screenshot", url="https://example.com/next")
+        self.mock_browser_computer.switch_to_next_tab.return_value = env_state
+
+        result = self.executor.execute(types.FunctionCall(name="switch_to_next_tab", args={}))
+
+        self.mock_browser_computer.switch_to_next_tab.assert_called_once_with()
+        self.assertEqual(result, env_state)
+
+    def test_execute_switch_to_previous_tab_delegates_to_browser_computer(self):
+        env_state = EnvState(screenshot=b"screenshot", url="https://example.com/prev")
+        self.mock_browser_computer.switch_to_previous_tab.return_value = env_state
+
+        result = self.executor.execute(types.FunctionCall(name="switch_to_previous_tab", args={}))
+
+        self.mock_browser_computer.switch_to_previous_tab.assert_called_once_with()
         self.assertEqual(result, env_state)
 
     def test_execute_upload_file_denormalizes_coordinates(self):
@@ -162,6 +190,38 @@ class TestBrowserToolExecutor(unittest.TestCase):
 
         self.mock_browser_computer.get_accessibility_tree.assert_called_once_with()
         self.assertEqual(result, tree_payload)
+
+    def test_execute_check_by_ref_returns_dict(self):
+        self.mock_browser_computer.resolve_ref.return_value.is_visible.return_value = True
+        self.mock_browser_computer.resolve_ref.return_value.is_enabled.return_value = True
+        self.mock_browser_computer.resolve_ref.return_value.text_content.return_value = "Continue"
+        self.mock_browser_computer.resolve_ref.return_value.input_value.return_value = ""
+        self.mock_browser_computer._aria_ref_map = {1: NodeInfo(role="button", name="Continue", nth=0)}
+
+        result = self.executor.execute(types.FunctionCall(name="check_by_ref", args={"ref": 1}))
+
+        self.assertEqual(result["ref"], 1)
+        self.assertEqual(result["role"], "button")
+        self.assertEqual(result["name"], "Continue")
+        self.assertTrue(result["visible"])
+
+    def test_execute_wait_for_ref_returns_env_state(self):
+        env_state = EnvState(screenshot=b"screenshot", url="https://example.com")
+        self.mock_browser_computer.resolve_ref.return_value = MagicMock()
+        self.mock_browser_computer.current_state.return_value = env_state
+
+        result = self.executor.execute(
+            types.FunctionCall(
+                name="wait_for_ref",
+                args={"ref": 1, "state": "visible", "timeout_ms": 2500},
+            )
+        )
+
+        self.mock_browser_computer.resolve_ref.return_value.wait_for.assert_called_once_with(
+            state="visible",
+            timeout=2500,
+        )
+        self.assertEqual(result, env_state)
 
     def test_execute_drag_and_drop(self):
         self.executor.execute(
@@ -253,6 +313,35 @@ class TestBrowserToolExecutor(unittest.TestCase):
         self.assertEqual(inline_data.mime_type, "image/png")
         self.assertEqual(inline_data.data, b"screenshot")
 
+    def test_serialize_text_grounding_compacts_oversized_aria_snapshot(self):
+        executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            grounding="text",
+        )
+        oversized_snapshot = "\n".join(f"- button: Item {index}" for index in range(20_000))
+        self.mock_browser_computer.take_aria_snapshot.return_value.text = oversized_snapshot
+        executed_call = ExecutedCall(
+            function_call=types.FunctionCall(id="call-aria", name="navigate"),
+            result=EnvState(screenshot=b"screenshot", url="https://example.com"),
+            artifacts=None,
+        )
+
+        function_response = executor.serialize_function_response(executed_call)
+
+        response = function_response.response
+        self.assertLessEqual(len(response["aria_snapshot"]), MAX_ARIA_SNAPSHOT_CHARS)
+        self.assertTrue(response["aria_snapshot_truncated"])
+        self.assertEqual(response["aria_snapshot_original_chars"], len(oversized_snapshot))
+        self.assertIn("ARIA snapshot truncated", response["aria_snapshot"])
+
+    def test_compact_aria_snapshot_text_preserves_small_snapshots(self):
+        snapshot = "- button: Continue"
+
+        compacted, metadata = compact_aria_snapshot_text(snapshot)
+
+        self.assertEqual(compacted, snapshot)
+        self.assertEqual(metadata, {})
+
     def test_serialize_function_response_for_dict(self):
         executed_call = self.executor.execute_call(
             types.FunctionCall(id="call-2", name=multiply_numbers.__name__, args={"x": 2, "y": 3})
@@ -287,6 +376,22 @@ class TestPruneOldScreenshotParts(unittest.TestCase):
                                 )
                             )
                         ],
+                    )
+                )
+            ],
+        )
+
+    def make_aria_turn(self, name: str, snapshot: str) -> types.Content:
+        return types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        name=name,
+                        response={
+                            "url": f"https://example.com/{name}",
+                            "aria_snapshot": snapshot,
+                        },
                     )
                 )
             ],
@@ -329,6 +434,21 @@ class TestPruneOldScreenshotParts(unittest.TestCase):
         self.assertIsNotNone(self.get_function_response(middle_turn).parts)
         self.assertIsNotNone(self.get_function_response(newest_turn).parts)
         self.assertIsNotNone(self.get_function_response(latest_turn).parts)
+
+    def test_prune_old_aria_parts_keeps_only_requested_recent_turns(self):
+        oldest_turn = self.make_aria_turn("navigate", "oldest aria")
+        middle_turn = self.make_aria_turn("navigate", "middle aria")
+        latest_turn = self.make_aria_turn("navigate", "latest aria")
+        contents = [oldest_turn, middle_turn, latest_turn]
+
+        prune_old_aria_parts(contents, max_recent_turns_with_aria=1)
+
+        self.assertNotIn("aria_snapshot", self.get_function_response(oldest_turn).response)
+        self.assertNotIn("aria_snapshot", self.get_function_response(middle_turn).response)
+        self.assertEqual(
+            self.get_function_response(latest_turn).response["aria_snapshot"],
+            "latest aria",
+        )
 
 
 if __name__ == "__main__":

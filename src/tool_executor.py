@@ -22,6 +22,7 @@ from tools.scroll_at import handle_scroll_at
 from tools.scroll_by_ref import handle_scroll_by_ref
 from tools.scroll_document import handle_scroll_document
 from tools.search import handle_search
+from tools.check_by_ref import handle_check_by_ref
 from tools.text_mode_tools import TEXT_MODE_TOOL_DESCRIPTORS
 from tools.type_text_at import handle_type_text_at
 from tools.type_by_ref import handle_type_by_ref
@@ -35,7 +36,10 @@ from tools.types import (
     is_env_state_result,
 )
 from tools.wait_5_seconds import handle_wait_5_seconds
+from tools.wait_for_ref import handle_wait_for_ref
 
+
+MAX_ARIA_SNAPSHOT_CHARS = 120_000
 
 TOOL_HANDLERS = {
     "open_web_browser": handle_open_web_browser,
@@ -55,6 +59,8 @@ TOOL_HANDLERS = {
     "type_by_ref": handle_type_by_ref,
     "hover_by_ref": handle_hover_by_ref,
     "scroll_by_ref": handle_scroll_by_ref,
+    "check_by_ref": handle_check_by_ref,
+    "wait_for_ref": handle_wait_for_ref,
 }
 
 
@@ -165,24 +171,28 @@ class BrowserToolExecutor:
 
         if self._grounding == "text":
             snapshot = self._browser_computer.take_aria_snapshot()
+            aria_snapshot, aria_metadata = compact_aria_snapshot_text(snapshot.text)
             return types.FunctionResponse(
                 name=executed_call.function_call.name,
                 id=executed_call.function_call.id,
                 response={
                     "url": env_state.url,
-                    "aria_snapshot": snapshot.text,
+                    "aria_snapshot": aria_snapshot,
+                    **aria_metadata,
                     **response_fields,
                 },
             )
 
         # mixed: both screenshot and ARIA snapshot
         snapshot = self._browser_computer.take_aria_snapshot()
+        aria_snapshot, aria_metadata = compact_aria_snapshot_text(snapshot.text)
         return types.FunctionResponse(
             name=executed_call.function_call.name,
             id=executed_call.function_call.id,
             response={
                 "url": env_state.url,
-                "aria_snapshot": snapshot.text,
+                "aria_snapshot": aria_snapshot,
+                **aria_metadata,
                 **response_fields,
             },
             parts=[
@@ -238,6 +248,34 @@ class BrowserToolExecutor:
             if isinstance(latest_artifacts, dict):
                 return latest_artifacts
         return None
+
+
+def compact_aria_snapshot_text(
+    text: str,
+    max_chars: int = MAX_ARIA_SNAPSHOT_CHARS,
+) -> tuple[str, dict[str, Any]]:
+    """Bound large ARIA snapshots before they enter model context."""
+    if len(text) <= max_chars:
+        return text, {}
+
+    omitted_chars = len(text) - max_chars
+    marker = (
+        "\n... [ARIA snapshot truncated to stay within model context; "
+        f"omitted {omitted_chars} characters. Use scroll/search/ref checks "
+        "to inspect more of the page.]"
+    )
+    budget = max(max_chars - len(marker), 0)
+    truncated = text[:budget].rstrip()
+    newline_index = truncated.rfind("\n")
+    if newline_index > max_chars // 2:
+        truncated = truncated[:newline_index].rstrip()
+    return (
+        f"{truncated}{marker}",
+        {
+            "aria_snapshot_truncated": True,
+            "aria_snapshot_original_chars": len(text),
+        },
+    )
 
 
 def prune_old_screenshot_parts(

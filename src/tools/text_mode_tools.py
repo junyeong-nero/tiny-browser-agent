@@ -27,11 +27,6 @@ def go_forward() -> dict:
     ...
 
 
-def search() -> dict:
-    """Navigate to the default search engine homepage."""
-    ...
-
-
 def key_combination(keys: list[str]) -> dict:
     """Press a keyboard shortcut combination (e.g. Ctrl+C, Enter).
 
@@ -85,16 +80,41 @@ def scroll_by_ref(ref: int, direction: Literal["up", "down"] = "down") -> dict:
     ...
 
 
+def check_by_ref(ref: int) -> dict:
+    """Return the current state of an element identified by its ARIA snapshot reference.
+
+    Args:
+        ref: The integer ref shown in brackets in the ARIA snapshot.
+    """
+    ...
+
+
+def wait_for_ref(
+    ref: int,
+    state: Literal["attached", "detached", "visible", "hidden"] = "visible",
+    timeout_ms: int = 5000,
+) -> dict:
+    """Wait for an element identified by its ARIA snapshot reference to reach a state.
+
+    Args:
+        ref: The integer ref shown in brackets in the ARIA snapshot.
+        state: Desired Playwright locator state.
+        timeout_ms: Maximum time to wait in milliseconds.
+    """
+    ...
+
+
 # Descriptors exposed for text/mixed mode
 TEXT_MODE_TOOL_DESCRIPTORS = [
     navigate,
     go_back,
     go_forward,
-    search,
     key_combination,
     wait_5_seconds,
     click_by_ref,
     type_by_ref,
     hover_by_ref,
     scroll_by_ref,
+    check_by_ref,
+    wait_for_ref,
 ]

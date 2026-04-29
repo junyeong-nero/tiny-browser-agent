@@ -172,3 +172,50 @@ class TestScrollByRef:
 
         browser.scroll_document.assert_called_once_with("up")
         assert result == fake_state
+
+
+class TestCheckByRef:
+    def test_returns_cached_role_and_live_locator_state(self):
+        browser, _ = _make_browser_with_snapshot('- button "Continue"\n')
+        mock_locator = MagicMock()
+        mock_locator.is_visible.return_value = True
+        mock_locator.is_enabled.return_value = False
+        mock_locator.text_content.return_value = "Continue"
+        mock_locator.input_value.return_value = ""
+        browser.resolve_ref.return_value = mock_locator
+
+        from tools.check_by_ref import handle_check_by_ref
+        result = handle_check_by_ref(browser, {"ref": 1})
+
+        assert result == {
+            "ref": 1,
+            "role": "button",
+            "name": "Continue",
+            "visible": True,
+            "enabled": False,
+            "text": "Continue",
+            "value": "",
+        }
+
+    def test_stale_ref_raises(self):
+        browser, _ = _make_browser_with_snapshot()
+        browser.resolve_ref.side_effect = ValueError("ref 9 is stale, request a new snapshot")
+
+        from tools.check_by_ref import handle_check_by_ref
+        with pytest.raises(ValueError, match="stale"):
+            handle_check_by_ref(browser, {"ref": 9})
+
+
+class TestWaitForRef:
+    def test_waits_for_locator_state_and_returns_current_state(self):
+        browser, _ = _make_browser_with_snapshot()
+        mock_locator = MagicMock()
+        browser.resolve_ref.return_value = mock_locator
+
+        from tools.wait_for_ref import handle_wait_for_ref
+        result = handle_wait_for_ref(browser, {"ref": 1, "state": "visible", "timeout_ms": 2500})
+
+        browser._mark_last_action.assert_called_once_with("wait_for_ref")
+        mock_locator.wait_for.assert_called_once_with(state="visible", timeout=2500)
+        browser._page.wait_for_load_state.assert_called_once_with()
+        assert result == browser.current_state.return_value
