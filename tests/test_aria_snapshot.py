@@ -82,3 +82,10 @@ def test_node_without_name():
     assert node.name == ""
     assert node.nth == 0
     assert "[1] main" in snapshot.text
+
+
+def test_ref_offset_applies_to_assigned_refs():
+    snapshot = build_aria_snapshot(FIXTURE_YAML, "https://example.com", ref_offset=6)
+
+    assert list(snapshot.ref_map.keys()) == [7, 8, 9, 10, 11, 12]
+    assert "[7] heading \"Welcome\"" in snapshot.text

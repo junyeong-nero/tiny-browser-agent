@@ -95,6 +95,7 @@ class PlaywrightBrowser:
         self._frame_stop = threading.Event()
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
         self._aria_ref_map: dict[int, NodeInfo] | None = None
+        self._aria_ref_target_map: dict[int, Any] | None = None
         self._previous_state: BrowserState | None = None
         self._pending_last_action: str | None = None
 
@@ -130,6 +131,7 @@ class PlaywrightBrowser:
         and drop cached ARIA refs so the next task starts clean.
         """
         self._aria_ref_map = None
+        self._aria_ref_target_map = None
         try:
             for page in list(self._context.pages):
                 if page is not self._page:
@@ -146,9 +148,8 @@ class PlaywrightBrowser:
             )
 
     def _handle_new_page(self, new_page: playwright.sync_api.Page):
-        new_url = new_page.url
-        new_page.close()
-        self._page.goto(new_url)
+        self._page = new_page
+        self._page.wait_for_load_state()
 
     def __enter__(self):
         print("Creating session...")
@@ -324,16 +325,14 @@ class PlaywrightBrowser:
     def take_aria_snapshot(self) -> AriaSnapshot:
         """Take a fresh ARIA snapshot, assign integer refs, and cache the ref map."""
         try:
-            raw_yaml = self._page.locator("body").aria_snapshot()
+            snapshot, _source, _frame_count = self._capture_frame_aware_aria_snapshot()
         except Exception as exc:
             termcolor.cprint(
                 f"ARIA snapshot capture failed: {exc}",
                 color="yellow",
             )
             snapshot = AriaSnapshot(text="", ref_map={}, url=self._page.url)
-            self._aria_ref_map = snapshot.ref_map
-            return snapshot
-        snapshot = build_aria_snapshot(raw_yaml, self._page.url)
+            self._aria_ref_target_map = {}
         self._aria_ref_map = snapshot.ref_map
         return snapshot
 
@@ -347,15 +346,29 @@ class PlaywrightBrowser:
         if node.nth < 0:
             raise ValueError(f"NodeInfo.nth must be >= 0, got {node.nth} for ref {ref}")
         # Skip name param if empty to avoid selector matching empty name attribute
+        target = self._page
+        if self._aria_ref_target_map is not None:
+            target = self._aria_ref_target_map.get(ref, self._page)
+        role_target = cast(Any, target)
         if node.name:
-            locator = self._page.get_by_role(node.role, name=node.name)  # type: ignore[arg-type]
+            locator = role_target.get_by_role(node.role, name=node.name)
         else:
-            locator = self._page.get_by_role(node.role)
+            locator = role_target.get_by_role(node.role)
         return locator.nth(node.nth)
 
     def reload_page(self) -> EnvState:
         self._mark_last_action("reload_page")
         self._page.reload()
+        return self._state_after_load()
+
+    def switch_to_next_tab(self) -> EnvState:
+        self._mark_last_action("switch_to_next_tab")
+        self._switch_tab(direction=1)
+        return self._state_after_load()
+
+    def switch_to_previous_tab(self) -> EnvState:
+        self._mark_last_action("switch_to_previous_tab")
+        self._switch_tab(direction=-1)
         return self._state_after_load()
 
     def upload_file(self, x: int, y: int, path: str) -> EnvState:
@@ -379,24 +392,25 @@ class PlaywrightBrowser:
         return self.current_state()
 
     def get_accessibility_tree(self) -> dict[str, Any]:
-        source = "body_locator_aria_snapshot"
-        url = self._page.url
         try:
-            tree = self._page.locator("body").aria_snapshot()
+            snapshot, source, frame_count = self._capture_frame_aware_aria_snapshot()
         except Exception as exc:
             return {
                 "tree": None,
-                "url": url,
-                "source": source,
+                "url": self._page.url,
+                "source": "body_locator_aria_snapshot",
                 "status": "error",
                 "error": str(exc),
+                "frame_count": 0,
             }
+        self._aria_ref_map = snapshot.ref_map
         return {
-            "tree": tree,
-            "url": url,
+            "tree": snapshot.text,
+            "url": self._page.url,
             "source": source,
             "status": "captured",
             "error": None,
+            "frame_count": frame_count,
         }
 
     def key_combination(self, keys: list[str]) -> EnvState:
@@ -610,6 +624,18 @@ class PlaywrightBrowser:
     def _prepare_log_dirs(self):
         self._artifact_logger.prepare_log_dirs()
 
+    def _switch_tab(self, direction: int) -> None:
+        pages = list(self._context.pages)
+        if not pages:
+            return
+        try:
+            current_index = pages.index(self._page)
+        except ValueError:
+            current_index = 0
+        next_index = (current_index + direction) % len(pages)
+        self._page = pages[next_index]
+        self._page.bring_to_front()
+
     def latest_artifact_metadata(self) -> Optional[dict]:
         return self._artifact_logger.latest_artifact_metadata()
 
@@ -619,25 +645,68 @@ class PlaywrightBrowser:
     def video_dir(self) -> Optional[Path]:
         return self._artifact_logger.video_dir()
 
+    def _aria_snapshot_targets(self) -> list[Any]:
+        frames = getattr(self._page, "frames", None)
+        if isinstance(frames, list) and frames:
+            return frames
+        return [self._page]
+
+    def _capture_frame_aware_aria_snapshot(self) -> tuple[AriaSnapshot, str, int]:
+        targets = self._aria_snapshot_targets()
+        multi_frame = len(targets) > 1
+        combined_lines: list[str] = []
+        combined_ref_map: dict[int, NodeInfo] = {}
+        target_map: dict[int, Any] = {}
+        ref_offset = 0
+        captured_frame_count = 0
+
+        for index, target in enumerate(targets, start=1):
+            target_url = getattr(target, "url", self._page.url)
+            raw_yaml = target.locator("body").aria_snapshot()
+            snapshot = build_aria_snapshot(raw_yaml, target_url, ref_offset=ref_offset)
+            if multi_frame:
+                combined_lines.append(f"Frame {index}: {target_url}")
+                if snapshot.text:
+                    combined_lines.extend(
+                        f"  {line}" if line else line
+                        for line in snapshot.text.splitlines()
+                    )
+            elif snapshot.text:
+                combined_lines.extend(snapshot.text.splitlines())
+            combined_ref_map.update(snapshot.ref_map)
+            target_map.update({ref: target for ref in snapshot.ref_map})
+            ref_offset += len(snapshot.ref_map)
+            captured_frame_count += 1
+
+        self._aria_ref_target_map = target_map
+        return (
+            AriaSnapshot(
+                text="\n".join(combined_lines),
+                ref_map=combined_ref_map,
+                url=self._page.url,
+            ),
+            "frame_locator_aria_snapshot" if multi_frame else "body_locator_aria_snapshot",
+            captured_frame_count,
+        )
+
     def _capture_a11y_snapshot(self, step_name: str) -> dict[str, Any]:
-        a11y_source = "body_locator_aria_snapshot"
         history_dir = self.history_dir()
         if not history_dir:
             return {
                 "a11y_path": None,
-                "a11y_source": a11y_source,
+                "a11y_source": "body_locator_aria_snapshot",
                 "a11y_capture_status": "disabled",
                 "a11y_capture_error": None,
             }
 
         a11y_path = history_dir / f"{step_name}.a11y.yaml"
         try:
-            aria_snapshot = self._page.locator("body").aria_snapshot()
-            a11y_path.write_text(aria_snapshot, encoding="utf-8")
+            snapshot, a11y_source, _frame_count = self._capture_frame_aware_aria_snapshot()
+            a11y_path.write_text(snapshot.text, encoding="utf-8")
         except Exception as exc:
             return {
                 "a11y_path": None,
-                "a11y_source": a11y_source,
+                "a11y_source": "body_locator_aria_snapshot",
                 "a11y_capture_status": "error",
                 "a11y_capture_error": str(exc),
             }

@@ -28,13 +28,13 @@ _ARIA_LINE_RE = re.compile(
 )
 
 
-def build_aria_snapshot(raw_yaml: str, url: str) -> AriaSnapshot:
+def build_aria_snapshot(raw_yaml: str, url: str, ref_offset: int = 0) -> AriaSnapshot:
     """Parse Playwright aria_snapshot() YAML and assign sequential integer refs."""
     lines = raw_yaml.splitlines()
     ref_map: dict[int, NodeInfo] = {}
     text_lines: list[str] = []
     occurrence_counter: dict[tuple[str, str], int] = defaultdict(int)
-    next_ref = 1
+    next_ref = 1 + ref_offset
 
     for line in lines:
         match = _ARIA_LINE_RE.match(line)

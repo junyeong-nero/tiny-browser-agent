@@ -49,6 +49,117 @@ class TestPlaywrightLogging(unittest.TestCase):
 
         computer.navigate.assert_called_once_with("https://example.com/search")
 
+    def test_handle_new_page_switches_active_page_without_closing_popup(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        current_page = MagicMock()
+        new_page = MagicMock()
+        new_page.wait_for_load_state = MagicMock()
+        computer._page = current_page
+
+        computer._handle_new_page(new_page)
+
+        self.assertIs(computer._page, new_page)
+        new_page.wait_for_load_state.assert_called_once_with()
+        new_page.close.assert_not_called()
+
+    def test_switch_to_next_tab_cycles_context_pages(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        first_page = MagicMock()
+        second_page = MagicMock()
+        second_page.url = "https://example.com/second"
+        second_page.title.return_value = "Second"
+        second_page.viewport_size = {"width": 1440, "height": 900}
+        second_page.evaluate.return_value = {"scrollX": 0, "scrollY": 0}
+        second_page.screenshot.return_value = b"png-bytes"
+        second_page.content.return_value = "<html>second</html>"
+        second_page.locator.return_value.aria_snapshot.return_value = "- document\n"
+        second_page.wait_for_load_state = MagicMock()
+        second_page.bring_to_front = MagicMock()
+
+        computer._context = MagicMock()
+        computer._context.pages = [first_page, second_page]
+        computer._page = first_page
+
+        state = computer.switch_to_next_tab()
+
+        self.assertIs(computer._page, second_page)
+        second_page.bring_to_front.assert_called_once_with()
+        self.assertEqual(state.url, "https://example.com/second")
+
+    def test_switch_to_previous_tab_cycles_context_pages(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        first_page = MagicMock()
+        first_page.url = "https://example.com/first"
+        first_page.title.return_value = "First"
+        first_page.viewport_size = {"width": 1440, "height": 900}
+        first_page.evaluate.return_value = {"scrollX": 0, "scrollY": 0}
+        first_page.screenshot.return_value = b"png-bytes"
+        first_page.content.return_value = "<html>first</html>"
+        first_page.locator.return_value.aria_snapshot.return_value = "- document\n"
+        first_page.wait_for_load_state = MagicMock()
+        first_page.bring_to_front = MagicMock()
+        second_page = MagicMock()
+
+        computer._context = MagicMock()
+        computer._context.pages = [first_page, second_page]
+        computer._page = second_page
+
+        state = computer.switch_to_previous_tab()
+
+        self.assertIs(computer._page, first_page)
+        first_page.bring_to_front.assert_called_once_with()
+        self.assertEqual(state.url, "https://example.com/first")
+
+    def test_take_aria_snapshot_merges_multiple_frames_and_resolves_refs_against_frame(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        main_frame = MagicMock()
+        main_frame.url = "https://example.com"
+        main_frame.locator.return_value.aria_snapshot.return_value = '- button "Search"\n'
+        main_frame.get_by_role.return_value.nth.return_value = "main-locator"
+
+        child_frame = MagicMock()
+        child_frame.url = "https://accounts.example.com"
+        child_frame.locator.return_value.aria_snapshot.return_value = '- textbox "Email"\n'
+        child_frame.get_by_role.return_value.nth.return_value = "child-locator"
+
+        computer._page = MagicMock()
+        computer._page.url = "https://example.com"
+        computer._page.frames = [main_frame, child_frame]
+
+        snapshot = computer.take_aria_snapshot()
+
+        self.assertIn("Frame 1: https://example.com", snapshot.text)
+        self.assertIn("Frame 2: https://accounts.example.com", snapshot.text)
+        self.assertIn('[1] button "Search"', snapshot.text)
+        self.assertIn('[2] textbox "Email"', snapshot.text)
+        self.assertEqual(sorted(snapshot.ref_map.keys()), [1, 2])
+        self.assertEqual(computer.resolve_ref(2), "child-locator")
+        child_frame.get_by_role.assert_called_once_with("textbox", name="Email")
+
+    def test_get_accessibility_tree_reports_frame_aware_snapshot(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        main_frame = MagicMock()
+        main_frame.url = "https://example.com"
+        main_frame.locator.return_value.aria_snapshot.return_value = '- button "Search"\n'
+        main_frame.get_by_role.return_value.nth.return_value = "main-locator"
+
+        child_frame = MagicMock()
+        child_frame.url = "https://accounts.example.com"
+        child_frame.locator.return_value.aria_snapshot.return_value = '- textbox "Email"\n'
+        child_frame.get_by_role.return_value.nth.return_value = "child-locator"
+
+        computer._page = MagicMock()
+        computer._page.url = "https://example.com"
+        computer._page.frames = [main_frame, child_frame]
+
+        result = computer.get_accessibility_tree()
+
+        self.assertEqual(result["status"], "captured")
+        self.assertEqual(result["source"], "frame_locator_aria_snapshot")
+        self.assertEqual(result["frame_count"], 2)
+        self.assertIn("Frame 2: https://accounts.example.com", result["tree"])
+        self.assertEqual(computer.resolve_ref(2), "child-locator")
+
     @patch("browser.playwright.time.sleep", return_value=None)
     def test_current_state_writes_history_files_when_logging_enabled(self, _mock_sleep):
         with tempfile.TemporaryDirectory() as tmp_dir:

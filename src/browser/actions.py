@@ -1,25 +1,25 @@
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Iterable
+from typing import Any, Literal
 
 from .playwright import EnvState, PlaywrightBrowser
 
 
 BrowserAction = Callable[..., EnvState | dict[str, Any]]
+BrowserActionName = Literal[
+    "reload_page",
+    "switch_to_next_tab",
+    "switch_to_previous_tab",
+    "get_accessibility_tree",
+    "upload_file",
+]
+DEFAULT_BROWSER_ACTIONS: tuple[BrowserActionName, ...] = ("reload_page",)
 
 
-def build_browser_action_functions(browser_computer: PlaywrightBrowser) -> list[BrowserAction]:
-    def press_key(key: str) -> EnvState:
-        """Presses a single keyboard key, such as "Enter", "Escape", "Tab", or "Backspace".
-
-        Use this when a single key needs to be pressed without modifiers. For key
-        combinations with modifiers (e.g., "Control+c"), use key_combination instead.
-
-        Args:
-            key: The keyboard key to press. Examples: "Enter", "Escape", "Tab",
-                "Backspace", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight".
-        """
-        return browser_computer.key_combination([key])
-
+def build_browser_action_functions(
+    browser_computer: PlaywrightBrowser,
+    *,
+    include: Iterable[BrowserActionName] = DEFAULT_BROWSER_ACTIONS,
+) -> list[BrowserAction]:
     def reload_page() -> EnvState:
         """Reloads the current webpage.
 
@@ -28,6 +28,22 @@ def build_browser_action_functions(browser_computer: PlaywrightBrowser) -> list[
         from go_back/go_forward, which navigate to adjacent entries in history.
         """
         return browser_computer.reload_page()
+
+    def switch_to_next_tab() -> EnvState:
+        """Switches focus to the next open browser tab.
+
+        Use this when an action opened a new tab or when the needed content is in
+        another existing tab.
+        """
+        return browser_computer.switch_to_next_tab()
+
+    def switch_to_previous_tab() -> EnvState:
+        """Switches focus to the previous open browser tab.
+
+        Use this when you need to return to the prior tab in the current browser
+        window.
+        """
+        return browser_computer.switch_to_previous_tab()
 
     def get_accessibility_tree() -> dict[str, Any]:
         """Returns a serialized accessibility tree for the current webpage.
@@ -56,4 +72,16 @@ def build_browser_action_functions(browser_computer: PlaywrightBrowser) -> list[
         absolute_y = int(y / 1000 * height)
         return browser_computer.upload_file(x=absolute_x, y=absolute_y, path=path)
 
-    return [press_key, reload_page, get_accessibility_tree, upload_file]
+    action_functions: dict[BrowserActionName, BrowserAction] = {
+        "reload_page": reload_page,
+        "switch_to_next_tab": switch_to_next_tab,
+        "switch_to_previous_tab": switch_to_previous_tab,
+        "get_accessibility_tree": get_accessibility_tree,
+        "upload_file": upload_file,
+    }
+    include_set = set(include)
+    return [
+        action
+        for name, action in action_functions.items()
+        if name in include_set
+    ]
