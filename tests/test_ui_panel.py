@@ -136,3 +136,124 @@ def test_panel_links_replay_screenshots_from_action_artifacts():
     )[0]
     assert "/sessions/${encodeURIComponent(replaySessionId)}/artifacts/history/" in action_case
     assert "[shot]" in action_case
+
+
+def test_panel_uses_material_design_theme_tokens():
+    assert "family=Roboto" in PANEL_HTML
+    # Material Design 3 system color tokens
+    assert "--md-sys-color-primary:" in PANEL_HTML
+    assert "--md-sys-color-on-primary:" in PANEL_HTML
+    assert "--md-sys-color-surface-container:" in PANEL_HTML
+    # M3 shape + elevation scales
+    assert "--md-sys-shape-corner-lg:" in PANEL_HTML
+    assert "--md-sys-elevation-3:" in PANEL_HTML
+    # Legacy aliases preserved for in-file references
+    assert "--primary:" in PANEL_HTML
+    assert "--surface-1:" in PANEL_HTML
+    assert "--radius-lg:" in PANEL_HTML
+    assert "--shadow-2:" in PANEL_HTML
+
+
+def test_panel_primary_run_button_uses_material_icon_button_style():
+    assert "#btn {" in PANEL_HTML
+    # M3 Filled Button uses sys color tokens directly
+    assert "background: var(--md-sys-color-primary);" in PANEL_HTML
+    assert "color: var(--md-sys-color-on-primary);" in PANEL_HTML
+    assert 'aria-label="Run task"' in PANEL_HTML
+    assert 'title="Run task"' in PANEL_HTML
+    assert '<button id="btn" class="icon-only" type="button" aria-label="Run task" title="Run task" disabled>' in PANEL_HTML
+    assert "<svg class=\"btn-icon\" aria-hidden=\"true\" viewBox=\"0 0 24 24\" focusable=\"false\">" in PANEL_HTML
+    assert "<path d=\"M8 5v14l11-7z\"></path>" in PANEL_HTML
+    assert "width: 40px;" in PANEL_HTML
+    assert "min-width: 40px;" in PANEL_HTML
+    assert "padding: 0;" in PANEL_HTML
+    assert "<button id=\"btn\" type=\"button\" disabled>run</button>" not in PANEL_HTML
+
+
+def test_panel_secondary_controls_use_svg_icons_with_accessible_labels():
+    assert 'id="sessions-btn" class="icon-label" type="button" aria-label="Open saved sessions"' in PANEL_HTML
+    assert 'id="live-btn" class="icon-label" type="button" aria-label="Return to live view"' in PANEL_HTML
+    assert 'id="sessions-close" class="icon-only" type="button" aria-label="Close saved sessions"' in PANEL_HTML
+    assert 'id="replay-prev" class="icon-only" type="button" aria-label="Previous replay step"' in PANEL_HTML
+    assert 'id="replay-play" class="icon-only" type="button" aria-label="Play or pause replay"' in PANEL_HTML
+    assert 'id="replay-next" class="icon-only" type="button" aria-label="Next replay step"' in PANEL_HTML
+    assert 'class="view-tab icon-label active" data-view="timeline"' in PANEL_HTML
+    assert 'class="view-tab icon-label" data-view="graph"' in PANEL_HTML
+    assert 'btn.className = \'session-item icon-label\';' in PANEL_HTML
+    assert "<button id=\"sessions-close\" type=\"button\">×</button>" not in PANEL_HTML
+    assert "<button id=\"replay-prev\" type=\"button\">⏮</button>" not in PANEL_HTML
+    assert "<button id=\"replay-play\" type=\"button\">⏯</button>" not in PANEL_HTML
+    assert "<button id=\"replay-next\" type=\"button\">⏭</button>" not in PANEL_HTML
+    assert "`▶ ${escHtml(session.id)}" not in PANEL_HTML
+
+
+def test_panel_sidebar_task_plan_and_activity_use_scroll_panel_sections():
+    assert 'class="side-section side-scroll-section side-task-section"' in PANEL_HTML
+    assert 'class="side-section side-scroll-section side-plan-section"' in PANEL_HTML
+    assert 'class="side-section side-scroll-section side-activity-section"' in PANEL_HTML
+    assert "details.side-scroll-section[open]" in PANEL_HTML
+    assert "details.side-scroll-section > .side-body" not in PANEL_HTML
+
+
+def test_panel_sidebar_itself_is_viewport_constrained_and_scrollable():
+    sidebar_css = PANEL_HTML.split("aside#sidebar {", 1)[1].split("}", 1)[0]
+    sheet_body_css = PANEL_HTML.split(".sheet-body {", 1)[1].split("}", 1)[0]
+    side_section_css = PANEL_HTML.split("details.side-section {", 1)[1].split("}", 1)[0]
+    side_scroll_css = PANEL_HTML.split("details.side-scroll-section[open] {", 1)[1].split("}", 1)[0]
+    task_section_css = PANEL_HTML.split("details.side-task-section[open] {", 1)[1].split("}", 1)[0]
+
+    # Sheet container fills viewport; rows lay out header / divider / scrollable body / footer.
+    assert "display: grid;" in sidebar_css
+    assert "grid-template-rows: auto 1px 1fr auto;" in sidebar_css
+    assert "height: 100dvh;" in sidebar_css
+    assert "max-height: 100dvh;" in sidebar_css
+    assert "align-self: stretch;" in sidebar_css
+    # The scrollable region is the sheet-body, not the aside itself.
+    assert "overflow-y: auto;" in sheet_body_css
+    assert "overscroll-behavior: contain;" in sheet_body_css
+    assert "scrollbar-gutter: stable;" in sheet_body_css
+    assert "overflow: visible;" in side_section_css
+    assert "display: grid;" in PANEL_HTML.split("details.side-section[open] {", 1)[1].split("}", 1)[0]
+    assert "grid-template-rows: auto minmax(0, auto);" in PANEL_HTML
+    assert "max-height: none;" in task_section_css
+
+
+def test_panel_sidebar_long_content_uses_flow_safe_grid_items():
+    side_section_css = PANEL_HTML.split("details.side-section {", 1)[1].split("}", 1)[0]
+    side_body_css = PANEL_HTML.split(".side-body {", 1)[1].split("}", 1)[0]
+    todo_css = PANEL_HTML.split(".todo {", 1)[1].split("}", 1)[0]
+    act_item_css = PANEL_HTML.split(".act-item {", 1)[1].split("}", 1)[0]
+
+    assert "position: relative;" in side_section_css
+    assert "flex: 0 0 auto;" in side_section_css
+    assert "width: 100%;" in side_section_css
+    assert "min-width: 0;" in side_body_css
+    assert "max-width: 100%;" in side_body_css
+    assert "word-break: break-word;" in side_body_css
+    assert "grid-template-columns: 30px minmax(0, 1fr);" in todo_css
+    assert "grid-template-columns: auto minmax(0, 1fr);" in act_item_css
+    assert "align-items: start;" in act_item_css
+    assert ".todo .text  { color: var(--fg); min-width: 0; overflow-wrap: anywhere; }" in PANEL_HTML
+    assert ".act-item > span:last-child { min-width: 0; overflow-wrap: anywhere; }" in PANEL_HTML
+
+
+def test_panel_sidebar_toggle_uses_material_arrow_drop_down_icon():
+    toggle_css = PANEL_HTML.split("details.side-section > summary::after {", 1)[1].split("}", 1)[0]
+    open_toggle_css = PANEL_HTML.split("details.side-section[open] > summary::after {", 1)[1].split("}", 1)[0]
+
+    assert "Material+Symbols+Rounded" in PANEL_HTML
+    assert 'content: "arrow_drop_down";' in toggle_css
+    assert 'font-family: "Material Symbols Rounded";' in toggle_css
+    assert 'font-feature-settings: "liga";' in toggle_css
+    assert "transform: rotate(-90deg);" in toggle_css
+    assert "transform: rotate(0deg);" in open_toggle_css
+    assert "linear-gradient(45deg" not in toggle_css
+
+
+def test_panel_removes_keybind_help_bar():
+    assert 'class="keybind"' not in PANEL_HTML
+    assert "enter</kbd> submit" not in PANEL_HTML
+    assert "shift+enter</kbd> newline" not in PANEL_HTML
+    assert "esc</kbd> interrupt" not in PANEL_HTML
+    assert '"keybind resizer aside"' not in PANEL_HTML
+    assert 'grid-template-areas: "header" "main" "footer";' in PANEL_HTML
