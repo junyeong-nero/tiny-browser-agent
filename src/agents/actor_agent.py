@@ -36,10 +36,17 @@ from agents.post_summary_agent import (
     ActionStepSummarizer,
 )
 from agents.types import GroundingMode, Subgoal
-from browser import ArtifactLogger, build_browser_action_functions, EnvState, PlaywrightBrowser
+from browser import (
+    ArtifactLogger,
+    BrowserActionName,
+    build_browser_action_functions,
+    EnvState,
+    PlaywrightBrowser,
+)
 from llm import LLMClient
 from tool_executor import BrowserToolExecutor, prune_old_aria_parts, prune_old_screenshot_parts
 from tools.types import (
+    CustomFunction,
     ExecutedCall,
     ToolBatchResult,
     ToolResult,
@@ -49,12 +56,14 @@ from tools.types import (
 )
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
+MAX_RECENT_TURNS_WITH_ARIA = 1
 _UNSET_STEP_SUMMARIZER: object = object()
 COMPUTER_USE_PROVIDER_NAMES = {"gemini_api", "gemini_computer_use"}
 
 MODEL_REQUEST_MAX_ATTEMPTS = 4
 MODEL_REQUEST_BASE_DELAY_SECONDS = 1.0
 MODEL_REQUEST_MAX_DELAY_SECONDS = 16.0
+EMPTY_MODEL_TURN_MAX_RETRIES = 2
 
 _ACTOR_SYSTEM_PROMPT = """You are a browser automation agent that completes the user's task by inspecting the current webpage and calling browser tools.
 Use the task as the final goal, and use any active subgoal or latest browser state as the immediate step to execute.
@@ -78,11 +87,6 @@ console = Console()
 FunctionResponseT = ToolResult
 
 
-def multiply_numbers(x: float, y: float) -> dict:
-    """Multiplies two numbers."""
-    return {"result": x * y}
-
-
 class BrowserAgent:
     def __init__(
         self,
@@ -99,6 +103,8 @@ class BrowserAgent:
         replan_callback: Optional[Callable[[Subgoal, str, list[Subgoal]], list[Subgoal]]] = None,
         max_steps_per_subgoal: int = 15,
         conversation_context: str | None = None,
+        custom_functions: list[CustomFunction] | None = None,
+        extra_browser_tools: list[BrowserActionName] | None = None,
     ):
         self._browser_computer = browser_computer
         self._query = query
@@ -119,13 +125,18 @@ class BrowserAgent:
         self._subgoals = subgoals
         self._replan_callback = replan_callback
         self._max_steps_per_subgoal = max_steps_per_subgoal
+        browser_actions = build_browser_action_functions(
+            browser_computer,
+            include=("reload_page", *(extra_browser_tools or [])),
+        )
         self._custom_functions = [
-            multiply_numbers,
-            *build_browser_action_functions(browser_computer),
+            *browser_actions,
+            *(custom_functions or []),
         ]
         self._step_review_metadata: dict[int, dict[str, Any]] = {}
         self._latest_url: str | None = None
         self._current_subgoal_id: int | None = None
+        self._empty_model_turn_retries = 0
         if step_summarizer is _UNSET_STEP_SUMMARIZER:
             step_summarizer = ActionStepSummarizer.from_env()
         self._tool_executor = BrowserToolExecutor(
@@ -154,8 +165,9 @@ class BrowserAgent:
             )
         ]
 
-        # Exclude any predefined functions here.
-        excluded_predefined_functions = []
+        # `navigate` covers direct search-engine navigation while keeping the
+        # exposed Computer Use tool set smaller.
+        excluded_predefined_functions = ["search"]
 
         self._generate_content_config = GenerateContentConfig(
             system_instruction=Content(
@@ -550,14 +562,70 @@ class BrowserAgent:
         )
         return True
 
+    def _should_retry_empty_model_turn(
+        self,
+        step_id: int,
+        reasoning: Optional[str],
+        visible_text: Optional[str],
+        function_calls: list[types.FunctionCall],
+    ) -> bool:
+        if reasoning or visible_text or function_calls:
+            self._empty_model_turn_retries = 0
+            return False
+
+        # Planner subgoal execution already has a marker-specific recovery path
+        # for missing final text. Keep that behavior local to subgoals so a
+        # blank turn can be classified as a failed subgoal/replanned instead of
+        # aborting the whole planner run.
+        if self._current_subgoal_id is not None:
+            return False
+
+        self._empty_model_turn_retries += 1
+        error_message = (
+            "Model returned no text and no tool calls. "
+            f"Retrying empty turn ({self._empty_model_turn_retries}/"
+            f"{EMPTY_MODEL_TURN_MAX_RETRIES})."
+        )
+        self._emit_event(
+            "step_error",
+            step_id=step_id,
+            error_message=error_message,
+        )
+
+        # Do not replay an empty assistant turn to chat-completion providers;
+        # some providers reject assistant messages with no content/tool calls.
+        if self._contents and self._contents[-1].role == "model":
+            latest_parts = self._contents[-1].parts or []
+            if not any(part.text or part.function_call for part in latest_parts):
+                self._contents.pop()
+
+        if self._empty_model_turn_retries > EMPTY_MODEL_TURN_MAX_RETRIES:
+            raise RuntimeError(
+                "Model returned no text or tool calls after "
+                f"{EMPTY_MODEL_TURN_MAX_RETRIES} retry attempts."
+            )
+
+        self.append_user_message(
+            "Your previous response was empty: it contained neither a browser "
+            "tool call nor a final answer. Continue the task by calling an "
+            "appropriate browser tool, or finish with a concise final answer."
+        )
+        self._emit_event(
+            "step_complete",
+            step_id=step_id,
+            status="retry",
+            error_message=error_message,
+        )
+        return True
+
     def _complete_without_function_calls(
         self,
         step_id: int,
         reasoning: Optional[str],
         visible_text: Optional[str],
     ) -> Literal["COMPLETE"]:
-        print(f"Agent Loop Complete: {reasoning}")
         final_reasoning = reasoning or visible_text
+        print(f"Agent Loop Complete: {final_reasoning or '<empty model response>'}")
         final_result_summary = self._review_service.build_final_result_summary(
             final_response=visible_text or reasoning,
             current_url=self._latest_url,
@@ -871,6 +939,14 @@ class BrowserAgent:
         ):
             return "CONTINUE"
 
+        if self._should_retry_empty_model_turn(
+            step_id,
+            reasoning,
+            visible_text,
+            function_calls,
+        ):
+            return "CONTINUE"
+
         if not function_calls:
             return self._complete_without_function_calls(step_id, reasoning, visible_text)
 
@@ -891,7 +967,7 @@ class BrowserAgent:
         )
         prune_old_aria_parts(
             self._contents,
-            MAX_RECENT_TURN_WITH_SCREENSHOTS,
+            MAX_RECENT_TURNS_WITH_ARIA,
         )
 
         return self._finalize_continuation_step(step_id, reasoning)

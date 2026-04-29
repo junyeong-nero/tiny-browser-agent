@@ -19,12 +19,17 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 from google.genai import types
-from agents.actor_agent import BrowserAgent, multiply_numbers
+from agents.actor_agent import BrowserAgent
 from agents.post_summary_agent import ActionReviewService
 from agents.types import Subgoal
 from browser import EnvState
 from llm.client import LLMClient
 from tools.types import TOOL_ARGUMENT_ERROR_KEY
+
+
+def multiply_numbers(x: float, y: float) -> dict:
+    """Multiplies two numbers."""
+    return {"result": x * y}
 
 
 class TestBrowserAgent(unittest.TestCase):
@@ -198,18 +203,35 @@ class TestBrowserAgent(unittest.TestCase):
         )
         self.assertEqual(
             first_tool.computer_use.excluded_predefined_functions,
-            [],
+            ["search"],
         )
         self.assertEqual(
             [declaration.name for declaration in second_tool.function_declarations],
-            [
-                multiply_numbers.__name__,
-                "press_key",
-                "reload_page",
-                "get_accessibility_tree",
-                "upload_file",
-            ],
+            ["reload_page"],
         )
+
+    def test_text_grounding_exposes_ref_verification_tools(self):
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            grounding="text",
+            step_summarizer=None,
+        )
+
+        tools = agent._generate_content_config.tools
+        if tools is None:
+            self.fail("Expected generate content tools")
+        declarations = tools[0].function_declarations
+        if declarations is None:
+            self.fail("Expected function declarations tool")
+
+        declaration_names = [declaration.name for declaration in declarations]
+        self.assertIn("check_by_ref", declaration_names)
+        self.assertIn("wait_for_ref", declaration_names)
+        self.assertNotIn("search", declaration_names)
+        self.assertNotIn("get_accessibility_tree", declaration_names)
 
     def test_get_model_response_calls_llm_client(self):
         mock_response = MagicMock()
@@ -237,6 +259,46 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(result, "COMPLETE")
         self.assertEqual(len(self.agent._contents), 2)
         self.assertEqual(self.agent._contents[1], mock_candidate.content)
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_retries_empty_model_turn(self, mock_get_model_response):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        mock_get_model_response.return_value = self.make_response([])
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        self.assertEqual([event["type"] for event in events][-2:], ["step_error", "step_complete"])
+        self.assertEqual(events[-1]["status"], "retry")
+        latest_message = agent.get_recent_messages(limit=1)[0]["text"] or ""
+        self.assertIn("previous response was empty", latest_message)
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_agent_loop_fails_after_repeated_empty_model_turns(self, mock_get_model_response):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        mock_get_model_response.return_value = self.make_response([])
+
+        with self.assertRaisesRegex(RuntimeError, "no text or tool calls"):
+            agent.agent_loop()
+
+        self.assertEqual(mock_get_model_response.call_count, 3)
+        self.assertIsNone(agent.final_reasoning)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_retries_on_malformed_function_call(self, mock_get_model_response):
@@ -372,6 +434,14 @@ class TestBrowserAgent(unittest.TestCase):
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_dict_function_response(self, mock_get_model_response):
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            step_summarizer=None,
+            custom_functions=[multiply_numbers],
+        )
         function_call = types.FunctionCall(
             name=multiply_numbers.__name__,
             args={"x": 2, "y": 3},
@@ -380,10 +450,10 @@ class TestBrowserAgent(unittest.TestCase):
             [types.Part(function_call=function_call)]
         )
 
-        result = self.agent.run_one_iteration()
+        result = agent.run_one_iteration()
 
         self.assertEqual(result, "CONTINUE")
-        tool_turn = self.agent._contents[-1]
+        tool_turn = agent._contents[-1]
         function_response = self.get_function_response(tool_turn)
         self.assertEqual(function_response.name, multiply_numbers.__name__)
         self.assertEqual(function_response.response, {"result": 6})
@@ -700,6 +770,14 @@ class TestBrowserAgent(unittest.TestCase):
         self,
         mock_get_model_response,
     ):
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            step_summarizer=None,
+            custom_functions=[multiply_numbers],
+        )
         function_call = types.FunctionCall(
             name=multiply_numbers.__name__,
             args={"x": 2, "y": 3},
@@ -711,7 +789,7 @@ class TestBrowserAgent(unittest.TestCase):
             ]
         )
 
-        result = self.agent.run_one_iteration()
+        result = agent.run_one_iteration()
 
         self.assertEqual(result, "CONTINUE")
         self.mock_browser_computer.latest_artifact_metadata.assert_not_called()
