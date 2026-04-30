@@ -45,6 +45,7 @@ from browser import (
 )
 from llm import LLMClient
 from tool_executor import BrowserToolExecutor, prune_old_aria_parts, prune_old_screenshot_parts
+from tools.helpers import resolve_ref_node
 from tools.types import (
     CustomFunction,
     ExecutedCall,
@@ -763,6 +764,18 @@ class BrowserAgent:
             artifacts=None,
         )
 
+    def _resolve_ref_name(self, args: Any) -> Optional[str]:
+        if not args or not hasattr(args, "get") or args.get("ref") is None:
+            return None
+        try:
+            node = resolve_ref_node(self._browser_computer, dict(args))
+        except (TypeError, ValueError):
+            return None
+        if node is None:
+            return None
+        name = (node.name or "").strip()
+        return name or None
+
     def _execute_single_function_call(
         self,
         step_id: int,
@@ -771,6 +784,7 @@ class BrowserAgent:
         reasoning: Optional[str],
         extra_fr_fields: dict[str, Any],
     ) -> FunctionResponse:
+        ref_name = self._resolve_ref_name(function_call.args)
         argument_error = extract_tool_argument_error(function_call.args)
         if argument_error is not None:
             error_message = str(argument_error.get("error") or "Malformed tool arguments.")
@@ -801,9 +815,12 @@ class BrowserAgent:
                 executed_call = self._build_tool_execution_error_call(function_call, exc)
 
         fc_result = executed_call.result
+        action_args = dict(function_call.args or {})
+        if ref_name and "ref_name" not in action_args:
+            action_args["ref_name"] = ref_name
         action_payload = {
             "name": function_call.name,
-            "args": dict(function_call.args or {}),
+            "args": action_args,
         }
         review_metadata = self._review_service.build_review_metadata_for_action(
             step_id=step_id,
@@ -855,7 +872,7 @@ class BrowserAgent:
             result_summary = str(fc_result)[:200] if fc_result is not None else None
         self._artifact_logger.record_action(
             tool=function_call.name,
-            args=dict(function_call.args or {}),
+            args=action_args,
             result_summary=result_summary,
         )
         return self._tool_executor.serialize_function_response(
