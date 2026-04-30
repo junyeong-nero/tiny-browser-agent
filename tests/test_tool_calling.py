@@ -285,6 +285,37 @@ class TestBrowserToolExecutor(unittest.TestCase):
             self.mock_browser_computer.latest_artifact_metadata.return_value,
         )
 
+
+    def test_execute_call_wraps_browser_actions_with_action_capture(self):
+        class CaptureBrowser:
+            def __init__(self):
+                self.started = False
+                self.ended = False
+
+            def begin_action_capture(self):
+                self.started = True
+
+            def end_action_capture(self):
+                self.ended = True
+                return {"action_clip_gif_path": "step-0001-action.gif"}
+
+            def navigate(self, url):
+                return EnvState(screenshot=b"screenshot", url=url)
+
+            def latest_artifact_metadata(self):
+                return {"metadata_path": "step-0001.json"}
+
+        browser = CaptureBrowser()
+        executor = BrowserToolExecutor(browser_computer=browser)
+
+        executed_call = executor.execute_call(
+            types.FunctionCall(name="navigate", args={"url": "https://example.com"})
+        )
+
+        self.assertTrue(browser.started)
+        self.assertTrue(browser.ended)
+        self.assertEqual(executed_call.artifacts["action_clip_gif_path"], "step-0001-action.gif")
+
     def test_serialize_function_response_for_env_state(self):
         executed_call = self.executor.execute_call(
             types.FunctionCall(id="call-1", name="navigate", args={"url": "https://example.com"})

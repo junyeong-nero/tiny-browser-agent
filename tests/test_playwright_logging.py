@@ -202,6 +202,11 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(metadata["url"], "https://example.com")
             self.assertEqual(metadata["html_path"], "step-0001.html")
             self.assertEqual(metadata["screenshot_path"], "step-0001.png")
+            self.assertIsNone(metadata["before_screenshot_path"])
+            self.assertEqual(metadata["after_screenshot_path"], "step-0001.png")
+            self.assertIsNone(metadata["action_gif_path"])
+            self.assertIsNone(metadata["before_metadata_path"])
+            self.assertEqual(metadata["after_metadata_path"], "step-0001.json")
             self.assertEqual(metadata["a11y_path"], "step-0001.a11y.yaml")
             self.assertEqual(metadata["a11y_source"], "body_locator_aria_snapshot")
             self.assertEqual(metadata["a11y_capture_status"], "captured")
@@ -218,7 +223,12 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(latest_metadata["url"], "https://example.com")
             self.assertEqual(latest_metadata["html_path"], "step-0001.html")
             self.assertEqual(latest_metadata["screenshot_path"], "step-0001.png")
+            self.assertIsNone(latest_metadata["before_screenshot_path"])
+            self.assertEqual(latest_metadata["after_screenshot_path"], "step-0001.png")
+            self.assertIsNone(latest_metadata["action_gif_path"])
             self.assertEqual(latest_metadata["metadata_path"], "step-0001.json")
+            self.assertIsNone(latest_metadata["before_metadata_path"])
+            self.assertEqual(latest_metadata["after_metadata_path"], "step-0001.json")
             self.assertEqual(latest_metadata["a11y_path"], "step-0001.a11y.yaml")
 
     @patch("browser.playwright.time.sleep", return_value=None)
@@ -320,6 +330,71 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertFalse(metadata["ambiguity_flag"])
             self.assertEqual(metadata["review_evidence"], [])
             self.assertEqual(metadata["a11y_path"], "step-0001.a11y.yaml")
+
+    def test_action_clip_gif_updates_latest_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            computer = PlaywrightBrowser(
+                screen_size=(1440, 900),
+                artifact_logger=ArtifactLogger(log_dir=tmp_dir),
+            )
+            history_dir = Path(tmp_dir) / "history"
+            history_dir.mkdir(parents=True)
+            metadata_path = history_dir / "step-0001.json"
+            metadata_path.write_text(
+                json.dumps({"step": 1, "metadata_path": "step-0001.json"}) + "\n",
+                encoding="utf-8",
+            )
+            computer._artifact_logger._latest_artifact_metadata = {
+                "step": 1,
+                "metadata_path": "step-0001.json",
+            }
+
+            captured_cmd = {}
+
+            def fake_popen(cmd, stdin, stdout, stderr):
+                captured_cmd["cmd"] = cmd
+
+                class FakeProc:
+                    def __init__(self):
+                        self.stdin = self
+
+                    def write(self, _frame):
+                        return None
+
+                    def close(self):
+                        Path(cmd[-1]).write_bytes(b"GIF89a")
+
+                    def wait(self, timeout):
+                        return 0
+
+                return FakeProc()
+
+            with patch("browser.playwright.shutil.which", return_value="/usr/bin/ffmpeg"), patch(
+                "browser.playwright.subprocess.Popen", side_effect=fake_popen
+            ):
+                updates = computer._write_action_clip_gif([(10.0, b"frame1"), (12.0, b"frame2")], {"step": 1})
+                computer._merge_latest_metadata({"action_clip_gif_path": updates, "action_capture_frame_count": 2})
+
+            self.assertEqual(captured_cmd["cmd"][captured_cmd["cmd"].index("-framerate") + 1], "0.500")
+            filter_complex = captured_cmd["cmd"][captured_cmd["cmd"].index("-filter_complex") + 1]
+            self.assertIn("palettegen=max_colors=256:stats_mode=diff:reserve_transparent=0", filter_complex)
+            self.assertIn("paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle", filter_complex)
+
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(metadata["action_clip_gif_path"], "step-0001-action.gif")
+            self.assertEqual(metadata["action_capture_frame_count"], 2)
+            self.assertEqual(computer.latest_artifact_metadata()["action_clip_gif_path"], "step-0001-action.gif")
+
+    def test_action_gif_samples_sixty_frames_across_full_capture(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        frames = [(float(i), f"frame-{i}".encode()) for i in range(120)]
+
+        sampled = computer._sample_action_frames(frames, max_frames=60)
+
+        self.assertEqual(len(sampled), 60)
+        self.assertEqual(sampled[0], frames[0])
+        self.assertEqual(sampled[-1], frames[-1])
+        self.assertGreater(sampled[1][0], sampled[0][0])
 
 
 if __name__ == "__main__":

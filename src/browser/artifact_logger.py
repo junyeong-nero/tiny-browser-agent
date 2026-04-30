@@ -1,4 +1,7 @@
 import json
+import os
+import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -27,11 +30,64 @@ class ArtifactLogger:
     def video_dir(self) -> Path | None:
         return self._video_dir
 
+    def session_id(self) -> str | None:
+        return self._log_dir.name if self._log_dir else None
+
     def latest_artifact_metadata(self) -> dict[str, Any] | None:
         if self._latest_artifact_metadata is None:
             return None
         return dict(self._latest_artifact_metadata)
 
+    def _write_action_gif(
+        self,
+        *,
+        before_path: Path | None,
+        after_path: Path,
+        step_name: str,
+    ) -> str | None:
+        if before_path is None or not before_path.is_file():
+            return None
+        ffmpeg_cmd = os.getenv("COMPUTER_USE_FFMPEG_COMMAND") or shutil.which("ffmpeg")
+        if not ffmpeg_cmd:
+            return None
+        gif_path = self._history_dir / f"{step_name}.gif" if self._history_dir else None
+        if gif_path is None:
+            return None
+        cmd = [
+            ffmpeg_cmd,
+            "-y",
+            "-loop",
+            "1",
+            "-t",
+            "0.85",
+            "-i",
+            str(before_path),
+            "-loop",
+            "1",
+            "-t",
+            "1.15",
+            "-i",
+            str(after_path),
+            "-filter_complex",
+            (
+                "[0:v][1:v]concat=n=2:v=1:a=0,"
+                "fps=2,scale=640:-1:flags=lanczos,split[p0][p1];"
+                "[p0]palettegen=max_colors=256:stats_mode=diff:reserve_transparent=0[p];"
+                "[p1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
+            ),
+            str(gif_path),
+        ]
+        try:
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=True,
+                timeout=15,
+            )
+        except Exception:
+            return None
+        return gif_path.name if gif_path.is_file() else None
 
     def record_event(self, event: dict[str, Any]) -> None:
         """Append a replayable UI event to events.jsonl."""
@@ -87,6 +143,7 @@ class ArtifactLogger:
             return None
 
         self.prepare_log_dirs()
+        previous_metadata = self._latest_artifact_metadata or {}
         self._history_step += 1
         step_name = f"step-{self._history_step:04d}"
         screenshot_path = self._history_dir / f"{step_name}.png"
@@ -96,6 +153,17 @@ class ArtifactLogger:
         screenshot_path.write_bytes(screenshot_bytes)
         if html is not None:
             html_path.write_text(html, encoding="utf-8")
+        before_screenshot_name = previous_metadata.get("screenshot_path")
+        before_screenshot_path = (
+            self._history_dir / before_screenshot_name
+            if isinstance(before_screenshot_name, str)
+            else None
+        )
+        action_gif_path = self._write_action_gif(
+            before_path=before_screenshot_path,
+            after_path=screenshot_path,
+            step_name=step_name,
+        )
 
         metadata = {
             "step": self._history_step,
@@ -103,8 +171,13 @@ class ArtifactLogger:
             "url": url,
             "html_path": html_path.name if html is not None else None,
             "screenshot_path": screenshot_path.name,
+            "before_screenshot_path": before_screenshot_name,
+            "after_screenshot_path": screenshot_path.name,
+            "action_gif_path": action_gif_path,
             "a11y_path": a11y_path,
             "metadata_path": metadata_path.name,
+            "before_metadata_path": previous_metadata.get("metadata_path"),
+            "after_metadata_path": metadata_path.name,
             **(metadata_extra or {}),
         }
         metadata_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")

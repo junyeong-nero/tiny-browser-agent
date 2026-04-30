@@ -123,10 +123,20 @@ class BrowserToolExecutor:
         ]
 
     def execute_call(self, action: types.FunctionCall) -> ExecutedCall:
-        result = self.execute(action)
+        captures_actions = hasattr(type(self._browser_computer), "begin_action_capture")
+        if captures_actions:
+            self._browser_computer.begin_action_capture()
+        try:
+            result = self.execute(action)
+        finally:
+            capture_updates = None
+            if captures_actions:
+                capture_updates = self._browser_computer.end_action_capture()
         artifacts = None
         if is_env_state_result(result):
             artifacts = self._latest_artifact_metadata()
+            if isinstance(capture_updates, dict) and artifacts is not None:
+                artifacts = {**artifacts, **capture_updates}
         return ExecutedCall(function_call=action, result=result, artifacts=artifacts)
 
     def supports_function(self, name: str | None) -> bool:

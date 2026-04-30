@@ -10,7 +10,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
 SESSION_ID_RE = re.compile(r"^\d{8}-\d{6}$")
-_ALLOWED_HISTORY_EXTS = {".png", ".html", ".json", ".yaml"}
+_ALLOWED_HISTORY_EXTS = {".png", ".gif", ".html", ".json", ".yaml"}
+_ALLOWED_VIDEO_EXTS = {".webm", ".mp4"}
 
 router = APIRouter()
 _logs_history_dir = Path(__file__).resolve().parents[2] / "logs" / "history"
@@ -85,10 +86,33 @@ def _video_name(session_dir: Path) -> str | None:
     video_dir = session_dir / "video"
     if not video_dir.is_dir():
         return None
-    first = next(iter(sorted(video_dir.glob("*.webm"))), None)
-    if first is None:
+    videos = sorted(
+        path for path in video_dir.iterdir()
+        if path.is_file() and path.suffix in _ALLOWED_VIDEO_EXTS
+    )
+    if not videos:
         return None
-    return f"video/{first.name}"
+    return f"video/{videos[0].name}"
+
+
+def _enrich_events_with_session_artifacts(
+    events: list[dict[str, Any]],
+    session_dir: Path,
+) -> list[dict[str, Any]]:
+    video_path = _video_name(session_dir)
+    if video_path is None:
+        return events
+    enriched: list[dict[str, Any]] = []
+    for event in events:
+        if event.get("type") != "action_executed":
+            enriched.append(event)
+            continue
+        next_event = dict(event)
+        artifacts = dict(next_event.get("artifacts") or {})
+        artifacts.setdefault("video_path", video_path)
+        next_event["artifacts"] = artifacts
+        enriched.append(next_event)
+    return enriched
 
 
 def list_sessions() -> list[dict[str, Any]]:
@@ -118,7 +142,7 @@ def load_events(session_id: str) -> list[dict[str, Any]]:
     session_dir = _session_dir(session_id)
     events_path = session_dir / "events.jsonl"
     if events_path.exists():
-        return _read_jsonl(events_path)
+        return _enrich_events_with_session_artifacts(_read_jsonl(events_path), session_dir)
     synthetic_path = session_dir / "events.jsonl.synthetic"
     if synthetic_path.exists():
         return _read_jsonl(synthetic_path)
@@ -161,8 +185,16 @@ def synthesize_events(session_dir: Path) -> list[dict[str, Any]]:
             "artifacts": {
                 "step": step_id,
                 "screenshot_path": step_meta.get("screenshot_path"),
+                "before_screenshot_path": step_meta.get("before_screenshot_path"),
+                "after_screenshot_path": step_meta.get("after_screenshot_path") or step_meta.get("screenshot_path"),
+                "action_gif_path": step_meta.get("action_gif_path"),
+                "action_clip_gif_path": step_meta.get("action_clip_gif_path"),
+                "action_capture_frame_count": step_meta.get("action_capture_frame_count"),
                 "metadata_path": step_meta.get("metadata_path") or step_file.name,
+                "before_metadata_path": step_meta.get("before_metadata_path"),
+                "after_metadata_path": step_meta.get("after_metadata_path") or step_meta.get("metadata_path") or step_file.name,
                 "a11y_path": step_meta.get("a11y_path"),
+                "video_path": _video_name(session_dir),
             },
         }
         if action:
@@ -227,7 +259,7 @@ def _artifact_path(session_dir: Path, artifact_path: str) -> Path:
         name = parts[1]
         allowed = name.startswith("step-") and requested.suffix in _ALLOWED_HISTORY_EXTS
     elif len(parts) == 2 and parts[0] == "video":
-        allowed = requested.suffix == ".webm"
+        allowed = requested.suffix in _ALLOWED_VIDEO_EXTS
     if not allowed:
         raise HTTPException(status_code=404, detail="Artifact not allowed")
     if not requested.is_file():

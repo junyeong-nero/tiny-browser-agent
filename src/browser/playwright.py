@@ -1,3 +1,5 @@
+import base64
+import json
 import os
 import shutil
 import subprocess
@@ -94,6 +96,10 @@ class PlaywrightBrowser:
         self._frame_thread: Optional[threading.Thread] = None
         self._frame_stop = threading.Event()
         self._ffmpeg_proc: Optional[subprocess.Popen] = None
+        self._action_cdp_session: Any | None = None
+        self._action_capture_frames: list[tuple[float, bytes]] | None = None
+        self._action_capture_lock = threading.Lock()
+        self._action_capture_started_at: float | None = None
         self._aria_ref_map: dict[int, NodeInfo] | None = None
         self._aria_ref_target_map: dict[int, Any] | None = None
         self._previous_state: BrowserState | None = None
@@ -620,6 +626,192 @@ class PlaywrightBrowser:
                 stdin.write(frame)
             except (BrokenPipeError, OSError):
                 break
+
+
+    def begin_action_capture(self) -> None:
+        """Best-effort capture of frames emitted while a browser action runs."""
+        if not self.history_dir():
+            return
+        ffmpeg_cmd = os.getenv("COMPUTER_USE_FFMPEG_COMMAND") or shutil.which("ffmpeg")
+        if not ffmpeg_cmd or self._page is None or self._context is None:
+            return
+        with self._action_capture_lock:
+            self._action_capture_frames = []
+            self._action_capture_started_at = time.time()
+        try:
+            cdp_session = self._context.new_cdp_session(self._page)
+
+            def on_frame(params: dict[str, Any]) -> None:
+                data = params.get("data")
+                session_id = params.get("sessionId")
+                if session_id is not None:
+                    try:
+                        cdp_session.send("Page.screencastFrameAck", {"sessionId": session_id})
+                    except Exception:
+                        pass
+                if not isinstance(data, str):
+                    return
+                try:
+                    frame = base64.b64decode(data)
+                except Exception:
+                    return
+                frame_ts = time.time()
+                metadata = params.get("metadata")
+                if isinstance(metadata, dict) and isinstance(metadata.get("timestamp"), (int, float)):
+                    # CDP timestamps are monotonic seconds; keep wall-clock time for
+                    # consistency with action_started_at/action_ended_at.
+                    frame_ts = time.time()
+                with self._action_capture_lock:
+                    frames = self._action_capture_frames
+                    if frames is not None and len(frames) < 600:
+                        frames.append((frame_ts, frame))
+
+            cdp_session.on("Page.screencastFrame", on_frame)
+            cdp_session.send("Page.startScreencast", {"format": "png", "quality": 80, "everyNthFrame": 1})
+            self._action_cdp_session = cdp_session
+        except Exception:
+            with self._action_capture_lock:
+                self._action_capture_frames = None
+                self._action_capture_started_at = None
+            self._action_cdp_session = None
+
+    def end_action_capture(self) -> dict[str, Any] | None:
+        cdp_session = self._action_cdp_session
+        if cdp_session is not None:
+            try:
+                cdp_session.send("Page.stopScreencast")
+            except Exception:
+                pass
+            self._action_cdp_session = None
+
+        with self._action_capture_lock:
+            captured_frames = list(self._action_capture_frames or [])
+            started_at = self._action_capture_started_at
+            self._action_capture_frames = None
+            self._action_capture_started_at = None
+
+        metadata = self.latest_artifact_metadata()
+        history_dir = self.history_dir()
+        if not metadata or not history_dir:
+            return None
+
+        ended_at = time.time()
+        metadata_updates: dict[str, Any] = {
+            "action_started_at": started_at,
+            "action_ended_at": ended_at,
+            "action_duration_ms": int((ended_at - started_at) * 1000) if started_at else None,
+            "action_capture_frame_count": len(captured_frames),
+        }
+        sampled_frames = self._sample_action_frames(captured_frames, max_frames=60)
+        if sampled_frames:
+            metadata_updates["action_gif_frame_count"] = len(sampled_frames)
+        clip_name = self._write_action_clip_gif(sampled_frames, metadata)
+        if clip_name:
+            metadata_updates["action_clip_gif_path"] = clip_name
+        self._merge_latest_metadata(metadata_updates)
+        return metadata_updates
+
+    def _sample_action_frames(
+        self,
+        frames: list[tuple[float, bytes]],
+        *,
+        max_frames: int,
+    ) -> list[tuple[float, bytes]]:
+        if len(frames) <= max_frames:
+            return frames
+        if max_frames <= 1:
+            return frames[:1]
+        last_index = len(frames) - 1
+        selected: list[tuple[float, bytes]] = []
+        seen_indices: set[int] = set()
+        for out_index in range(max_frames):
+            source_index = round(out_index * last_index / (max_frames - 1))
+            if source_index in seen_indices:
+                continue
+            seen_indices.add(source_index)
+            selected.append(frames[source_index])
+        return selected
+
+    def _action_gif_input_fps(self, frames: list[tuple[float, bytes]]) -> float:
+        if len(frames) < 2:
+            return 20.0
+        duration = max(frames[-1][0] - frames[0][0], 0.001)
+        return max(0.5, min(60.0, (len(frames) - 1) / duration))
+
+    def _write_action_clip_gif(self, frames: list[tuple[float, bytes]], metadata: dict[str, Any]) -> str | None:
+        if len(frames) < 2:
+            return None
+        history_dir = self.history_dir()
+        if not history_dir:
+            return None
+        ffmpeg_cmd = os.getenv("COMPUTER_USE_FFMPEG_COMMAND") or shutil.which("ffmpeg")
+        if not ffmpeg_cmd:
+            return None
+        step = metadata.get("step")
+        if not isinstance(step, int):
+            return None
+        output_path = history_dir / f"step-{step:04d}-action.gif"
+        input_fps = self._action_gif_input_fps(frames)
+        cmd = [
+            ffmpeg_cmd,
+            "-y",
+            "-f",
+            "image2pipe",
+            "-framerate",
+            f"{input_fps:.3f}",
+            "-vcodec",
+            "png",
+            "-i",
+            "pipe:0",
+            "-filter_complex",
+            (
+                "[0:v]scale=640:-1:flags=lanczos,split[p0][p1];"
+                "[p0]palettegen=max_colors=256:stats_mode=diff:reserve_transparent=0[p];"
+                "[p1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
+            ),
+            str(output_path),
+        ]
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            assert proc.stdin is not None
+            for _timestamp, frame in frames:
+                proc.stdin.write(frame)
+            proc.stdin.close()
+            proc.wait(timeout=20)
+        except Exception:
+            return None
+        return output_path.name if output_path.is_file() else None
+
+    def _merge_latest_metadata(self, updates: dict[str, Any]) -> None:
+        metadata = self.latest_artifact_metadata()
+        history_dir = self.history_dir()
+        if not metadata or not history_dir:
+            return
+        metadata_path_value = metadata.get("metadata_path")
+        if not isinstance(metadata_path_value, str):
+            return
+        metadata_path = history_dir / metadata_path_value
+        if not metadata_path.is_file():
+            return
+        try:
+            current = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(current, dict):
+            return
+        current.update(updates)
+        metadata_path.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
+        # Keep the logger's public latest metadata in sync by updating through the
+        # private field only when present; this avoids another public mutator just
+        # for the browser-owned enrichment path.
+        latest = getattr(self._artifact_logger, "_latest_artifact_metadata", None)
+        if isinstance(latest, dict):
+            latest.update(updates)
 
     def _prepare_log_dirs(self):
         self._artifact_logger.prepare_log_dirs()
