@@ -1,10 +1,10 @@
 models:
   actor:
     provider: openrouter
-    model: nvidia/nemotron-3-super-120b-a12b:free
+    model: inclusionai/ling-2.6-1t:free # nvidia/nemotron-3-super-120b-a12b:free
   planner:
-    provider: gemini
-    model: gemini-3-flash-preview
+    provider: openrouter # gemini
+    model: inclusionai/ling-2.6-1t:free # gemini-3-flash-preview
   summary:
     provider: openai
     model: gpt-4o-mini
