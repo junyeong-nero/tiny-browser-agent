@@ -53,7 +53,8 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(git commit *)",
       "Read(//dev/**)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(PYTHONPATH=src uv run *)"
     ]
   }
 }
