@@ -3,10 +3,17 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from agents.actor_agent import BrowserAgent
+from agents.actor_agent import AgentInterrupted, BrowserAgent
 from agents.types import GroundingMode
 from browser import ArtifactLogger, PlaywrightBrowser
-from ui.bridge import emit, register_event_sink, task_queue, unregister_event_sink
+from ui.bridge import (
+    clear_task_interrupt,
+    emit,
+    is_task_interrupted,
+    register_event_sink,
+    task_queue,
+    unregister_event_sink,
+)
 
 
 MAX_CONVERSATION_MEMORY_ITEMS = 5
@@ -92,7 +99,11 @@ class BrowserSession:
                 }
             )
             register_event_sink(artifact_logger.record_event)
-        emit({"type": "task_started", "query": query})
+        task_started_event = {"type": "task_started", "query": query}
+        session_id = artifact_logger.session_id()
+        if session_id is not None:
+            task_started_event["session_id"] = session_id
+        emit(task_started_event)
         self._browser.set_artifact_logger(artifact_logger)
         conversation_context = self._format_conversation_memory()
 
@@ -102,6 +113,9 @@ class BrowserSession:
             from agents.planner_agent import PlannerAgent
             planner = PlannerAgent(query=query, event_sink=emit)
             subgoals = planner.plan()
+            if is_task_interrupted():
+                emit({"type": "task_interrupted", "query": query, "reason": "Task interrupted by user."})
+                return
             if not subgoals:
                 emit({"type": "planner_fallback", "reason": "no valid subgoals returned"})
                 subgoals = None
@@ -118,18 +132,28 @@ class BrowserSession:
             subgoals=subgoals,
             replan_callback=replan_callback,
             conversation_context=conversation_context,
+            interrupt_checker=is_task_interrupted,
         )
         try:
             try:
                 agent.agent_loop()
+            except AgentInterrupted as exc:
+                self._browser.reset_to_blank()
+                emit({"type": "task_interrupted", "query": query, "reason": str(exc)})
+                return
             except Exception as exc:
                 emit({"type": "step_error", "step_id": -1, "error_message": str(exc)})
                 self._browser.reset_to_blank()
                 emit({"type": "task_failed", "query": query, "error_message": str(exc)})
                 return
+            if is_task_interrupted():
+                self._browser.reset_to_blank()
+                emit({"type": "task_interrupted", "query": query, "reason": "Task interrupted by user."})
+                return
             self._remember_completed_task(query, agent)
             emit({"type": "task_complete", "query": query})
         finally:
+            clear_task_interrupt()
             if sink_registered:
                 unregister_event_sink(artifact_logger.record_event)
 

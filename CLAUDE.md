@@ -45,11 +45,21 @@ models:
 Entry point `main.py` has two modes:
 
 1. **CLI** (`uv run main.py "query"`) — constructs `PlaywrightBrowser`, optionally runs `PlannerAgent` to produce `Subgoal`s, then drives a single `BrowserAgent.agent_loop()`.
-2. **UI** (`--ui`) — spawns a FastAPI/uvicorn server (`src/ui/server.py`) in a daemon thread, opens the panel, and a long-lived `BrowserSession` (`src/session.py`) reuses one `PlaywrightBrowser` across multiple user tasks via `ui.bridge.task_queue`/`emit`.
+2. **UI** (`--ui`) — spawns a FastAPI/uvicorn server (`src/ui/server.py`) in a daemon thread, opens the panel, and a long-lived `BrowserSession` (`src/session.py`) reuses one `PlaywrightBrowser` across multiple user tasks via `ui.bridge.task_queue`/`emit`. Tasks are submitted through `POST /task`; the panel stops the active task with `POST /interrupt`, which sets a cooperative interrupt flag in `ui.bridge` that `BrowserSession`/`BrowserAgent` poll between model/tool steps.
+
+
+### UI layer (`src/ui/`)
+
+- `server.py` — FastAPI routes for the panel, task submission, cooperative interrupt (`POST /interrupt`), WebSocket event stream, and replay router mounting.
+- `bridge.py` — thread-safe task queue, WebSocket broadcast, event sinks, last-session replay state, and the shared interrupt flag (`request_task_interrupt`, `clear_task_interrupt`, `is_task_interrupted`).
+- `panel.html` — single-file Material-style control panel. The footer has one primary action button: idle is Run/play; submitting/running switches the same button to Stop/square and calls `/interrupt`. The header uses `New` with an add icon for returning to live view and `History` with a history icon for saved sessions. Running status should use `.loading-indicator`; avoid restoring the old blinking running dot.
+- `replay.py` — saved-session listing, event replay, synthetic replay fallback, and artifact serving.
+
+When changing UI behavior, update `tests/test_ui_panel.py` for static HTML/JS contracts and add focused API/session tests when server or lifecycle behavior changes.
 
 ### Agent layer (`src/agents/`)
 
-- `actor_agent.py::BrowserAgent` — the core loop. `agent_loop()` iterates `run_one_iteration()`: send history to the model, receive function calls, execute via `BrowserToolExecutor`, append `FunctionResponse` parts, and trim old screenshots (`MAX_RECENT_TURN_WITH_SCREENSHOTS`) / ARIA snapshots from the context window.
+- `actor_agent.py::BrowserAgent` — the core loop. `agent_loop()` iterates `run_one_iteration()`: send history to the model, receive function calls, execute via `BrowserToolExecutor`, append `FunctionResponse` parts, and trim old screenshots (`MAX_RECENT_TURN_WITH_SCREENSHOTS`) / ARIA snapshots from the context window. UI interruption is cooperative via `AgentInterrupted`; preserve interrupt checks when adding loops or batched tool execution.
 - `planner_agent.py::PlannerAgent` — optional query decomposition into `Subgoal`s. Uses a **text** LLM (`LLMClient.for_text()`), not computer-use.
 - `post_summary_agent.py` — post-step action summaries, ambiguity detection, metadata writing.
 - `types.py` — `GroundingMode = Literal["vision", "text", "mixed"]`, `Subgoal`.
@@ -82,5 +92,6 @@ Each tool is its own module (`click_at`, `click_by_ref`, `navigate`, `scroll_*`,
 - Type hints are required and heavily used (Pydantic models, `Literal`, `Optional`, typed tuples). Preserve them.
 - `query` on the CLI is **positional**, not `--query`.
 - When adding a new tool: create `src/tools/<name>.py`, register it in `src/browser/actions.py` (`build_browser_action_functions`), and return either `EnvState` (for built-in computer-use semantics) or a `dict`/`ToolResult`.
+- When changing UI controls, keep the single-button Run→Stop toggle unless the product direction changes, keep `New`/`History` header labels/icons in sync with accessible labels, and keep running status on `.loading-indicator`.
 - When adding a new provider: implement `BaseProvider` in `src/llm/provider/` and wire it via an `LLMClient.for_*` classmethod — do not bypass the retry wrapper.
 - Import paths inside `src/` are flat (`from agents.actor_agent import ...`), not `src.agents...`.

@@ -65,6 +65,11 @@ MODEL_REQUEST_BASE_DELAY_SECONDS = 1.0
 MODEL_REQUEST_MAX_DELAY_SECONDS = 16.0
 EMPTY_MODEL_TURN_MAX_RETRIES = 2
 
+
+class AgentInterrupted(Exception):
+    """Raised when the current browser-agent task is cooperatively interrupted."""
+
+
 _ACTOR_SYSTEM_PROMPT = """You are a browser automation agent that completes the user's task by inspecting the current webpage and calling browser tools.
 Use the task as the final goal, and use any active subgoal or latest browser state as the immediate step to execute.
 
@@ -105,6 +110,7 @@ class BrowserAgent:
         conversation_context: str | None = None,
         custom_functions: list[CustomFunction] | None = None,
         extra_browser_tools: list[BrowserActionName] | None = None,
+        interrupt_checker: Callable[[], bool] | None = None,
     ):
         self._browser_computer = browser_computer
         self._query = query
@@ -125,6 +131,7 @@ class BrowserAgent:
         self._subgoals = subgoals
         self._replan_callback = replan_callback
         self._max_steps_per_subgoal = max_steps_per_subgoal
+        self._interrupt_checker = interrupt_checker
         browser_actions = build_browser_action_functions(
             browser_computer,
             include=("reload_page", *(extra_browser_tools or [])),
@@ -191,6 +198,15 @@ class BrowserAgent:
                 include_thoughts=True
             ),
         )
+
+    def _raise_if_interrupted(self) -> None:
+        if self._interrupt_checker is not None and self._interrupt_checker():
+            self._emit_event(
+                "step_error",
+                step_id=self._step_id,
+                error_message="Task interrupted by user.",
+            )
+            raise AgentInterrupted("Task interrupted by user.")
 
     @staticmethod
     def _build_initial_prompt(
@@ -855,6 +871,7 @@ class BrowserAgent:
     ) -> ToolBatchResult:
         function_responses = []
         for function_call_index, function_call in enumerate(function_calls, start=1):
+            self._raise_if_interrupted()
             extra_fr_fields = {}
             if function_call.args and (
                 safety := function_call.args.get("safety_decision")
@@ -911,11 +928,13 @@ class BrowserAgent:
         return "CONTINUE"
 
     def run_one_iteration(self) -> Literal["COMPLETE", "CONTINUE"]:
+        self._raise_if_interrupted()
         self._step_id += 1
         step_id = self._step_id
         self._emit_event("step_started", step_id=step_id)
 
         response = self._request_model_response(step_id)
+        self._raise_if_interrupted()
         if response is None:
             return "COMPLETE"
 
@@ -1014,6 +1033,7 @@ class BrowserAgent:
             status = "CONTINUE"
             steps = 0
             while status == "CONTINUE":
+                self._raise_if_interrupted()
                 if steps >= self._max_steps_per_subgoal:
                     return "failed", (
                         f"Exceeded max steps ({self._max_steps_per_subgoal}) for subgoal {subgoal.id}."
@@ -1104,6 +1124,7 @@ class BrowserAgent:
         if self._subgoals is None:
             status = "CONTINUE"
             while status == "CONTINUE":
+                self._raise_if_interrupted()
                 status = self.run_one_iteration()
             return
 
@@ -1111,6 +1132,7 @@ class BrowserAgent:
         outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]] = []
         index = 0
         while index < len(queue):
+            self._raise_if_interrupted()
             active_subgoal = dataclasses.replace(queue[index], status="active")
             queue[index] = active_subgoal
             self._emit_event(

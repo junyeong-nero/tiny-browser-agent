@@ -118,6 +118,22 @@ def test_panel_has_replay_session_controls():
     assert 'id="sessions-btn"' in PANEL_HTML
     assert 'id="sessions-panel"' in PANEL_HTML
     assert 'id="replay-controls"' in PANEL_HTML
+
+
+def test_panel_run_button_toggles_to_stop_and_status_uses_loading_indicator():
+    assert 'id="btn"' in PANEL_HTML
+    assert 'id="btn-icon-path"' in PANEL_HTML
+    assert 'id="stop-btn"' not in PANEL_HTML
+    assert 'id="run-loading"' not in PANEL_HTML
+    assert 'id="status-loading"' in PANEL_HTML
+    assert '@keyframes m3-loading-morph' in PANEL_HTML
+    assert '.status-dot.running      { display: none; }' in PANEL_HTML
+    assert "statusLoading.classList.toggle('active', state === 'running');" in PANEL_HTML
+    assert "fetch('/interrupt', { method: 'POST' })" in PANEL_HTML
+    assert "case 'task_interrupted':" in PANEL_HTML
+    assert "btn.classList.toggle('stop', stopMode);" in PANEL_HTML
+    assert "btnIconPath.setAttribute('d', stopMode ? 'M6 6h12v12H6z' : 'M8 5v14l11-7z');" in PANEL_HTML
+    assert "if (isRunning || isSubmitting)" in PANEL_HTML
     assert 'id="replay-slider"' in PANEL_HTML
     assert 'function loadSessions()' in PANEL_HTML
     assert 'async function startReplay(sessionId)' in PANEL_HTML
@@ -134,7 +150,7 @@ def test_panel_links_replay_screenshots_from_action_artifacts():
     action_case = PANEL_HTML.split("case 'action_executed':", 1)[1].split(
         "case 'step_error':", 1
     )[0]
-    assert "/sessions/${encodeURIComponent(replaySessionId)}/artifacts/history/" in action_case
+    assert "replayArtifactHref(ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path, 'history')" in action_case
     assert "[shot]" in action_case
 
 
@@ -171,8 +187,11 @@ def test_panel_primary_run_button_uses_material_icon_button_style():
 
 
 def test_panel_secondary_controls_use_svg_icons_with_accessible_labels():
-    assert 'id="sessions-btn" class="icon-label" type="button" aria-label="Open saved sessions"' in PANEL_HTML
-    assert 'id="live-btn" class="icon-label" type="button" aria-label="Return to live view"' in PANEL_HTML
+    assert 'id="sessions-btn" class="icon-label" type="button" aria-label="Open history"' in PANEL_HTML
+    assert '<span>History</span>' in PANEL_HTML
+    assert 'id="live-btn" class="icon-label" type="button" aria-label="Start new live view"' in PANEL_HTML
+    assert '<span>New</span>' in PANEL_HTML
+    assert '<path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path>' in PANEL_HTML
     assert 'id="sessions-close" class="icon-only" type="button" aria-label="Close saved sessions"' in PANEL_HTML
     assert 'id="replay-prev" class="icon-only" type="button" aria-label="Previous replay step"' in PANEL_HTML
     assert 'id="replay-play" class="icon-only" type="button" aria-label="Play or pause replay"' in PANEL_HTML
@@ -193,6 +212,14 @@ def test_panel_sidebar_task_plan_and_activity_use_scroll_panel_sections():
     assert 'class="side-section side-scroll-section side-activity-section"' in PANEL_HTML
     assert "details.side-scroll-section[open]" in PANEL_HTML
     assert "details.side-scroll-section > .side-body" not in PANEL_HTML
+
+
+def test_panel_main_card_aligns_to_chat_input_width():
+    main_css = PANEL_HTML.split("main#main {", 2)[2].split("}", 1)[0]
+    footer_css = PANEL_HTML.split("\n  footer {", 1)[1].split("}", 1)[0]
+
+    assert "margin: 16px 16px 12px;" in main_css
+    assert "padding: 4px 16px 16px;" in footer_css
 
 
 def test_panel_sidebar_itself_is_viewport_constrained_and_scrollable():
@@ -250,6 +277,42 @@ def test_panel_sidebar_toggle_uses_material_arrow_drop_down_icon():
     assert "linear-gradient(45deg" not in toggle_css
 
 
+def test_panel_sidebar_sections_use_material_list_item_icons():
+    before_css = PANEL_HTML.split("details.side-section > summary::before {", 1)[1].split("}", 1)[0]
+
+    assert 'content: attr(data-icon);' in before_css
+    assert 'font-family: "Material Symbols Rounded";' in before_css
+    assert '<summary data-icon="task_alt">Task</summary>' in PANEL_HTML
+    assert '<summary data-icon="monitor_heart">Status</summary>' in PANEL_HTML
+    assert '<summary data-icon="route">Plan</summary>' in PANEL_HTML
+    assert '<summary data-icon="history">Activity</summary>' in PANEL_HTML
+
+
+def test_panel_empty_state_uses_material_symbol_illustration():
+    empty_icon_css = PANEL_HTML.split("#empty-state::before {", 1)[1].split("}", 1)[0]
+
+    assert 'content: "travel_explore";' in empty_icon_css
+    assert 'font-family: "Material Symbols Rounded";' in empty_icon_css
+    assert "border-radius: var(--md-sys-shape-corner-xl);" in empty_icon_css
+
+
+def test_panel_step_summary_uses_plain_block_without_accent():
+    step_complete_case = PANEL_HTML.split("case 'step_complete':", 1)[1].split(
+        "case 'task_complete':", 1
+    )[0]
+    activity_css = PANEL_HTML.split(".act-item {", 1)[1].split("}", 1)[0]
+    activity_hover_css = PANEL_HTML.split(".act-item:hover {", 1)[1].split("}", 1)[0]
+
+    assert "addBlock('plain'," in step_complete_case
+    assert "addBlock('green'," not in step_complete_case
+    assert ".block.plain::before { display: none; }" in PANEL_HTML
+    assert ".block.plain {" in PANEL_HTML
+    assert "border-left" not in activity_css
+    assert "--phase-border" not in activity_css
+    assert "--phase-bg" not in activity_css
+    assert "--phase-bg" not in activity_hover_css
+
+
 def test_panel_removes_keybind_help_bar():
     assert 'class="keybind"' not in PANEL_HTML
     assert "enter</kbd> submit" not in PANEL_HTML
@@ -257,3 +320,46 @@ def test_panel_removes_keybind_help_bar():
     assert "esc</kbd> interrupt" not in PANEL_HTML
     assert '"keybind resizer aside"' not in PANEL_HTML
     assert 'grid-template-areas: "header" "main" "footer";' in PANEL_HTML
+
+
+def test_panel_graph_selection_renders_action_before_after_artifacts():
+    assert "function renderActionArtifacts(artifacts)" in PANEL_HTML
+    assert "function replayArtifactHref(path, expectedDir = 'history')" in PANEL_HTML
+    assert "beforeScreenshotPath: ev.artifacts && ev.artifacts.before_screenshot_path" in PANEL_HTML
+    assert "afterScreenshotPath: ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path)" in PANEL_HTML
+    assert "actionGifPath: ev.artifacts && (ev.artifacts.action_clip_gif_path || ev.artifacts.action_gif_path)" in PANEL_HTML
+    assert "videoPath: ev.artifacts && ev.artifacts.video_path" in PANEL_HTML
+    assert "renderArtifactCard('action GIF', actionGif)" in PANEL_HTML
+    assert "renderArtifactCard('before', beforeShot)" in PANEL_HTML
+    assert "renderArtifactCard('after', afterShot)" in PANEL_HTML
+    assert "renderArtifactCard('session video', video, 'video')" in PANEL_HTML
+    assert "renderActionArtifacts(d.artifacts)" in PANEL_HTML
+
+
+def test_panel_uses_live_session_id_for_graph_artifacts_outside_replay():
+    task_started_case = PANEL_HTML.split("case 'task_started':", 1)[1].split(
+        "case 'planner_started':", 1
+    )[0]
+    replay_href = PANEL_HTML.split("function replayArtifactHref(path, expectedDir = 'history')", 1)[1].split(
+        "function renderArtifactCard", 1
+    )[0]
+
+    assert "let liveSessionId = null;" in PANEL_HTML
+    assert "liveSessionId = ev.session_id || null;" in task_started_case
+    assert "const sessionId = replayMode ? replaySessionId : liveSessionId;" in replay_href
+    assert "if (!sessionId || !path) return '';" in replay_href
+
+
+def test_panel_aggregates_child_action_gif_previews_for_url_and_viewport_nodes():
+    assert "function collectActionPreviewArtifacts(actionIds)" in PANEL_HTML
+    assert "artifacts.action_clip_gif_path || artifacts.action_gif_path || artifacts.after_screenshot_path || artifacts.screenshot_path" in PANEL_HTML
+    assert "actionPreviews: collectActionPreviewArtifacts(src.actionIds)" in PANEL_HTML
+    assert "actionPreviews: collectActionPreviewArtifacts(vp.actionIds)" in PANEL_HTML
+    assert "renderActionPreviewGallery(d.actionPreviews)" in PANEL_HTML
+    assert "child previews" in PANEL_HTML
+    assert ".artifact-gallery" in PANEL_HTML
+
+
+def test_panel_prefers_action_clip_gif_over_two_frame_fallback():
+    assert "artifacts.action_clip_gif_path || artifacts.action_gif_path" in PANEL_HTML
+    assert "action_clip_gif_path" in PANEL_HTML

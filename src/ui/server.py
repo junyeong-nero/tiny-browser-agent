@@ -9,7 +9,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
-from ui.bridge import register_ws, set_server_loop, task_queue, unregister_ws
+from ui.bridge import clear_task_interrupt, register_ws, request_task_interrupt, set_server_loop, task_queue, unregister_ws
 from ui.replay import router as replay_router
 
 _PANEL_HTML = (Path(__file__).parent / "panel.html").read_text(encoding="utf-8")
@@ -54,7 +54,14 @@ async def submit_task(body: TaskRequest) -> dict:
     query = body.query.strip()
     if not query:
         return {"ok": False, "error": "Empty query"}
+    clear_task_interrupt()
     task_queue.put(query)
+    return {"ok": True}
+
+
+@app.post("/interrupt")
+async def interrupt_task() -> dict:
+    request_task_interrupt()
     return {"ok": True}
 
 

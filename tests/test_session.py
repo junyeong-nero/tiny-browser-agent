@@ -1,6 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from agents.actor_agent import AgentInterrupted
 from session import MAX_CONVERSATION_MEMORY_ITEMS, BrowserSession, TaskMemory
 
 
@@ -55,6 +56,31 @@ def test_run_task_emits_task_failed_instead_of_complete_on_agent_error(
     assert "task_failed" in emitted_types
     assert "task_complete" not in emitted_types
     browser.reset_to_blank.assert_called_once_with()
+
+
+@patch("session.emit")
+@patch("session.BrowserAgent")
+def test_run_task_emits_task_interrupted_when_agent_is_stopped(
+    mock_browser_agent,
+    mock_emit,
+):
+    browser = MagicMock()
+    mock_browser_agent.return_value.agent_loop.side_effect = AgentInterrupted("Task interrupted by user.")
+    session = BrowserSession(
+        browser_computer=browser,
+        model_name="test_model",
+        logs_dir=Path("logs/history"),
+        log_enabled=False,
+    )
+
+    session.run_task("test query")
+
+    emitted_types = [call.args[0]["type"] for call in mock_emit.call_args_list]
+    assert "task_interrupted" in emitted_types
+    assert "task_failed" not in emitted_types
+    assert "task_complete" not in emitted_types
+    browser.reset_to_blank.assert_called_once_with()
+    assert mock_browser_agent.call_args.kwargs["interrupt_checker"] is not None
 
 
 @patch("session.emit")
@@ -159,3 +185,24 @@ def test_run_emits_session_ready_with_model_name(mock_emit, mock_task_queue):
             "model_name": "nvidia/nemotron-3-super-120b-a12b:free",
         }
     )
+
+
+@patch("session.emit")
+@patch("session.BrowserAgent")
+def test_run_task_emits_live_log_session_id_when_logging_enabled(mock_browser_agent, mock_emit, tmp_path):
+    browser = MagicMock()
+    mock_browser_agent.return_value.final_reasoning = "done"
+    mock_browser_agent.return_value.latest_url = None
+    session = BrowserSession(
+        browser_computer=browser,
+        model_name="test_model",
+        logs_dir=tmp_path,
+        log_enabled=True,
+    )
+
+    session.run_task("test query")
+
+    task_started = next(call.args[0] for call in mock_emit.call_args_list if call.args[0]["type"] == "task_started")
+    assert task_started["query"] == "test query"
+    assert task_started["session_id"]
+    assert (tmp_path / task_started["session_id"] / "session.json").exists()

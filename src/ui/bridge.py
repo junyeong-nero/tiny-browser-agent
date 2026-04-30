@@ -10,6 +10,10 @@ from typing import Any
 # queue.Queue is thread-safe, so no lock needed for cross-thread access.
 task_queue: queue.Queue[str | None] = queue.Queue()
 
+# Cooperative interrupt flag. The UI server sets it; BrowserSession/BrowserAgent
+# poll it between model/tool steps and terminate the current task gracefully.
+_interrupt_event = threading.Event()
+
 # Active WebSocket connections, guarded by a lock.
 _websockets: set = set()
 _ws_lock = threading.Lock()
@@ -59,6 +63,21 @@ def unregister_event_sink(fn: Callable[[dict[str, Any]], None]) -> None:
             pass
 
 
+def request_task_interrupt() -> None:
+    """Ask the active task to stop at the next cooperative checkpoint."""
+    _interrupt_event.set()
+
+
+def clear_task_interrupt() -> None:
+    """Clear any stale interrupt request before a new task starts."""
+    _interrupt_event.clear()
+
+
+def is_task_interrupted() -> bool:
+    """Return whether the active task has been interrupted by the UI."""
+    return _interrupt_event.is_set()
+
+
 def _fan_out_to_sinks(event: dict[str, Any]) -> None:
     with _event_sinks_lock:
         sinks = list(_event_sinks)
@@ -98,6 +117,7 @@ _SESSION_LEVEL_TYPES = {
     "task_started",
     "task_complete",
     "task_failed",
+    "task_interrupted",
     "session_closed",
 }
 

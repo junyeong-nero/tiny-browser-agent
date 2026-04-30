@@ -90,6 +90,8 @@
     --md-sys-state-dragged-layer:   16%;
 
     /* M3 type scale used by this single-file panel */
+    --md-sys-typescale-headline-small-size: 24px;
+    --md-sys-typescale-headline-small-line-height: 32px;
     --md-sys-typescale-title-large-size: 22px;
     --md-sys-typescale-title-large-line-height: 28px;
     --md-sys-typescale-title-medium-size: 16px;
@@ -271,9 +273,13 @@
     align-items: center;
     gap: 8px;
     margin: 0;
-    padding: 0 24px;
+    padding: 0 16px 0 24px;
     height: 64px;
-    background: color-mix(in srgb, var(--md-sys-color-surface-container) 88%, transparent);
+    background:
+      linear-gradient(90deg,
+        color-mix(in srgb, var(--md-sys-color-primary) 7%, transparent),
+        transparent 42%),
+      color-mix(in srgb, var(--md-sys-color-surface-container) 92%, transparent);
     border: 0;
     border-radius: 0;
     box-shadow: none;
@@ -284,7 +290,7 @@
   header .brand-mark {
     width: 40px;
     height: 40px;
-    border-radius: var(--md-sys-shape-corner-md);
+    border-radius: var(--md-sys-shape-corner-lg);
     display: inline-grid;
     place-items: center;
     color: var(--md-sys-color-on-primary-container);
@@ -310,8 +316,8 @@
     gap: 8px;
     height: 32px;
     padding: 0 12px;
-    border-radius: var(--md-sys-shape-corner-sm);
-    background: color-mix(in srgb, var(--md-sys-color-surface-container-high) 56%, transparent);
+    border-radius: var(--md-sys-shape-corner-full);
+    background: color-mix(in srgb, var(--md-sys-color-secondary-container) 52%, transparent);
     border: 1px solid var(--md-sys-color-outline-variant);
     color: var(--md-sys-color-on-surface-variant);
     font-size: var(--md-sys-typescale-label-medium-size);
@@ -332,8 +338,33 @@
   }
   .status-dot.connected    { background: var(--md-sys-color-success); }
   .status-dot.disconnected { background: var(--md-sys-color-error); }
-  .status-dot.running      { background: var(--md-sys-color-warning); animation: blink 1s steps(2,end) infinite; }
-  @keyframes blink { 50% { opacity: 0.3; } }
+  .status-dot.running      { display: none; }
+  .loading-indicator {
+    display: none;
+    width: 16px;
+    height: 16px;
+    place-items: center;
+    color: var(--md-sys-color-warning);
+  }
+  .loading-indicator.active { display: inline-grid; }
+  .loading-indicator::before {
+    content: "";
+    width: 10px;
+    height: 10px;
+    background: currentColor;
+    animation: m3-loading-morph 1450ms var(--md-sys-motion-easing-emphasized) infinite;
+    transform-origin: center;
+  }
+  @keyframes m3-loading-morph {
+    0%   { border-radius: 50%; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); transform: rotate(0deg) scale(.82); }
+    14%  { border-radius: 42%; clip-path: polygon(50% 0, 86% 14%, 100% 50%, 86% 86%, 50% 100%, 14% 86%, 0 50%, 14% 14%); transform: rotate(52deg) scale(1); }
+    28%  { border-radius: 22%; clip-path: polygon(50% 0, 100% 38%, 82% 100%, 18% 100%, 0 38%); transform: rotate(104deg) scale(.9); }
+    42%  { border-radius: 999px; clip-path: inset(0 0 0 0 round 999px); transform: rotate(156deg) scaleX(1.28) scaleY(.72); }
+    56%  { border-radius: 35%; clip-path: polygon(50% 0, 62% 32%, 96% 20%, 70% 50%, 96% 80%, 62% 68%, 50% 100%, 38% 68%, 4% 80%, 30% 50%, 4% 20%, 38% 32%); transform: rotate(208deg) scale(.98); }
+    70%  { border-radius: 28%; clip-path: polygon(16% 0, 84% 0, 100% 16%, 100% 84%, 84% 100%, 16% 100%, 0 84%, 0 16%); transform: rotate(260deg) scale(.86); }
+    84%  { border-radius: 48%; clip-path: ellipse(42% 50% at 50% 50%); transform: rotate(312deg) scale(1.04); }
+    100% { border-radius: 50%; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); transform: rotate(360deg) scale(.82); }
+  }
 
   /* ── Main content (M3 surface + primary tabs) ── */
   main#main {
@@ -342,7 +373,7 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    margin: 16px 0 12px 16px;
+    margin: 16px 16px 12px;
     background:
       linear-gradient(180deg,
         color-mix(in srgb, var(--md-sys-color-primary) 4%, transparent),
@@ -350,12 +381,12 @@
       var(--md-sys-color-surface-container-low);
     border: 0;
     border-radius: var(--md-sys-shape-corner-xl);
-    box-shadow: var(--md-sys-elevation-1);
+    box-shadow: var(--md-sys-elevation-2);
   }
   .view-tabs {
     display: flex;
     gap: 0;
-    padding: 0 16px;
+    padding: 0 20px;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
     background: color-mix(in srgb, var(--md-sys-color-surface-container) 72%, transparent);
     height: 48px;            /* M3 primary tab height */
@@ -389,7 +420,7 @@
   .view-tab.active::after {
     content: "";
     position: absolute;
-    left: 0; right: 0; bottom: 0;
+    left: 16px; right: 16px; bottom: 0;
     height: 3px;
     border-radius: var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0 0;
     background: var(--md-sys-color-primary);
@@ -401,6 +432,10 @@
     min-height: 0;
   }
   .view-pane.active { display: flex; flex-direction: column; }
+
+  /* Side-panel context: only sections matching the active main view are shown. */
+  body.view-timeline .side-section[data-side-view="graph"]   { display: none !important; }
+  body.view-graph    .side-section[data-side-view="timeline"] { display: none !important; }
 
   #timeline-wrap { flex: 1; overflow: hidden; }
   #timeline {
@@ -458,8 +493,15 @@
   .graph-node.viewport circle { stroke: var(--orange-dim); fill: rgba(253, 214, 99, 0.12); }
   .graph-node.action circle { stroke: var(--green); fill: rgba(129, 201, 149, 0.12); }
   .graph-node.current circle { fill: var(--primary); stroke: var(--primary); }
-  .graph-node.drillable circle { cursor: pointer; }
+  .graph-node circle { cursor: pointer; }
   .graph-node:hover circle { stroke: var(--orange); stroke-width: 2.3; filter: drop-shadow(0 4px 10px rgba(0,0,0,.34)); }
+  .graph-node.selected circle {
+    stroke: var(--md-sys-color-primary);
+    stroke-width: 3;
+    fill: color-mix(in srgb, var(--md-sys-color-primary) 22%, var(--surface-2));
+    filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--md-sys-color-primary) 38%, transparent));
+  }
+  .graph-node.selected text { fill: var(--md-sys-color-primary); font-weight: 600; }
   .graph-node text {
     fill: var(--fg-dim);
     font-size: 11px;
@@ -494,24 +536,28 @@
     font-family: var(--sans);
     font-size: 12px;
     color: var(--fg-dim);
-    background: color-mix(in srgb, var(--surface-2) 88%, transparent);
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 999px;
+    background: color-mix(in srgb, var(--md-sys-color-surface-container-high) 92%, transparent);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-full);
     padding: 6px 10px;
     box-shadow: var(--shadow);
     backdrop-filter: blur(12px);
   }
   .graph-breadcrumb button {
-    background: transparent;
+    background: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent);
     border: 0;
     color: var(--primary);
     font-family: inherit;
     font-size: inherit;
     cursor: pointer;
-    padding: 0;
+    padding: 2px 8px;
+    border-radius: var(--md-sys-shape-corner-full);
     box-shadow: none;
   }
-  .graph-breadcrumb button:hover { color: var(--orange); background: transparent; }
+  .graph-breadcrumb button:hover {
+    color: var(--md-sys-color-on-primary-container);
+    background: var(--md-sys-color-primary-container);
+  }
   .graph-breadcrumb .sep { color: var(--fg-mute); }
   .graph-tooltip.hidden { display: none; }
   .graph-tooltip .tt-url {
@@ -578,9 +624,8 @@
   /* M3 Filled Card with leading accent */
   .block {
     border: 0;
-    border-left: 4px solid var(--md-sys-color-outline);
     border-radius: var(--md-sys-shape-corner-lg);
-    padding: 16px 18px;
+    padding: 16px 18px 16px 20px;
     margin: 8px 0;
     color: var(--md-sys-color-on-surface);
     background:
@@ -588,14 +633,34 @@
       var(--md-sys-color-surface-container);
     box-shadow: var(--md-sys-elevation-1);
     transition: background-color 200ms var(--md-sys-motion-easing-standard);
+    position: relative;
+  }
+  .block::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 12px;
+    bottom: 12px;
+    width: 4px;
+    border-radius: 0 var(--md-sys-shape-corner-full) var(--md-sys-shape-corner-full) 0;
+    background: var(--md-sys-color-outline);
   }
   .block:hover {
     background: color-mix(in srgb, var(--md-sys-color-on-surface) var(--md-sys-state-hover-layer), var(--md-sys-color-surface-container));
   }
-  .block.teal   { border-left-color: var(--md-sys-color-primary); background: color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface-container)); }
-  .block.green  { border-left-color: var(--md-sys-color-success); background: color-mix(in srgb, var(--md-sys-color-success) 12%, var(--md-sys-color-surface-container)); }
-  .block.red    { border-left-color: var(--md-sys-color-error); background: color-mix(in srgb, var(--md-sys-color-error) 12%, var(--md-sys-color-surface-container)); }
-  .block.orange { border-left-color: var(--md-sys-color-warning); background: color-mix(in srgb, var(--md-sys-color-warning) 12%, var(--md-sys-color-surface-container)); }
+  .block.teal::before   { background: var(--md-sys-color-primary); }
+  .block.green::before  { background: var(--md-sys-color-success); }
+  .block.red::before    { background: var(--md-sys-color-error); }
+  .block.orange::before { background: var(--md-sys-color-warning); }
+  .block.teal   { background: color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface-container)); }
+  .block.green  { background: color-mix(in srgb, var(--md-sys-color-success) 12%, var(--md-sys-color-surface-container)); }
+  .block.red    { background: color-mix(in srgb, var(--md-sys-color-error) 12%, var(--md-sys-color-surface-container)); }
+  .block.orange { background: color-mix(in srgb, var(--md-sys-color-warning) 12%, var(--md-sys-color-surface-container)); }
+  .block.plain::before { display: none; }
+  .block.plain {
+    padding-left: 18px;
+    background: var(--md-sys-color-surface-container);
+  }
 
   .block .title { color: var(--md-sys-color-on-surface); font-weight: 500; margin-bottom: 4px; font-size: 14px; }
   .block .meta  { color: var(--md-sys-color-on-surface-variant); font-size: 12px; }
@@ -736,7 +801,7 @@
     cursor: pointer;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 12px;
     font-weight: 500;
     font-size: 11px;            /* M3 label-small uppercase category */
@@ -751,6 +816,29 @@
       background-color 200ms var(--md-sys-motion-easing-standard),
       color 200ms var(--md-sys-motion-easing-standard);
   }
+  details.side-section > summary::before {
+    content: attr(data-icon);
+    flex: 0 0 20px;
+    width: 20px;
+    height: 20px;
+    color: var(--md-sys-color-on-surface-variant);
+    direction: ltr;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Material Symbols Rounded";
+    font-size: 20px;
+    font-style: normal;
+    font-feature-settings: "liga";
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20;
+    font-weight: normal;
+    letter-spacing: normal;
+    line-height: 1;
+    text-transform: none;
+    white-space: nowrap;
+    word-wrap: normal;
+    -webkit-font-smoothing: antialiased;
+  }
   details.side-section > summary:hover {
     background: color-mix(in srgb, var(--md-sys-color-on-surface) var(--md-sys-state-hover-layer), transparent);
   }
@@ -758,10 +846,12 @@
     color: var(--md-sys-color-on-surface);
     background: color-mix(in srgb, var(--md-sys-color-primary-container) 38%, transparent);
   }
+  details.side-section[open] > summary::before { color: var(--md-sys-color-primary); }
   details.side-section > summary::-webkit-details-marker { display: none; }
   details.side-section > summary::after {
     content: "arrow_drop_down";
     flex: 0 0 18px;
+    margin-left: auto;
     width: 18px;
     height: 18px;
     color: var(--md-sys-color-on-surface-variant);
@@ -819,6 +909,39 @@
   .bullet .k   { color: var(--fg); font-weight: 500; }
   .bullet .v   { color: var(--fg-dim); }
 
+  .artifact-compare, .artifact-gallery {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .artifact-gallery { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .artifact-card {
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--md-sys-shape-corner-md);
+    background: var(--surface-1);
+    overflow: hidden;
+  }
+  .artifact-card .artifact-label {
+    padding: 5px 7px;
+    color: var(--fg-dim);
+    font-size: 11px;
+    border-bottom: 1px solid var(--border);
+  }
+  .artifact-card img, .artifact-card video {
+    display: block;
+    width: 100%;
+    max-height: 180px;
+    object-fit: contain;
+    background: #000;
+  }
+  .artifact-link {
+    color: var(--md-sys-color-primary);
+    text-decoration: none;
+  }
+  .artifact-link:hover { text-decoration: underline; }
+
   .kvline {
     color: var(--fg);
   }
@@ -843,7 +966,7 @@
   .todo.failed  .box  { color: var(--err); }
   .todo.failed  .text { color: var(--err); }
 
-  /* Activity items, phase-tinted */
+  /* Activity items, plain summary cards */
   .act-group { margin-bottom: 12px; }
   .act-group-title {
     font-size: 12px;
@@ -865,14 +988,13 @@
     gap: 10px;
     padding: 12px 14px;
     margin: 8px 0;
-    border: 0;
-    border-left: 4px solid var(--phase-border, var(--md-sys-color-outline));
+    border: 1px solid var(--md-sys-color-outline-variant);
     border-radius: var(--md-sys-shape-corner-md);
-    background: var(--phase-bg, var(--md-sys-color-surface-container-high));
+    background: var(--md-sys-color-surface-container-high);
     transition: background-color 150ms var(--md-sys-motion-easing-standard);
     min-width: 0;
   }
-  .act-item:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--phase-bg, var(--md-sys-color-surface-container-high))); }
+  .act-item:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-high)); }
   .act-item .step-no { color: var(--fg-mute); font-size: 11px; padding-top: 1px; white-space: nowrap; font-family: var(--mono); }
   .act-item > span:last-child { min-width: 0; overflow-wrap: anywhere; }
   .act-item .what    { color: var(--fg); font-weight: 500; line-height: 1.35; }
@@ -910,7 +1032,7 @@
     position: relative;
     border: 0;
     border-bottom: 1px solid var(--md-sys-color-outline);
-    border-radius: var(--md-sys-shape-corner-lg) var(--md-sys-shape-corner-lg) var(--md-sys-shape-corner-xs) var(--md-sys-shape-corner-xs);
+    border-radius: var(--md-sys-shape-corner-xl) var(--md-sys-shape-corner-xl) var(--md-sys-shape-corner-xs) var(--md-sys-shape-corner-xs);
     padding: 14px 16px 12px;
     background:
       linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 5%, transparent), transparent),
@@ -932,6 +1054,11 @@
     grid-template-columns: 1fr auto;
     gap: 12px;
     align-items: flex-end;
+  }
+  .input-actions {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
   }
   textarea {
     background: transparent;
@@ -1024,6 +1151,21 @@
     background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
     color: color-mix(in srgb, var(--md-sys-color-on-surface) 38%, transparent);
   }
+  #btn.stop {
+    background: var(--md-sys-color-error-container);
+    color: var(--md-sys-color-on-error-container);
+  }
+  #btn.stop:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--md-sys-color-error) var(--md-sys-state-hover-layer), var(--md-sys-color-error-container));
+    box-shadow: var(--md-sys-elevation-2);
+  }
+  #btn.stop:active:not(:disabled) {
+    background: color-mix(in srgb, var(--md-sys-color-error) var(--md-sys-state-pressed-layer), var(--md-sys-color-error-container));
+  }
+  #btn.stop:disabled {
+    background: color-mix(in srgb, var(--md-sys-color-error) 12%, transparent);
+    color: color-mix(in srgb, var(--md-sys-color-error) 38%, transparent);
+  }
 
   .input-agent {
     margin-top: 8px;
@@ -1065,7 +1207,7 @@
     overflow: auto;
     background: var(--md-sys-color-surface-container-high);
     border: 0;
-    border-radius: var(--md-sys-shape-corner-md);
+    border-radius: var(--md-sys-shape-corner-xl);
     z-index: 40;
     box-shadow: var(--md-sys-elevation-3);
   }
@@ -1104,17 +1246,21 @@
 
   #replay-controls {
     display: none;
-    gap: 8px;
+    gap: 10px;
     align-items: center;
     padding: 12px 16px;
     border-bottom: 1px solid var(--md-sys-color-outline-variant);
-    background: var(--md-sys-color-surface-container);
+    background: color-mix(in srgb, var(--md-sys-color-secondary-container) 26%, var(--md-sys-color-surface-container));
   }
   #replay-controls.active { display: flex; }
   #replay-slider {
     flex: 1;
     accent-color: var(--md-sys-color-primary);
     height: 4px;
+  }
+  #replay-slider::-webkit-slider-thumb {
+    width: 20px;
+    height: 20px;
   }
   #replay-progress {
     color: var(--md-sys-color-on-surface-variant);
@@ -1149,8 +1295,8 @@
     align-items: center;
     justify-content: center;
     color: var(--md-sys-color-on-surface-variant);
-    font-size: 14px;            /* M3 body-medium */
-    line-height: 20px;
+    font-size: var(--md-sys-typescale-body-large-size);
+    line-height: var(--md-sys-typescale-body-large-line-height);
     letter-spacing: 0.025em;
     flex-direction: column;
     gap: 8px;
@@ -1158,15 +1304,22 @@
     text-align: center;
   }
   #empty-state::before {
-    content: "";
-    width: 56px;
-    height: 56px;
-    border-radius: var(--md-sys-shape-corner-lg);
+    content: "travel_explore";
+    width: 64px;
+    height: 64px;
+    border-radius: var(--md-sys-shape-corner-xl);
     background:
       linear-gradient(135deg,
         color-mix(in srgb, var(--md-sys-color-primary) 22%, var(--md-sys-color-surface-container-highest)),
         color-mix(in srgb, var(--md-sys-color-tertiary) 16%, var(--md-sys-color-surface-container-highest)));
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--md-sys-color-outline-variant) 68%, transparent);
+    color: var(--md-sys-color-primary);
+    display: inline-grid;
+    place-items: center;
+    font-family: "Material Symbols Rounded";
+    font-size: 32px;
+    font-feature-settings: "liga";
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 32;
   }
 </style>
 </head>
@@ -1179,23 +1332,24 @@
     </svg>
   </span>
   <span class="title" id="hdr-title">browser-agent</span>
+  <span class="spacer"></span>
   <span class="status">
     <span class="status-dot" id="dot">●</span>
+    <span class="loading-indicator" id="status-loading" aria-hidden="true"></span>
     <span id="status-label">connecting…</span>
   </span>
-  <span class="spacer"></span>
   <span class="mode-badge hidden" id="replay-badge">replay</span>
-  <button id="live-btn" class="icon-label" type="button" aria-label="Return to live view" title="Return to live view" hidden>
+  <button id="live-btn" class="icon-label" type="button" aria-label="Start new live view" title="Start new live view" hidden>
     <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-      <path d="M12 6v6l4 2 .9-1.79-2.9-1.46V6h-2zm0-4a10 10 0 1 0 10 10h-2a8 8 0 1 1-2.34-5.66L15 9h7V2l-2.93 2.93A9.97 9.97 0 0 0 12 2z"></path>
+      <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path>
     </svg>
-    <span>Live</span>
+    <span>New</span>
   </button>
-  <button id="sessions-btn" class="icon-label" type="button" aria-label="Open saved sessions" title="Open saved sessions">
+  <button id="sessions-btn" class="icon-label" type="button" aria-label="Open history" title="Open history">
     <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
       <path d="M13 3a9 9 0 1 0 8.95 10h-2.02A7 7 0 1 1 17.9 8.1L15 11h7V4l-2.67 2.67A8.96 8.96 0 0 0 13 3zm-1 5v5l4.25 2.52.75-1.23-3.5-2.08V8H12z"></path>
     </svg>
-    <span>Sessions</span>
+    <span>History</span>
   </button>
 </header>
 
@@ -1281,13 +1435,13 @@
   <div class="sheet-divider" role="separator"></div>
 
   <div class="sheet-body">
-    <details class="side-section side-scroll-section side-task-section" open>
-      <summary>Task</summary>
+    <details class="side-section side-scroll-section side-task-section" data-side-view="timeline" open>
+      <summary data-icon="task_alt">Task</summary>
       <div class="side-body"><div id="side-task" class="side-empty">no active task.</div></div>
     </details>
 
-    <details class="side-section" open>
-      <summary>Status</summary>
+    <details class="side-section" data-side-view="timeline" open>
+      <summary data-icon="monitor_heart">Status</summary>
       <div class="side-body">
         <div class="bullet"><span class="dot">•</span><span><span class="k">step</span> <span class="v" id="meta-step">—</span></span></div>
         <div class="bullet"><span class="dot">•</span><span><span class="k">url</span> <span class="v" id="meta-url">—</span></span></div>
@@ -1295,14 +1449,29 @@
       </div>
     </details>
 
-    <details class="side-section side-scroll-section side-plan-section" open>
-      <summary>Plan</summary>
+    <details class="side-section side-scroll-section side-plan-section" data-side-view="timeline" open>
+      <summary data-icon="route">Plan</summary>
       <div class="side-body" id="side-plan"><div class="side-empty">no plan yet.</div></div>
     </details>
 
-    <details class="side-section side-scroll-section side-activity-section" open>
-      <summary>Activity</summary>
+    <details class="side-section side-scroll-section side-activity-section" data-side-view="timeline" open>
+      <summary data-icon="history">Activity</summary>
       <div class="side-body" id="side-activity"><div class="side-empty">no activity yet.</div></div>
+    </details>
+
+    <details class="side-section side-scroll-section side-selection-section" data-side-view="graph" open>
+      <summary data-icon="ads_click">Selection</summary>
+      <div class="side-body" id="side-selection"><div class="side-empty">no node selected.</div></div>
+    </details>
+
+    <details class="side-section" data-side-view="graph" open>
+      <summary data-icon="account_tree">Graph Overview</summary>
+      <div class="side-body">
+        <div class="bullet"><span class="dot">•</span><span><span class="k">level</span> <span class="v" id="graph-level">URLs</span></span></div>
+        <div class="bullet"><span class="dot">•</span><span><span class="k">nodes</span> <span class="v" id="graph-node-count">0</span></span></div>
+        <div class="bullet"><span class="dot">•</span><span><span class="k">edges</span> <span class="v" id="graph-edge-count">0</span></span></div>
+        <div class="bullet"><span class="dot">•</span><span><span class="k">tip</span> <span class="v">click to select · double-click to drill</span></span></div>
+      </div>
     </details>
   </div>
 
@@ -1316,11 +1485,13 @@
   <div class="input-shell" id="input-shell">
     <div class="input-row">
       <textarea id="input" placeholder="describe what you want the agent to do…" rows="1" disabled></textarea>
-      <button id="btn" class="icon-only" type="button" aria-label="Run task" title="Run task" disabled>
-        <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
-          <path d="M8 5v14l11-7z"></path>
-        </svg>
-      </button>
+      <div class="input-actions">
+        <button id="btn" class="icon-only" type="button" aria-label="Run task" title="Run task" disabled>
+          <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+            <path id="btn-icon-path" d="M8 5v14l11-7z"></path>
+          </svg>
+        </button>
+      </div>
     </div>
     <div class="input-agent">
       <span class="name" id="agent-name">browser-agent</span>
@@ -1337,6 +1508,8 @@ const timeline    = document.getElementById('timeline');
 const emptyState  = document.getElementById('empty-state');
 const input       = document.getElementById('input');
 const btn         = document.getElementById('btn');
+const btnIconPath = document.getElementById('btn-icon-path');
+const statusLoading = document.getElementById('status-loading');
 const inputShell  = document.getElementById('input-shell');
 const agentModel  = document.getElementById('agent-model');
 const sessionsBtn = document.getElementById('sessions-btn');
@@ -1362,6 +1535,9 @@ const metaUrl        = document.getElementById('meta-url');
 const metaState      = document.getElementById('meta-state');
 
 let isRunning = false;
+let isSubmitting = false;
+let isStopping = false;
+let inputAllowed = false;
 let reconnectDelay = 1000;
 let ws = null;
 let replayMode = false;
@@ -1370,6 +1546,7 @@ let replayEvents = [];
 let replayIndex = 0;
 let replayTimer = null;
 let replaySessionId = null;
+let liveSessionId = null;
 
 let subgoals = [];
 let pendingReplanFailedSubgoalId = null;
@@ -1413,14 +1590,26 @@ function connect() {
 
 function setStatus(state, label) {
   dot.className = `status-dot ${state}`;
+  statusLoading.classList.toggle('active', state === 'running');
   statusLabel.textContent = label;
   metaState.textContent = label;
 }
 
+function updateControlStates() {
+  const stopMode = (isRunning || isSubmitting) && !replayMode;
+  const canRun = inputAllowed && !stopMode;
+  btn.disabled = stopMode ? isStopping : !canRun;
+  btn.classList.toggle('stop', stopMode);
+  btn.setAttribute('aria-label', stopMode ? 'Stop task' : 'Run task');
+  btn.setAttribute('title', stopMode ? 'Stop task' : 'Run task');
+  btnIconPath.setAttribute('d', stopMode ? 'M6 6h12v12H6z' : 'M8 5v14l11-7z');
+}
+
 function setInputEnabled(enabled) {
+  inputAllowed = enabled;
   input.disabled = !enabled;
-  btn.disabled   = !enabled;
   inputShell.classList.toggle('disabled', !enabled);
+  updateControlStates();
 }
 
 function resetTimeline() {
@@ -1680,6 +1869,87 @@ function viewportLabel(viewport, stepId) {
   return `${stepLabel} · ${scrollLabel(viewport.scroll)}`;
 }
 
+function artifactPathName(path, expectedDir) {
+  if (!path) return '';
+  const parts = String(path).split('/').filter(Boolean);
+  if (parts.length === 2 && parts[0] === expectedDir) return parts[1];
+  return parts[parts.length - 1] || '';
+}
+
+function replayArtifactHref(path, expectedDir = 'history') {
+  const sessionId = replayMode ? replaySessionId : liveSessionId;
+  if (!sessionId || !path) return '';
+  const name = artifactPathName(path, expectedDir);
+  if (!name) return '';
+  return `/sessions/${encodeURIComponent(sessionId)}/artifacts/${expectedDir}/${encodeURIComponent(name)}`;
+}
+
+function renderArtifactCard(label, href, kind = 'image') {
+  if (!href) return '';
+  const safeLabel = escHtml(label);
+  const safeHref = escHtml(href);
+  const media = kind === 'video'
+    ? `<video controls preload="metadata" src="${safeHref}"></video>`
+    : `<a target="_blank" rel="noreferrer" href="${safeHref}"><img src="${safeHref}" alt="${safeLabel} screenshot"></a>`;
+  return `<div class="artifact-card"><div class="artifact-label">${safeLabel} · <a class="artifact-link" target="_blank" rel="noreferrer" href="${safeHref}">open</a></div>${media}</div>`;
+}
+
+function renderActionArtifacts(artifacts) {
+  if (!artifacts) return '';
+  const actionGif = replayArtifactHref(artifacts.action_clip_gif_path || artifacts.action_gif_path, 'history');
+  const beforeShot = replayArtifactHref(artifacts.before_screenshot_path, 'history');
+  const afterShot = replayArtifactHref(artifacts.after_screenshot_path || artifacts.screenshot_path, 'history');
+  const video = replayArtifactHref(artifacts.video_path, 'video');
+  const cards = [
+    renderArtifactCard('action GIF', actionGif),
+    renderArtifactCard('before', beforeShot),
+    renderArtifactCard('after', afterShot),
+  ].filter(Boolean);
+  const videoCard = renderArtifactCard('session video', video, 'video');
+  const names = [];
+  if (artifacts.action_clip_gif_path || artifacts.action_gif_path) names.push(`gif=${escHtml(artifacts.action_clip_gif_path || artifacts.action_gif_path)}`);
+  if (artifacts.before_screenshot_path) names.push(`before=${escHtml(artifacts.before_screenshot_path)}`);
+  if (artifacts.after_screenshot_path || artifacts.screenshot_path) names.push(`after=${escHtml(artifacts.after_screenshot_path || artifacts.screenshot_path)}`);
+  if (artifacts.video_path) names.push(`video=${escHtml(artifacts.video_path)}`);
+  const nameLine = names.length
+    ? `<div class="bullet"><span class="dot">•</span><span><span class="k">artifacts</span> <span class="v">${names.join(' · ')}</span></span></div>`
+    : '';
+  return nameLine + (cards.length ? `<div class="artifact-compare">${cards.join('')}</div>` : '') + videoCard;
+}
+
+function actionPreviewArtifactsFor(action) {
+  const artifacts = action && action.artifacts;
+  if (!artifacts) return null;
+  const previewPath = artifacts.action_clip_gif_path || artifacts.action_gif_path || artifacts.after_screenshot_path || artifacts.screenshot_path;
+  if (!previewPath) return null;
+  return {
+    label: action.label || `#${action.step || ''} action`,
+    path: previewPath,
+    kind: (artifacts.action_clip_gif_path || artifacts.action_gif_path) ? 'gif' : 'image',
+  };
+}
+
+function collectActionPreviewArtifacts(actionIds) {
+  return Array.from(actionIds || [])
+    .map(id => trajectoryActions.get(id))
+    .filter(Boolean)
+    .sort((a, b) => (a.step - b.step) || (a.order - b.order))
+    .map(actionPreviewArtifactsFor)
+    .filter(Boolean);
+}
+
+function renderActionPreviewGallery(previews) {
+  if (!Array.isArray(previews) || !previews.length) return '';
+  const cards = previews.map((preview, index) => {
+    const href = replayArtifactHref(preview.path, 'history');
+    const label = preview.label || `action ${index + 1}`;
+    return renderArtifactCard(label, href);
+  }).filter(Boolean);
+  if (!cards.length) return '';
+  return `<div class="bullet"><span class="dot">•</span><span><span class="k">child previews</span> <span class="v">${cards.length} action(s)</span></span></div>` +
+    `<div class="artifact-gallery">${cards.join('')}</div>`;
+}
+
 function actionLabel(actionName, args) {
   const values = args || {};
   if (actionName === 'navigate') return `Open ${values.url || 'page'}`;
@@ -1788,6 +2058,11 @@ function recordActionExecution(ev) {
     step: ev.step_id,
     order: actionOrder,
     fullUrl: urlNode.fullUrl,
+    artifacts: ev.artifacts || null,
+    actionGifPath: ev.artifacts && (ev.artifacts.action_clip_gif_path || ev.artifacts.action_gif_path),
+    beforeScreenshotPath: ev.artifacts && ev.artifacts.before_screenshot_path,
+    afterScreenshotPath: ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path),
+    videoPath: ev.artifacts && ev.artifacts.video_path,
     visits: 1,
     firstStep: ev.step_id,
     lastStep: ev.step_id,
@@ -1838,6 +2113,7 @@ function buildUrlGraphData() {
     lastStep: src.lastStep,
     viewportCount: src.viewportIds ? src.viewportIds.size : 0,
     actionCount: src.actionIds ? src.actionIds.size : 0,
+    actionPreviews: collectActionPreviewArtifacts(src.actionIds),
     isRoot: trajectoryRoots.includes(src.id),
     isCurrent: src.id === trajectoryCurrentKey,
     drillable: !!(src.viewportIds && src.viewportIds.size),
@@ -1867,6 +2143,7 @@ function buildViewportGraphData(urlId) {
     lastStep: urlNode.lastStep,
     viewportCount: urlNode.viewportIds.size,
     actionCount: urlNode.actionIds.size,
+    actionPreviews: collectActionPreviewArtifacts(urlNode.actionIds),
     isRoot: true,
     isCurrent: urlNode.id === trajectoryCurrentKey,
   };
@@ -1885,6 +2162,7 @@ function buildViewportGraphData(urlId) {
       firstStep: vp.firstStep,
       lastStep: vp.lastStep,
       actionCount: vp.actionIds.size,
+      actionPreviews: collectActionPreviewArtifacts(vp.actionIds),
       drillable: !!vp.actionIds.size,
     }));
   const viewportIds = new Set(viewports.map(vp => vp.id));
@@ -1916,6 +2194,7 @@ function buildActionGraphData(viewportId) {
     firstStep: viewportNode.firstStep,
     lastStep: viewportNode.lastStep,
     actionCount: viewportNode.actionIds.size,
+    actionPreviews: collectActionPreviewArtifacts(viewportNode.actionIds),
     isRoot: true,
   };
   const actions = Array.from(viewportNode.actionIds || [])
@@ -1947,7 +2226,69 @@ function drillGraphNode(d) {
   } else if (d.type === 'viewport') {
     graphDrilldown = { level: 'action', urlId: d.urlId, viewportId: d.id };
   }
+  selectedNodeId = null;
+  selectedNodeData = null;
+  renderSelection(null);
   updateGraph();
+}
+
+let selectedNodeId = null;
+let selectedNodeData = null;
+
+function selectGraphNode(d) {
+  if (!d) return;
+  if (selectedNodeId === d.id) {
+    selectedNodeId = null;
+    selectedNodeData = null;
+  } else {
+    selectedNodeId = d.id;
+    selectedNodeData = d;
+  }
+  renderSelection(selectedNodeData);
+  updateGraphSelectionClass();
+}
+
+function clearGraphSelection() {
+  if (selectedNodeId === null) return;
+  selectedNodeId = null;
+  selectedNodeData = null;
+  renderSelection(null);
+  updateGraphSelectionClass();
+}
+
+function updateGraphSelectionClass() {
+  if (typeof graph !== 'undefined' && graph && graph.refreshSelection) {
+    graph.refreshSelection();
+  }
+}
+
+function renderSelection(d) {
+  const el = document.getElementById('side-selection');
+  if (!el) return;
+  if (!d) {
+    el.innerHTML = '<div class="side-empty">no node selected.</div>';
+    return;
+  }
+  const rows = [];
+  const title = d.fullUrl || d.label || d.id;
+  rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">level</span> <span class="v">${escHtml(d.type || '—')}</span></span></div>`);
+  if (d.host)        rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">host</span> <span class="v">${escHtml(d.host)}</span></span></div>`);
+  if (d.path)        rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">path</span> <span class="v">${escHtml(d.path || '/')}</span></span></div>`);
+  if (d.size)        rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">size</span> <span class="v">${escHtml(d.size)}</span></span></div>`);
+  if (d.scroll)      rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">scroll</span> <span class="v">${escHtml(d.scroll)}</span></span></div>`);
+  if (d.actionName)  rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">action</span> <span class="v">${escHtml(d.actionName)}</span></span></div>`);
+  if (d.argsText)    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">args</span> <span class="v">${escHtml(d.argsText)}</span></span></div>`);
+  if (d.actionGifPath)       rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">action gif</span> <span class="v">${escHtml(d.actionGifPath)}</span></span></div>`);
+  if (d.beforeScreenshotPath) rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">before shot</span> <span class="v">${escHtml(d.beforeScreenshotPath)}</span></span></div>`);
+  if (d.afterScreenshotPath)  rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">after shot</span> <span class="v">${escHtml(d.afterScreenshotPath)}</span></span></div>`);
+  if (d.videoPath)           rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">video</span> <span class="v">${escHtml(d.videoPath)}</span></span></div>`);
+  if (d.visits != null)        rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">visits</span> <span class="v">${d.visits}</span></span></div>`);
+  if (d.viewportCount != null) rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">viewports</span> <span class="v">${d.viewportCount}</span></span></div>`);
+  if (d.actionCount != null)   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">actions</span> <span class="v">${d.actionCount}</span></span></div>`);
+  rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">first step</span> <span class="v">#${d.firstStep ?? d.step ?? '—'}</span></span></div>`);
+  rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">last step</span> <span class="v">#${d.lastStep ?? d.step ?? '—'}</span></span></div>`);
+  if (d.drillable)   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">tip</span> <span class="v">double-click to drill in</span></span></div>`);
+  el.innerHTML = `<div class="side-sel-title" style="color: var(--md-sys-color-primary); font-weight:600; margin-bottom:6px; word-break:break-all;">${escHtml(title)}</div>` + rows.join('') + renderActionArtifacts(d.artifacts) + renderActionPreviewGallery(d.actionPreviews);
 }
 
 function setGraphDrilldown(next) {
@@ -2026,7 +2367,8 @@ const graph = (() => {
     rows.push(`<div class="tt-row"><span>first step</span><span class="v">#${d.firstStep ?? d.step ?? '—'}</span></div>`);
     rows.push(`<div class="tt-row"><span>last step</span><span class="v">#${d.lastStep ?? d.step ?? '—'}</span></div>`);
     rows.push(`<div class="tt-row"><span>out / in</span><span class="v">${outgoing} / ${incoming}</span></div>`);
-    if (d.drillable) rows.push(`<div class="tt-row"><span>click</span><span class="v">narrow down</span></div>`);
+    rows.push(`<div class="tt-row"><span>click</span><span class="v">select</span></div>`);
+    if (d.drillable) rows.push(`<div class="tt-row"><span>double-click</span><span class="v">narrow down</span></div>`);
     tooltip.innerHTML = `<div class="tt-url">${escHtml(title)}</div>` + rows.join('');
     tooltip.classList.remove('hidden');
     moveTooltip(event);
@@ -2080,6 +2422,12 @@ const graph = (() => {
   function update(payload) {
     emptyEl.textContent = payload.mode === 'url' ? 'no navigation yet.' : 'no child nodes yet.';
     renderBreadcrumb(payload);
+    const levelEl = document.getElementById('graph-level');
+    const nodeCountEl = document.getElementById('graph-node-count');
+    const edgeCountEl = document.getElementById('graph-edge-count');
+    if (levelEl)     levelEl.textContent = payload.mode === 'url' ? 'URLs' : (payload.mode === 'viewport' ? 'viewports' : 'actions');
+    if (nodeCountEl) nodeCountEl.textContent = String((payload.nodes || []).length);
+    if (edgeCountEl) edgeCountEl.textContent = String((payload.links || []).length);
 
     const prevById = new Map(nodesData.map(n => [n.id, n]));
     nodesData = (payload.nodes || []).map(src => {
@@ -2102,7 +2450,8 @@ const graph = (() => {
     const enter = nodeSel.enter().append('g')
       .attr('class', 'graph-node')
       .call(drag())
-      .on('click', (event, d) => { event.stopPropagation(); drillGraphNode(d); })
+      .on('click', (event, d) => { event.stopPropagation(); selectGraphNode(d); })
+      .on('dblclick', (event, d) => { event.stopPropagation(); drillGraphNode(d); })
       .on('mouseenter', showTooltip)
       .on('mousemove', moveTooltip)
       .on('mouseleave', hideTooltip);
@@ -2115,7 +2464,8 @@ const graph = (() => {
       .classed('viewport', d => d.type === 'viewport')
       .classed('action', d => d.type === 'action')
       .classed('drillable', d => !!d.drillable)
-      .classed('current', d => d.isCurrent);
+      .classed('current', d => d.isCurrent)
+      .classed('selected', d => d.id === selectedNodeId);
     nodeSel.select('circle').attr('r', d => 6 + Math.min(8, Math.log2((d.visits || 1) + 1) * 2));
     nodeSel.select('text').text(d => d.label || d.id);
 
@@ -2138,21 +2488,33 @@ const graph = (() => {
     simulation.force('link').links([]);
   }
 
-  return { update, reset, resize };
+  function refreshSelection() {
+    nodeG.selectAll('g.graph-node').classed('selected', d => d.id === selectedNodeId);
+  }
+
+  svg.on('click', () => clearGraphSelection());
+
+  return { update, reset, resize, refreshSelection };
 })();
 
 function updateGraph() { graph.update(selectedGraphData()); }
-function resetGraph()  { graph.reset(); }
+function resetGraph()  { clearGraphSelection(); graph.reset(); }
 
 // Tab switching (Timeline ↔ Graph)
+function setMainView(view) {
+  document.body.classList.toggle('view-timeline', view === 'timeline');
+  document.body.classList.toggle('view-graph', view === 'graph');
+}
 (function setupTabs() {
   const tabs = document.querySelectorAll('.view-tab');
   const panes = document.querySelectorAll('.view-pane');
+  setMainView('timeline');
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
       const view = tab.dataset.view;
       tabs.forEach(t => { t.classList.toggle('active', t === tab); });
       panes.forEach(p => { p.classList.toggle('active', p.dataset.view === view); });
+      setMainView(view);
       if (view === 'graph') {
         graph.resize();
         updateGraph();
@@ -2174,6 +2536,9 @@ function handleEvent(ev) {
 
     case 'task_started':
       isRunning = true;
+      isSubmitting = false;
+      isStopping = false;
+      liveSessionId = ev.session_id || null;
       setStatus('running', 'running');
       setInputEnabled(false);
       addSpeaker('user', null);
@@ -2292,8 +2657,8 @@ function handleEvent(ev) {
         addRow('dim', `@ <span class="url">${escHtml(ev.env_state.url)}</span>`);
         recordActionExecution(ev);
       }
-      if (replayMode && replaySessionId && ev.artifacts && ev.artifacts.screenshot_path) {
-        const href = `/sessions/${encodeURIComponent(replaySessionId)}/artifacts/history/${encodeURIComponent(ev.artifacts.screenshot_path)}`;
+      if (replayMode && replaySessionId && ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path)) {
+        const href = replayArtifactHref(ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path, 'history');
         addRow('dim', `<a target="_blank" rel="noreferrer" href="${href}">[shot]</a>`);
       }
       break;
@@ -2308,7 +2673,7 @@ function handleEvent(ev) {
 
     case 'step_complete':
       if (ev.final_reasoning) {
-        addBlock('green',
+        addBlock('plain',
           `<div class="title">step complete</div>` +
           `<div class="meta">${escHtml(ev.final_reasoning)}</div>`
         );
@@ -2317,6 +2682,8 @@ function handleEvent(ev) {
 
     case 'task_complete':
       isRunning = false;
+      isSubmitting = false;
+      isStopping = false;
       setStatus('connected', 'ready');
       setInputEnabled(true);
       subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'done'; });
@@ -2326,6 +2693,8 @@ function handleEvent(ev) {
 
     case 'task_failed':
       isRunning = false;
+      isSubmitting = false;
+      isStopping = false;
       setStatus('connected', 'ready');
       setInputEnabled(true);
       subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'failed'; });
@@ -2334,6 +2703,17 @@ function handleEvent(ev) {
         `<div class="title">task failed</div>` +
         `<div class="meta">${escHtml(ev.error_message || 'unknown error')}</div>`
       );
+      break;
+
+    case 'task_interrupted':
+      isRunning = false;
+      isSubmitting = false;
+      isStopping = false;
+      setStatus('connected', 'ready');
+      setInputEnabled(true);
+      subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'failed'; });
+      renderPlan();
+      addBlock('orange', `<div class="title">task interrupted</div><div class="meta">${escHtml(ev.reason || 'stopped by user')}</div>`);
       break;
 
     case 'session_closed':
@@ -2499,21 +2879,51 @@ replaySlider.addEventListener('input', () => replayTo(Number(replaySlider.value 
 // ── Task submission ────────────────────────────────────
 async function submitTask() {
   const query = input.value.trim();
-  if (!query || isRunning) return;
+  if (!query || isRunning || isSubmitting) return;
   input.value = '';
   autoResize();
+  isSubmitting = true;
+  isStopping = false;
+  setStatus('running', 'submitting…');
+  setInputEnabled(false);
   try {
-    await fetch('/task', {
+    const res = await fetch('/task', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query }),
     });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
   } catch (e) {
+    isSubmitting = false;
+    setStatus(ws && ws.readyState === WebSocket.OPEN ? 'connected' : 'disconnected', ws && ws.readyState === WebSocket.OPEN ? 'ready' : 'disconnected');
+    setInputEnabled(ws && ws.readyState === WebSocket.OPEN && !replayMode);
     addBlock('red', `<div class="title">network error</div><div class="meta">failed to submit task. is the server running?</div>`);
   }
 }
 
-btn.addEventListener('click', submitTask);
+async function interruptTask() {
+  if ((!isRunning && !isSubmitting) || isStopping) return;
+  isStopping = true;
+  updateControlStates();
+  setStatus('running', 'stopping…');
+  addRow('warn', 'interrupt requested…');
+  try {
+    const res = await fetch('/interrupt', { method: 'POST' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (e) {
+    isStopping = false;
+    updateControlStates();
+    addBlock('red', `<div class="title">network error</div><div class="meta">failed to interrupt task. is the server running?</div>`);
+  }
+}
+
+btn.addEventListener('click', () => {
+  if (isRunning || isSubmitting) {
+    interruptTask();
+  } else {
+    submitTask();
+  }
+});
 
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
