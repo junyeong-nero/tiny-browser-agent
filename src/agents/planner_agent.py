@@ -27,7 +27,15 @@ When planning:
 - For generic web searches, say to use the browser's default search engine or search
   tool; leave provider choice to the browser agent and runtime configuration.
 
-Respond ONLY with a JSON array of subgoals. No other text.
+Output format (STRICT):
+- Respond ONLY with JSON. No prose, no markdown fences, no commentary.
+- The JSON must be an array of objects: [{...}, {...}, ...].
+- Each object MUST have exactly these two fields, both non-empty strings:
+    "description": what the browser agent should do at this step.
+    "success_criteria": how to verify this step succeeded from the page state.
+- Do NOT add other fields (no "action", "target", "query", "id", etc.).
+- If a JSON object wrapper is required by your runtime, wrap as
+  {"subgoals": [...]} using the same item schema.
 """
 
 _REPLAN_SYSTEM_PROMPT = """You are a planning agent for a web browser automation system.
@@ -44,8 +52,99 @@ When re-planning:
 - For generic web-search fallbacks, say to use the browser's default search engine
   or search tool instead of naming providers.
 
-Respond ONLY with a JSON array of replacement subgoals. No other text.
+Output format (STRICT):
+- Respond ONLY with JSON. No prose, no markdown fences, no commentary.
+- The JSON must be an array of objects: [{...}, {...}, ...].
+- Each object MUST have exactly these two fields, both non-empty strings:
+    "description": what the browser agent should do at this step.
+    "success_criteria": how to verify this step succeeded from the page state.
+- Do NOT add other fields (no "action", "target", "query", "id", etc.).
+- If a JSON object wrapper is required by your runtime, wrap as
+  {"subgoals": [...]} using the same item schema.
 """
+
+
+_SUBGOAL_KEYS = ("description", "success_criteria", "task", "step", "goal")
+
+
+def _first_string(item: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = item.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _try_extract_json(text: str) -> Any:
+    """Best-effort extraction of an embedded JSON object or array."""
+    for opener, closer in (("[", "]"), ("{", "}")):
+        start = text.find(opener)
+        end = text.rfind(closer)
+        if start == -1 or end <= start:
+            continue
+        try:
+            return json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def _strip_code_fences(text: str) -> str:
+    stripped = text.strip()
+    if not stripped.startswith("```"):
+        return stripped
+    lines = stripped.splitlines()
+    if len(lines) < 2:
+        return stripped
+    body = lines[1:]
+    if body and body[-1].strip().startswith("```"):
+        body = body[:-1]
+    return "\n".join(body).strip()
+
+
+def _looks_like_subgoal(item: Any) -> bool:
+    return isinstance(item, dict) and any(k in item for k in _SUBGOAL_KEYS)
+
+
+def _coerce_to_subgoal_list(value: Any) -> list[dict[str, Any]] | None:
+    """Find a list of subgoal dicts inside the model's JSON output.
+
+    Tolerates: bare list, single subgoal dict, `{"subgoals": [...]}`,
+    arbitrarily-named wrapper keys, nested wrappers (e.g. `{"plan": {"steps": [...]}}`).
+    """
+    if isinstance(value, list):
+        if any(_looks_like_subgoal(item) for item in value):
+            return value
+        return value if not value else None
+    if isinstance(value, dict):
+        if _looks_like_subgoal(value):
+            return [value]
+        for child in value.values():
+            found = _coerce_to_subgoal_list(child)
+            if found is not None:
+                return found
+    return None
+
+
+def _extract_answer_text(response: Any) -> str:
+    """Return the first non-thought text part from a model response.
+
+    OpenAI/OpenRouter-style providers may surface reasoning as a leading
+    `thought=True` part; reading `parts[0]` blindly would give the chain of
+    thought instead of the JSON answer.
+    """
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return ""
+    content = getattr(candidates[0], "content", None)
+    parts = getattr(content, "parts", None) or []
+    for part in parts:
+        if getattr(part, "thought", None) is True:
+            continue
+        text = getattr(part, "text", None)
+        if isinstance(text, str) and text:
+            return text
+    return ""
 
 
 class _SubgoalSchema(BaseModel):
@@ -127,35 +226,27 @@ class PlannerAgent:
         """Parse the planner response into a list of dicts, emitting an error
         event if the payload is not valid JSON.
         """
+        raw_text = _strip_code_fences(raw_text)
         try:
             parsed = json.loads(raw_text)
         except json.JSONDecodeError:
-            start = raw_text.find("[")
-            end = raw_text.rfind("]") + 1
-            if start == -1 or end <= start:
+            parsed = _try_extract_json(raw_text)
+            if parsed is None:
                 self._emit_event(
                     "planner_parse_error",
-                    error_message="response does not contain a JSON array",
+                    error_message="response is not valid JSON",
                     raw_text=raw_text[:500],
                 )
                 return []
-            try:
-                parsed = json.loads(raw_text[start:end])
-            except json.JSONDecodeError as exc:
-                self._emit_event(
-                    "planner_parse_error",
-                    error_message=str(exc),
-                    raw_text=raw_text[:500],
-                )
-                return []
-        if not isinstance(parsed, list):
+        unwrapped = _coerce_to_subgoal_list(parsed)
+        if unwrapped is None:
             self._emit_event(
                 "planner_parse_error",
-                error_message=f"expected JSON array, got {type(parsed).__name__}",
+                error_message=f"could not find a subgoal list in {type(parsed).__name__}",
                 raw_text=raw_text[:500],
             )
             return []
-        return parsed
+        return unwrapped
 
     def _call_planner(
         self,
@@ -183,7 +274,8 @@ class PlannerAgent:
             contents=contents,
             config=config,
         )
-        raw_text = response.candidates[0].content.parts[0].text or "[]"
+        raw_text = _extract_answer_text(response) or "[]"
+        self._emit_event("planner_raw_response", raw_text=raw_text[:2000])
         data = self._parse_subgoal_json(raw_text)
 
         subgoals = []
@@ -195,15 +287,19 @@ class PlannerAgent:
                     raw_text=str(item)[:500],
                 )
                 continue
-            description = item.get("description", "")
-            success_criteria = item.get("success_criteria", "")
-            if not description or not success_criteria:
+            description = _first_string(item, ("description", "task", "step", "goal"))
+            success_criteria = _first_string(
+                item, ("success_criteria", "criteria", "done_when", "verification")
+            )
+            if not description:
                 self._emit_event(
                     "planner_parse_error",
-                    error_message="subgoal missing description or success_criteria",
+                    error_message="subgoal missing description",
                     raw_text=str(item)[:500],
                 )
                 continue
+            if not success_criteria:
+                success_criteria = f"Step is complete when: {description}"
             subgoals.append(
                 Subgoal(
                     id=start_id + idx,

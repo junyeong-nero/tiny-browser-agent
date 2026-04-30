@@ -85,7 +85,7 @@ class TestPlannerAgentPlan:
         user_text = "\n".join(part.text or "" for part in contents[0].parts or [])
 
         assert "planning agent for a web browser automation system" in system_text
-        assert "Respond ONLY with a JSON array of subgoals" in system_text
+        assert "Respond ONLY with JSON" in system_text
         assert "Do not name a search provider" in system_text
         assert "browser's default search engine" in system_text
         assert user_text == "User query:\ntest"
@@ -105,6 +105,61 @@ class TestPlannerAgentPlan:
         planner = PlannerAgent(query="test", llm_client=client)
         subgoals = planner.plan()
         assert subgoals == []
+
+    def test_accepts_object_wrapped_array(self):
+        client = MagicMock()
+        part = MagicMock()
+        part.text = json.dumps({"subgoals": SAMPLE_PLAN})
+        part.thought = None
+        content = MagicMock()
+        content.parts = [part]
+        candidate = MagicMock()
+        candidate.content = content
+        response = MagicMock()
+        response.candidates = [candidate]
+        client.generate_content.return_value = response
+
+        planner = PlannerAgent(query="test", llm_client=client)
+        subgoals = planner.plan()
+        assert len(subgoals) == 2
+        assert subgoals[0].description == "Open Google"
+
+    def test_accepts_markdown_fenced_json(self):
+        client = MagicMock()
+        part = MagicMock()
+        part.text = "```json\n" + json.dumps(SAMPLE_PLAN) + "\n```"
+        part.thought = None
+        content = MagicMock()
+        content.parts = [part]
+        candidate = MagicMock()
+        candidate.content = content
+        response = MagicMock()
+        response.candidates = [candidate]
+        client.generate_content.return_value = response
+
+        planner = PlannerAgent(query="test", llm_client=client)
+        subgoals = planner.plan()
+        assert len(subgoals) == 2
+
+    def test_skips_reasoning_thought_part(self):
+        client = MagicMock()
+        thought = MagicMock()
+        thought.thought = True
+        thought.text = "Let me think... I should plan this carefully."
+        answer = MagicMock()
+        answer.thought = None
+        answer.text = json.dumps(SAMPLE_PLAN)
+        content = MagicMock()
+        content.parts = [thought, answer]
+        candidate = MagicMock()
+        candidate.content = content
+        response = MagicMock()
+        response.candidates = [candidate]
+        client.generate_content.return_value = response
+
+        planner = PlannerAgent(query="test", llm_client=client)
+        subgoals = planner.plan()
+        assert len(subgoals) == 2
 
     def test_empty_plan(self):
         client = _mock_llm_client([])

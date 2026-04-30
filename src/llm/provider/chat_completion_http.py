@@ -151,6 +151,9 @@ class ChatCompletionsProvider:
             body["top_p"] = config.top_p
         if config.max_output_tokens is not None:
             body["max_tokens"] = config.max_output_tokens
+        response_format = _build_response_format(config)
+        if response_format is not None:
+            body["response_format"] = response_format
 
     def _with_extra_body(self, body: dict[str, Any]) -> dict[str, Any]:
         if not self._extra_body:
@@ -204,3 +207,22 @@ class ChatCompletionsProvider:
             if merged:
                 return merged
         raise RuntimeError(f"{self._error_prefix} response did not contain text content.")
+
+
+def _build_response_format(
+    config: types.GenerateContentConfig,
+) -> dict[str, Any] | None:
+    """Translate Gemini-style structured-output config into OpenAI-compatible
+    `response_format`. Returns None when no JSON output was requested.
+
+    We use plain `json_object` mode rather than strict `json_schema` because
+    OpenAI strict mode requires an object root, while callers (e.g. planner)
+    rely on bare JSON arrays. Combined with a "respond only with JSON"
+    instruction in the prompt, json_object is sufficient and broadly
+    supported across OpenRouter models.
+    """
+    mime = getattr(config, "response_mime_type", None)
+    schema = getattr(config, "response_schema", None)
+    if mime != "application/json" and schema is None:
+        return None
+    return {"type": "json_object"}
