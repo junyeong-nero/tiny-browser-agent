@@ -66,11 +66,11 @@ Each `actions.jsonl` entry:
 | Argument | Description | Default |
 | - | - | - |
 | `query` | Agent instruction (positional). | required |
-| `--initial_url` | Starting page. | `https://www.google.com` |
+| `--initial_url` | Starting page. | `https://www.duckduckgo.com` |
 | `--highlight_mouse` | Highlight cursor in screenshots. | `False` |
 | `--headless` | Launch Playwright headless (`True`/`False`). | `False` |
 | `--log` | Save video + per-step history + action history. | `False` |
-| `--model` | Actor model name. | `nvidia/nemotron-3-super-120b-a12b:free` |
+| `--model` | Actor model name. | `models.actor.model` from `config.yaml` |
 | `--grounding` | Page grounding mode: `text`, `vision`, or `mixed`. | `text` |
 | `--planner` | Decompose the query into subgoals before execution. | `False` |
 
@@ -87,6 +87,14 @@ Each `actions.jsonl` entry:
 | `ACTION_SUMMARY_TIMEOUT_SECONDS` | Summarizer timeout (default `15`). |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | OpenAI key and optional base URL. |
 | `COMPUTER_USE_FFMPEG_COMMAND` | Path to ffmpeg binary for video recording. |
+
+## Configuration Notes
+
+Runtime model defaults live in `config.yaml`, not in fixed tests. This keeps the
+project flexible while comparing OpenRouter, Gemini, OpenAI, or NVIDIA models.
+In UI mode, model safety-confirmation requests are not routed through terminal
+stdin; until the panel has an explicit confirmation control, those requests stop
+the pending browser action instead of blocking the session thread.
 
 ## Project Layout
 
