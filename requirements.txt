@@ -1,6 +1,9 @@
+fastapi>=0.110.0
 termcolor==3.1.0
 pydantic==2.12.0
+pyyaml>=6.0.0
 google-genai>=1.40.0
 playwright==1.55.0
 rich
+uvicorn[standard]>=0.29.0
 pytest

@@ -1,5 +1,5 @@
 [project]
-name = "computer-use-preview"
+name = "tiny-browser-agent"
 version = "0.1.0"
 description = "Google Computer Use Preview example agent"
 readme = "README.md"
@@ -9,6 +9,7 @@ dependencies = [
     "google-genai>=1.40.0",
     "playwright==1.55.0",
     "pydantic==2.12.0",
+    "pyyaml>=6.0.0",
     "rich",
     "termcolor==3.1.0",
     "uvicorn[standard]>=0.29.0",
