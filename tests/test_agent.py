@@ -184,7 +184,7 @@ class TestBrowserAgent(unittest.TestCase):
             step_summarizer=None,
         )
 
-        mock_from_provider_name.assert_called_once_with("openrouter")
+        mock_from_provider_name.assert_called_once_with("openrouter", max_retries=1)
         self.assertEqual(agent._llm_client.provider_name, "openrouter")
 
     def test_generate_content_config_tools_match_expected_structure(self):
@@ -299,6 +299,26 @@ class TestBrowserAgent(unittest.TestCase):
 
         self.assertEqual(mock_get_model_response.call_count, 3)
         self.assertIsNone(agent.final_reasoning)
+
+    def test_agent_loop_enforces_total_step_budget(self):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+            max_total_steps=2,
+        )
+
+        with patch.object(agent, "run_one_iteration", return_value="CONTINUE") as mock_iteration:
+            with self.assertRaisesRegex(RuntimeError, "Exceeded max total steps"):
+                agent.agent_loop()
+
+        self.assertEqual(mock_iteration.call_count, 2)
+        self.assertEqual(events[-1]["type"], "step_error")
+        self.assertIn("Exceeded max total steps", events[-1]["error_message"])
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_retries_on_malformed_function_call(self, mock_get_model_response):
@@ -892,6 +912,40 @@ class TestBrowserAgent(unittest.TestCase):
             events[-1]["final_reasoning"],
             "Terminated after safety confirmation rejection.",
         )
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_uses_non_interactive_safety_callback(self, mock_get_model_response):
+        decisions = []
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+            safety_confirmation_callback=lambda safety: decisions.append(safety) or "TERMINATE",
+        )
+        function_call = types.FunctionCall(
+            name="navigate",
+            args={
+                "url": "https://example.com",
+                "safety_decision": {
+                    "decision": "require_confirmation",
+                    "explanation": "Need approval.",
+                },
+            },
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [types.Part(function_call=function_call)]
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "COMPLETE")
+        self.assertEqual(decisions[0]["explanation"], "Need approval.")
+        self.mock_browser_computer.navigate.assert_not_called()
+        self.assertIn("safety_confirmation_required", [event["type"] for event in events])
 
     def test_append_user_message(self):
         self.agent.append_user_message("follow up")

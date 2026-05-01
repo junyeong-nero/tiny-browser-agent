@@ -79,11 +79,21 @@ class LLMClient:
         return cls(provider=GeminiProvider.from_env())
 
     @classmethod
-    def from_provider_name(cls, provider_name: str) -> "LLMClient":
+    def from_provider_name(
+        cls,
+        provider_name: str,
+        *,
+        max_retries: int = 5,
+        base_delay_s: int = 1,
+    ) -> "LLMClient":
         factory = PROVIDER_FACTORIES.get(provider_name)
         if factory is None:
             raise ValueError(f"Unsupported LLM provider '{provider_name}'.")
-        return cls(provider=factory())
+        return cls(
+            provider=factory(),
+            max_retries=max_retries,
+            base_delay_s=base_delay_s,
+        )
 
     @classmethod
     def for_computer_use(cls) -> "LLMClient":

@@ -16,7 +16,6 @@ import time
 from pathlib import Path
 from typing import Callable, Literal, Optional, Any
 from google.genai import types
-import termcolor
 from google.genai.types import (
     Part,
     GenerateContentConfig,
@@ -34,6 +33,11 @@ from agents.post_summary_agent import (
     ActionReviewService,
     AmbiguityCandidate,
     ActionStepSummarizer,
+)
+from agents.safety import (
+    SafetyConfirmationCallback,
+    SafetyDecision,
+    prompt_for_safety_confirmation,
 )
 from agents.types import GroundingMode, Subgoal
 from browser import (
@@ -112,6 +116,8 @@ class BrowserAgent:
         custom_functions: list[CustomFunction] | None = None,
         extra_browser_tools: list[BrowserActionName] | None = None,
         interrupt_checker: Callable[[], bool] | None = None,
+        safety_confirmation_callback: SafetyConfirmationCallback | None = None,
+        max_total_steps: int = 100,
     ):
         self._browser_computer = browser_computer
         self._query = query
@@ -121,7 +127,13 @@ class BrowserAgent:
         if llm_client is not None:
             self._llm_client = llm_client
         else:
-            self._llm_client = LLMClient.from_provider_name(app_config.actor_provider())
+            # BrowserAgent owns model-turn retry/backoff and emits UI-visible retry
+            # events. Keep the lower-level provider wrapper single-shot here to
+            # avoid multiplying retries for every actor step.
+            self._llm_client = LLMClient.from_provider_name(
+                app_config.actor_provider(),
+                max_retries=1,
+            )
 
         provider_name = self._llm_client.provider_name
         self._validate_grounding_provider(grounding, provider_name)
@@ -133,6 +145,8 @@ class BrowserAgent:
         self._replan_callback = replan_callback
         self._max_steps_per_subgoal = max_steps_per_subgoal
         self._interrupt_checker = interrupt_checker
+        self._safety_confirmation_callback = safety_confirmation_callback
+        self._max_total_steps = max_total_steps
         browser_actions = build_browser_action_functions(
             browser_computer,
             include=("reload_page", *(extra_browser_tools or [])),
@@ -1010,21 +1024,17 @@ class BrowserAgent:
 
     def _get_safety_confirmation(
         self, safety: dict[str, Any]
-    ) -> Literal["CONTINUE", "TERMINATE"]:
+    ) -> SafetyDecision:
         if safety["decision"] != "require_confirmation":
             raise ValueError(f"Unknown safety decision: {safety['decision']}")
-        termcolor.cprint(
-            "Safety service requires explicit confirmation!",
-            color="yellow",
-            attrs=["bold"],
+        self._emit_event(
+            "safety_confirmation_required",
+            step_id=self._step_id,
+            explanation=safety.get("explanation"),
         )
-        print(safety["explanation"])
-        decision = ""
-        while decision.lower() not in ("y", "n", "ye", "yes", "no"):
-            decision = input("Do you wish to proceed? [Yes]/[No]\n")
-        if decision.lower() in ("n", "no"):
-            return "TERMINATE"
-        return "CONTINUE"
+        if self._safety_confirmation_callback is not None:
+            return self._safety_confirmation_callback(safety)
+        return prompt_for_safety_confirmation(safety)
 
     def _run_subgoal_loop(self, subgoal: Subgoal) -> tuple[Literal["done", "failed"], str]:
         self.final_reasoning = None
@@ -1140,9 +1150,19 @@ class BrowserAgent:
     def agent_loop(self):
         if self._subgoals is None:
             status = "CONTINUE"
+            steps = 0
             while status == "CONTINUE":
                 self._raise_if_interrupted()
+                if steps >= self._max_total_steps:
+                    message = f"Exceeded max total steps ({self._max_total_steps})."
+                    self._emit_event(
+                        "step_error",
+                        step_id=self._step_id,
+                        error_message=message,
+                    )
+                    raise RuntimeError(message)
                 status = self.run_one_iteration()
+                steps += 1
             return
 
         queue = list(self._subgoals)

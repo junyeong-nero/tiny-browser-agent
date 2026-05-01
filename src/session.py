@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from agents.actor_agent import AgentInterrupted, BrowserAgent
 from agents.types import GroundingMode
@@ -85,6 +86,17 @@ class BrowserSession:
         )
         self._conversation_memory = self._conversation_memory[-MAX_CONVERSATION_MEMORY_ITEMS:]
 
+    @staticmethod
+    def _reject_ui_safety_confirmation(_safety: dict) -> Literal["TERMINATE"]:
+        """Avoid blocking the UI session on a terminal stdin prompt.
+
+        The browser agent emits a `safety_confirmation_required` event before
+        calling this callback. Until the web UI has an explicit confirmation
+        control, safest behavior is to stop the requested action instead of
+        hanging the session thread on `input()`.
+        """
+        return "TERMINATE"
+
     def run_task(self, query: str) -> None:
         artifact_logger = self._make_artifact_logger()
         sink_registered = self._log_enabled
@@ -133,6 +145,7 @@ class BrowserSession:
             replan_callback=replan_callback,
             conversation_context=conversation_context,
             interrupt_checker=is_task_interrupted,
+            safety_confirmation_callback=self._reject_ui_safety_confirmation,
         )
         try:
             try:
