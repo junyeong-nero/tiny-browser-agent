@@ -11,8 +11,18 @@ from pathlib import Path
 from typing import Any, Literal, Optional, cast
 
 import termcolor
-import playwright.sync_api
-from playwright.sync_api import sync_playwright
+
+if os.getenv("USE_PATCHRIGHT", "1") != "0":
+    try:
+        import patchright.sync_api as playwright_sync_module  # type: ignore[import-not-found]
+    except ImportError:
+        import playwright.sync_api as playwright_sync_module
+else:
+    import playwright.sync_api as playwright_sync_module
+
+playwright = type(sys)("playwright")  # placeholder so existing `playwright.sync_api.X` refs resolve
+playwright.sync_api = playwright_sync_module  # type: ignore[attr-defined]
+sync_playwright = playwright_sync_module.sync_playwright
 
 from .aria_snapshot import AriaSnapshot, NodeInfo, build_aria_snapshot
 from .artifact_logger import ArtifactLogger
@@ -26,6 +36,47 @@ PLAYWRIGHT_INSTALL_HINT = (
     "Playwright browser binaries are missing. Run "
     "`uv run playwright install chromium` and retry."
 )
+
+_STEALTH_INIT_SCRIPT = """
+(() => {
+  try {
+    Object.defineProperty(Navigator.prototype, 'webdriver', { get: () => undefined });
+  } catch (e) {}
+  try {
+    Object.defineProperty(navigator, 'languages', { get: () => ['ko-KR', 'ko', 'en-US', 'en'] });
+  } catch (e) {}
+  try {
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => [
+        { name: 'Chrome PDF Plugin' },
+        { name: 'Chrome PDF Viewer' },
+        { name: 'Native Client' },
+      ],
+    });
+  } catch (e) {}
+  try {
+    window.chrome = window.chrome || { runtime: {}, app: {}, csi: () => {}, loadTimes: () => {} };
+  } catch (e) {}
+  try {
+    const origQuery = window.navigator.permissions && window.navigator.permissions.query;
+    if (origQuery) {
+      window.navigator.permissions.query = (params) =>
+        params && params.name === 'notifications'
+          ? Promise.resolve({ state: Notification.permission })
+          : origQuery(params);
+    }
+  } catch (e) {}
+  try {
+    const getParameter = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function (parameter) {
+      if (parameter === 37445) return 'Intel Inc.';
+      if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+      return getParameter.call(this, parameter);
+    };
+  } catch (e) {}
+})();
+"""
+
 
 PLAYWRIGHT_KEY_MAP = {
     "backspace": "Backspace",
@@ -83,6 +134,14 @@ class PlaywrightBrowser:
         headless: bool = False,
         artifact_logger: Optional[ArtifactLogger] = None,
         allowed_upload_roots: Optional[list[str | Path]] = None,
+        channel: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        locale: Optional[str] = None,
+        timezone_id: Optional[str] = None,
+        proxy: Optional[dict[str, str]] = None,
+        storage_state_path: Optional[str | Path] = None,
+        stealth: bool = False,
+        extra_http_headers: Optional[dict[str, str]] = None,
     ):
         self._initial_url = initial_url
         self._screen_size = screen_size
@@ -91,6 +150,14 @@ class PlaywrightBrowser:
         self._headless = headless
         self._artifact_logger = artifact_logger if artifact_logger is not None else ArtifactLogger()
         self._allowed_upload_roots = self._normalize_upload_roots(allowed_upload_roots)
+        self._channel = channel
+        self._user_agent = user_agent
+        self._locale = locale
+        self._timezone_id = timezone_id
+        self._proxy = proxy
+        self._storage_state_path = Path(storage_state_path).expanduser() if storage_state_path else None
+        self._stealth = stealth
+        self._extra_http_headers = extra_http_headers
         self._frame_buffer: bytes | None = None
         self._frame_lock = threading.Lock()
         self._frame_thread: Optional[threading.Thread] = None
@@ -161,19 +228,24 @@ class PlaywrightBrowser:
         print("Creating session...")
         self._prepare_log_dirs()
         self._playwright = sync_playwright().start()
+        launch_kwargs: dict[str, Any] = {
+            "headless": self._headless,
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--disable-sync",
+                "--no-default-browser-check",
+                "--no-first-run",
+            ],
+        }
+        if self._channel:
+            launch_kwargs["channel"] = self._channel
+        if self._proxy:
+            launch_kwargs["proxy"] = self._proxy
         try:
-            self._browser = self._playwright.chromium.launch(
-                args=[
-                    "--disable-extensions",
-                    "--disable-file-system",
-                    "--disable-plugins",
-                    "--disable-dev-shm-usage",
-                    "--disable-background-networking",
-                    "--disable-default-apps",
-                    "--disable-sync",
-                ],
-                headless=self._headless,
-            )
+            self._browser = self._playwright.chromium.launch(**launch_kwargs)
         except playwright.sync_api.Error as exc:
             self._playwright.stop()
             if "Executable doesn't exist" in str(exc):
@@ -187,11 +259,23 @@ class PlaywrightBrowser:
             },
         )
         context_kwargs: dict[str, Any] = {"viewport": viewport_size}
+        if self._user_agent:
+            context_kwargs["user_agent"] = self._user_agent
+        if self._locale:
+            context_kwargs["locale"] = self._locale
+        if self._timezone_id:
+            context_kwargs["timezone_id"] = self._timezone_id
+        if self._extra_http_headers:
+            context_kwargs["extra_http_headers"] = self._extra_http_headers
+        if self._storage_state_path and self._storage_state_path.is_file():
+            context_kwargs["storage_state"] = str(self._storage_state_path)
         video_dir = self.video_dir()
         if video_dir:
             context_kwargs["record_video_dir"] = str(video_dir)
             context_kwargs["record_video_size"] = viewport_size
         self._context = self._browser.new_context(**context_kwargs)
+        if self._stealth:
+            self._context.add_init_script(_STEALTH_INIT_SCRIPT)
         self._page = self._context.new_page()
         self._page.goto(self._initial_url)
         self._context.on("page", self._handle_new_page)
@@ -205,6 +289,15 @@ class PlaywrightBrowser:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._stop_frame_stream()
         if self._context:
+            if self._storage_state_path:
+                try:
+                    self._storage_state_path.parent.mkdir(parents=True, exist_ok=True)
+                    self._context.storage_state(path=str(self._storage_state_path))
+                except Exception as exc:
+                    termcolor.cprint(
+                        f"Failed to persist storage_state to {self._storage_state_path}: {exc}",
+                        color="yellow",
+                    )
             self._context.close()
         try:
             self._browser.close()

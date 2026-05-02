@@ -21,6 +21,25 @@ PLAYWRIGHT_SCREEN_SIZE = (1600, 900)
 LOGS_DIR = Path(__file__).resolve().parent / "logs" / "history"
 
 
+def _parse_proxy(value: str | None) -> dict[str, str] | None:
+    if not value:
+        return None
+    from urllib.parse import urlparse
+
+    parsed = urlparse(value)
+    if not parsed.scheme or not parsed.hostname:
+        raise argparse.ArgumentTypeError(f"--proxy must be scheme://[user:pass@]host[:port], got: {value}")
+    server = f"{parsed.scheme}://{parsed.hostname}"
+    if parsed.port:
+        server += f":{parsed.port}"
+    proxy: dict[str, str] = {"server": server}
+    if parsed.username:
+        proxy["username"] = parsed.username
+    if parsed.password:
+        proxy["password"] = parsed.password
+    return proxy
+
+
 def parse_bool(value: str) -> bool:
     normalized = value.strip().lower()
     if normalized in {"true", "1", "yes", "y"}:
@@ -103,6 +122,45 @@ def main() -> int:
         default=False,
         help="Use PlannerAgent to decompose the query into subgoals before execution.",
     )
+    parser.add_argument(
+        "--stealth",
+        action="store_true",
+        default=False,
+        help="Inject anti-automation patches (navigator.webdriver, plugins, languages, WebGL vendor).",
+    )
+    parser.add_argument(
+        "--channel",
+        default=None,
+        help="Playwright browser channel (e.g. 'chrome', 'msedge'). Requires `playwright install <channel>`.",
+    )
+    parser.add_argument(
+        "--locale",
+        default=None,
+        help="Browser locale, e.g. ko-KR.",
+    )
+    parser.add_argument(
+        "--timezone",
+        dest="timezone_id",
+        default=None,
+        help="IANA timezone id, e.g. Asia/Seoul.",
+    )
+    parser.add_argument(
+        "--user-agent",
+        dest="user_agent",
+        default=None,
+        help="Override the browser User-Agent string.",
+    )
+    parser.add_argument(
+        "--proxy",
+        default=None,
+        help="Proxy URL: scheme://[user:pass@]host:port.",
+    )
+    parser.add_argument(
+        "--storage-state",
+        dest="storage_state",
+        default=None,
+        help="Path to a Playwright storage_state JSON. Loaded on start, saved on exit.",
+    )
     args = parser.parse_args()
 
     if args.ui and args.query:
@@ -121,6 +179,13 @@ def main() -> int:
         highlight_mouse=args.highlight_mouse,
         headless=args.headless,
         artifact_logger=artifact_logger,
+        channel=args.channel,
+        user_agent=args.user_agent,
+        locale=args.locale,
+        timezone_id=args.timezone_id,
+        proxy=_parse_proxy(args.proxy),
+        storage_state_path=args.storage_state,
+        stealth=args.stealth,
     )
 
     with env as browser_computer:
