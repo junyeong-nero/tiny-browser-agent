@@ -1,11 +1,8 @@
-import base64
-import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from pathlib import Path
 from typing import Any, Literal, Optional, cast
@@ -26,6 +23,7 @@ sync_playwright = playwright_sync_module.sync_playwright
 
 from .aria_snapshot import AriaSnapshot, NodeInfo, build_aria_snapshot
 from .artifact_logger import ArtifactLogger
+from .recording import BrowserRecordingHelper
 from .state import BrowserState, EnvState, InteractionState, PageState, ViewportState
 from .state_graph import browser_state_to_graph
 
@@ -158,15 +156,11 @@ class PlaywrightBrowser:
         self._storage_state_path = Path(storage_state_path).expanduser() if storage_state_path else None
         self._stealth = stealth
         self._extra_http_headers = extra_http_headers
-        self._frame_buffer: bytes | None = None
-        self._frame_lock = threading.Lock()
-        self._frame_thread: Optional[threading.Thread] = None
-        self._frame_stop = threading.Event()
-        self._ffmpeg_proc: Optional[subprocess.Popen] = None
-        self._action_cdp_session: Any | None = None
-        self._action_capture_frames: list[tuple[float, bytes]] | None = None
-        self._action_capture_lock = threading.Lock()
-        self._action_capture_started_at: float | None = None
+        self._recording = BrowserRecordingHelper(
+            artifact_logger=self._artifact_logger,
+            subprocess_module=subprocess,
+            shutil_module=shutil,
+        )
         self._aria_ref_map: dict[int, NodeInfo] | None = None
         self._aria_ref_target_map: dict[int, Any] | None = None
         self._previous_state: BrowserState | None = None
@@ -179,6 +173,7 @@ class PlaywrightBrowser:
         browser land alongside agent artifacts for the same task.
         """
         self._artifact_logger = artifact_logger
+        self._recording.set_artifact_logger(artifact_logger)
         self._artifact_logger.prepare_log_dirs()
 
     def _normalize_upload_roots(
@@ -564,8 +559,7 @@ class PlaywrightBrowser:
         self._page.wait_for_load_state()
         time.sleep(0.5)
         screenshot_bytes = self._page.screenshot(type="png", full_page=False)
-        with self._frame_lock:
-            self._frame_buffer = screenshot_bytes
+        self._recording.update_frame_buffer(screenshot_bytes)
         viewport_width, viewport_height = self.screen_size()
         scroll_x, scroll_y = self._scroll_position()
         available_refs = sorted(self._aria_ref_map.keys()) if self._aria_ref_map else []
@@ -677,151 +671,21 @@ class PlaywrightBrowser:
         time.sleep(1)
 
     def _start_frame_stream(self) -> None:
-        video_dir = self.video_dir()
-        if not video_dir:
-            return
-        ffmpeg_cmd = os.getenv("COMPUTER_USE_FFMPEG_COMMAND") or shutil.which("ffmpeg")
-        if not ffmpeg_cmd:
-            return
-        self._prepare_log_dirs()
-        output_path = video_dir / "session_60fps.mp4"
-        cmd = [
-            ffmpeg_cmd, "-y",
-            "-f", "image2pipe",
-            "-framerate", str(FRAME_CAPTURE_FPS),
-            "-vcodec", "png",
-            "-i", "pipe:0",
-            "-c:v", "libx264",
-            "-pix_fmt", "yuv420p",
-            "-movflags", "+faststart",
-            str(output_path),
-        ]
-        self._ffmpeg_proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        self._frame_stop.clear()
-        self._frame_thread = threading.Thread(
-            target=self._frame_pipe_loop,
-            daemon=True,
-            name="frame-pipe",
-        )
-        self._frame_thread.start()
+        self._recording.start_frame_stream(fps=FRAME_CAPTURE_FPS)
 
     def _stop_frame_stream(self) -> None:
-        self._frame_stop.set()
-        if self._frame_thread:
-            self._frame_thread.join(timeout=5)
-            self._frame_thread = None
-        if self._ffmpeg_proc:
-            try:
-                if self._ffmpeg_proc.stdin:
-                    self._ffmpeg_proc.stdin.close()
-                self._ffmpeg_proc.wait(timeout=30)
-            except Exception:
-                self._ffmpeg_proc.kill()
-            self._ffmpeg_proc = None
+        self._recording.stop_frame_stream()
 
     def _frame_pipe_loop(self) -> None:
-        interval = 1.0 / FRAME_CAPTURE_FPS
-        while not self._frame_stop.wait(interval):
-            with self._frame_lock:
-                frame = self._frame_buffer
-            if frame is None or self._ffmpeg_proc is None:
-                continue
-            stdin = self._ffmpeg_proc.stdin
-            if stdin is None:
-                break
-            try:
-                stdin.write(frame)
-            except (BrokenPipeError, OSError):
-                break
+        self._recording._frame_pipe_loop(FRAME_CAPTURE_FPS)
 
 
     def begin_action_capture(self) -> None:
         """Best-effort capture of frames emitted while a browser action runs."""
-        if not self.history_dir():
-            return
-        ffmpeg_cmd = os.getenv("COMPUTER_USE_FFMPEG_COMMAND") or shutil.which("ffmpeg")
-        if not ffmpeg_cmd or self._page is None or self._context is None:
-            return
-        with self._action_capture_lock:
-            self._action_capture_frames = []
-            self._action_capture_started_at = time.time()
-        try:
-            cdp_session = self._context.new_cdp_session(self._page)
-
-            def on_frame(params: dict[str, Any]) -> None:
-                data = params.get("data")
-                session_id = params.get("sessionId")
-                if session_id is not None:
-                    try:
-                        cdp_session.send("Page.screencastFrameAck", {"sessionId": session_id})
-                    except Exception:
-                        pass
-                if not isinstance(data, str):
-                    return
-                try:
-                    frame = base64.b64decode(data)
-                except Exception:
-                    return
-                frame_ts = time.time()
-                metadata = params.get("metadata")
-                if isinstance(metadata, dict) and isinstance(metadata.get("timestamp"), (int, float)):
-                    # CDP timestamps are monotonic seconds; keep wall-clock time for
-                    # consistency with action_started_at/action_ended_at.
-                    frame_ts = time.time()
-                with self._action_capture_lock:
-                    frames = self._action_capture_frames
-                    if frames is not None and len(frames) < 600:
-                        frames.append((frame_ts, frame))
-
-            cdp_session.on("Page.screencastFrame", on_frame)
-            cdp_session.send("Page.startScreencast", {"format": "png", "quality": 80, "everyNthFrame": 1})
-            self._action_cdp_session = cdp_session
-        except Exception:
-            with self._action_capture_lock:
-                self._action_capture_frames = None
-                self._action_capture_started_at = None
-            self._action_cdp_session = None
+        self._recording.begin_action_capture(page=self._page, context=self._context)
 
     def end_action_capture(self) -> dict[str, Any] | None:
-        cdp_session = self._action_cdp_session
-        if cdp_session is not None:
-            try:
-                cdp_session.send("Page.stopScreencast")
-            except Exception:
-                pass
-            self._action_cdp_session = None
-
-        with self._action_capture_lock:
-            captured_frames = list(self._action_capture_frames or [])
-            started_at = self._action_capture_started_at
-            self._action_capture_frames = None
-            self._action_capture_started_at = None
-
-        metadata = self.latest_artifact_metadata()
-        history_dir = self.history_dir()
-        if not metadata or not history_dir:
-            return None
-
-        ended_at = time.time()
-        metadata_updates: dict[str, Any] = {
-            "action_started_at": started_at,
-            "action_ended_at": ended_at,
-            "action_duration_ms": int((ended_at - started_at) * 1000) if started_at else None,
-            "action_capture_frame_count": len(captured_frames),
-        }
-        sampled_frames = self._sample_action_frames(captured_frames, max_frames=60)
-        if sampled_frames:
-            metadata_updates["action_gif_frame_count"] = len(sampled_frames)
-        clip_name = self._write_action_clip_gif(sampled_frames, metadata)
-        if clip_name:
-            metadata_updates["action_clip_gif_path"] = clip_name
-        self._merge_latest_metadata(metadata_updates)
-        return metadata_updates
+        return self._recording.end_action_capture()
 
     def _sample_action_frames(
         self,
@@ -829,101 +693,16 @@ class PlaywrightBrowser:
         *,
         max_frames: int,
     ) -> list[tuple[float, bytes]]:
-        if len(frames) <= max_frames:
-            return frames
-        if max_frames <= 1:
-            return frames[:1]
-        last_index = len(frames) - 1
-        selected: list[tuple[float, bytes]] = []
-        seen_indices: set[int] = set()
-        for out_index in range(max_frames):
-            source_index = round(out_index * last_index / (max_frames - 1))
-            if source_index in seen_indices:
-                continue
-            seen_indices.add(source_index)
-            selected.append(frames[source_index])
-        return selected
+        return self._recording.sample_action_frames(frames, max_frames=max_frames)
 
     def _action_gif_input_fps(self, frames: list[tuple[float, bytes]]) -> float:
-        if len(frames) < 2:
-            return 20.0
-        duration = max(frames[-1][0] - frames[0][0], 0.001)
-        return max(0.5, min(60.0, (len(frames) - 1) / duration))
+        return self._recording.action_gif_input_fps(frames)
 
     def _write_action_clip_gif(self, frames: list[tuple[float, bytes]], metadata: dict[str, Any]) -> str | None:
-        if len(frames) < 2:
-            return None
-        history_dir = self.history_dir()
-        if not history_dir:
-            return None
-        ffmpeg_cmd = os.getenv("COMPUTER_USE_FFMPEG_COMMAND") or shutil.which("ffmpeg")
-        if not ffmpeg_cmd:
-            return None
-        step = metadata.get("step")
-        if not isinstance(step, int):
-            return None
-        output_path = history_dir / f"step-{step:04d}-action.gif"
-        input_fps = self._action_gif_input_fps(frames)
-        cmd = [
-            ffmpeg_cmd,
-            "-y",
-            "-f",
-            "image2pipe",
-            "-framerate",
-            f"{input_fps:.3f}",
-            "-vcodec",
-            "png",
-            "-i",
-            "pipe:0",
-            "-filter_complex",
-            (
-                "[0:v]scale=640:-1:flags=lanczos,split[p0][p1];"
-                "[p0]palettegen=max_colors=256:stats_mode=diff:reserve_transparent=0[p];"
-                "[p1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
-            ),
-            str(output_path),
-        ]
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            assert proc.stdin is not None
-            for _timestamp, frame in frames:
-                proc.stdin.write(frame)
-            proc.stdin.close()
-            proc.wait(timeout=20)
-        except Exception:
-            return None
-        return output_path.name if output_path.is_file() else None
+        return self._recording.write_action_clip_gif(frames, metadata)
 
     def _merge_latest_metadata(self, updates: dict[str, Any]) -> None:
-        metadata = self.latest_artifact_metadata()
-        history_dir = self.history_dir()
-        if not metadata or not history_dir:
-            return
-        metadata_path_value = metadata.get("metadata_path")
-        if not isinstance(metadata_path_value, str):
-            return
-        metadata_path = history_dir / metadata_path_value
-        if not metadata_path.is_file():
-            return
-        try:
-            current = json.loads(metadata_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return
-        if not isinstance(current, dict):
-            return
-        current.update(updates)
-        metadata_path.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
-        # Keep the logger's public latest metadata in sync by updating through the
-        # private field only when present; this avoids another public mutator just
-        # for the browser-owned enrichment path.
-        latest = getattr(self._artifact_logger, "_latest_artifact_metadata", None)
-        if isinstance(latest, dict):
-            latest.update(updates)
+        self._recording.merge_latest_metadata(updates)
 
     def _prepare_log_dirs(self):
         self._artifact_logger.prepare_log_dirs()
