@@ -12,7 +12,7 @@ from typing import Any, Literal, Optional, cast
 
 import termcolor
 
-if os.getenv("USE_PATCHRIGHT", "1") != "0":
+if os.getenv("USE_PATCHRIGHT") == "1":
     try:
         import patchright.sync_api as playwright_sync_module  # type: ignore[import-not-found]
     except ImportError:
@@ -220,6 +220,25 @@ class PlaywrightBrowser:
                 color="yellow",
             )
 
+    def _goto_or_blank(self, url: str, *, context: str) -> None:
+        """Navigate to ``url`` and keep the browser usable if navigation fails."""
+        try:
+            self._page.goto(url)
+        except playwright.sync_api.Error as exc:
+            termcolor.cprint(
+                f"{context} navigation failed for {url}: {exc}. "
+                "Continuing from about:blank.",
+                color="yellow",
+            )
+            try:
+                self._page.goto("about:blank")
+            except playwright.sync_api.Error as fallback_exc:
+                termcolor.cprint(
+                    "Fallback navigation to about:blank also failed; "
+                    f"continuing with the current browser page: {fallback_exc}",
+                    color="yellow",
+                )
+
     def _handle_new_page(self, new_page: playwright.sync_api.Page):
         self._page = new_page
         self._page.wait_for_load_state()
@@ -277,7 +296,7 @@ class PlaywrightBrowser:
         if self._stealth:
             self._context.add_init_script(_STEALTH_INIT_SCRIPT)
         self._page = self._context.new_page()
-        self._page.goto(self._initial_url)
+        self._goto_or_blank(self._initial_url, context="Initial page")
         self._context.on("page", self._handle_new_page)
         termcolor.cprint("Started local playwright.", color="green", attrs=["bold"])
         history_dir = self.history_dir()
@@ -418,7 +437,7 @@ class PlaywrightBrowser:
     def navigate(self, url: str) -> EnvState:
         self._mark_last_action("navigate")
         normalized_url = url if url.startswith(("http://", "https://")) else "https://" + url
-        self._page.goto(normalized_url)
+        self._goto_or_blank(normalized_url, context="Page")
         return self._state_after_load()
 
     def take_aria_snapshot(self) -> AriaSnapshot:

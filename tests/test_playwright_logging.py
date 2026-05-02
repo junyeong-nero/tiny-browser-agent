@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 from google.genai import types
 
 from browser.artifact_logger import ArtifactLogger
-from browser.playwright import PlaywrightBrowser
+from browser.playwright import PlaywrightBrowser, playwright
 from agents.actor_agent import BrowserAgent
 
 
@@ -48,6 +48,65 @@ class TestPlaywrightLogging(unittest.TestCase):
         computer.search()
 
         computer.navigate.assert_called_once_with("https://example.com/search")
+
+    @patch("browser.playwright.PlaywrightBrowser._start_frame_stream", return_value=None)
+    @patch("browser.playwright.sync_playwright")
+    def test_enter_falls_back_to_blank_when_initial_navigation_fails(
+        self, mock_sync_playwright, _mock_start_frame_stream
+    ):
+        page = MagicMock()
+        page.goto.side_effect = [
+            playwright.sync_api.Error("Page.goto: net::ERR_NAME_NOT_RESOLVED"),
+            None,
+        ]
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        playwright_instance = MagicMock()
+        playwright_instance.chromium.launch.return_value = browser
+        mock_sync_playwright.return_value.start.return_value = playwright_instance
+        computer = PlaywrightBrowser(
+            screen_size=(1440, 900),
+            initial_url="https://www.duckduckgo.com/",
+        )
+
+        with computer:
+            pass
+
+        page.goto.assert_any_call("https://www.duckduckgo.com/")
+        page.goto.assert_any_call("about:blank")
+
+    @patch("browser.playwright.PlaywrightBrowser._start_frame_stream", return_value=None)
+    @patch("browser.playwright.sync_playwright")
+    def test_enter_continues_when_blank_fallback_navigation_is_interrupted(
+        self, mock_sync_playwright, _mock_start_frame_stream
+    ):
+        page = MagicMock()
+        page.goto.side_effect = [
+            playwright.sync_api.Error("Page.goto: net::ERR_NAME_NOT_RESOLVED"),
+            playwright.sync_api.Error(
+                'Page.goto: Navigation to "about:blank" is interrupted '
+                'by another navigation to "chrome-error://chromewebdata/"'
+            ),
+        ]
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        playwright_instance = MagicMock()
+        playwright_instance.chromium.launch.return_value = browser
+        mock_sync_playwright.return_value.start.return_value = playwright_instance
+        computer = PlaywrightBrowser(
+            screen_size=(1440, 900),
+            initial_url="https://www.duckduckgo.com/",
+        )
+
+        with computer:
+            pass
+
+        page.goto.assert_any_call("https://www.duckduckgo.com/")
+        page.goto.assert_any_call("about:blank")
 
     def test_handle_new_page_switches_active_page_without_closing_popup(self):
         computer = PlaywrightBrowser(screen_size=(1440, 900))
