@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run WebVoyager2025Valid tasks through the local browser agent in parallel.
+"""Run Hugging Face web-agent benchmark tasks through the local browser agent in parallel.
 
 The script intentionally uses only the Python standard library so it can run in
 this repository without adding a Hugging Face dependency. It reads rows from the
@@ -34,6 +34,13 @@ from typing import Any, Iterable
 DEFAULT_DATASET = "convergence-ai/WebVoyager2025Valid"
 DEFAULT_SPLIT = "test"
 DEFAULT_CONFIG = "default"
+DATASET_DEFAULTS: dict[str, dict[str, str]] = {
+    DEFAULT_DATASET: {"config": DEFAULT_CONFIG, "split": DEFAULT_SPLIT, "task_field": "task"},
+    "junyeong-nero/korean-online-mind2web": {"config": DEFAULT_CONFIG, "split": "train", "task_field": "task"},
+}
+TASK_FIELD_CANDIDATES = ("task", "prompt", "task_description", "confirmed_task", "task_en")
+URL_FIELD_CANDIDATES = ("web", "url", "initial_url", "website")
+ID_FIELD_CANDIDATES = ("id", "task_id", "annotation_id")
 DATASETS_SERVER = "https://datasets-server.huggingface.co/rows"
 MAX_PAGE_SIZE = 100
 
@@ -46,36 +53,59 @@ class TaskRow:
 
     @property
     def task_id(self) -> str:
-        raw_id = self.metadata.get("id") if isinstance(self.metadata, dict) else None
-        return str(raw_id or f"row-{self.index}")
+        if isinstance(self.metadata, dict):
+            for field in ID_FIELD_CANDIDATES:
+                raw_id = self.metadata.get(field)
+                if raw_id:
+                    return str(raw_id)
+        return f"row-{self.index}"
 
     @property
     def initial_url(self) -> str | None:
-        raw_url = self.metadata.get("web") if isinstance(self.metadata, dict) else None
-        if isinstance(raw_url, str) and raw_url.startswith(("http://", "https://")):
-            return raw_url
+        if not isinstance(self.metadata, dict):
+            return None
+        for field in URL_FIELD_CANDIDATES:
+            raw_url = self.metadata.get(field)
+            normalized = _normalize_url(raw_url)
+            if normalized:
+                return normalized
         return None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Load tasks from convergence-ai/WebVoyager2025Valid on Hugging Face "
+            "Load web-agent benchmark tasks from Hugging Face datasets-server "
             "and run `uv run main.py --planner <task>` in parallel."
         )
     )
     parser.add_argument("--dataset", default=DEFAULT_DATASET, help="Hugging Face dataset name.")
-    parser.add_argument("--config", default=DEFAULT_CONFIG, help="Dataset config name.")
-    parser.add_argument("--split", default=DEFAULT_SPLIT, help="Dataset split name.")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="Dataset config name. Defaults to a dataset-specific preset when known, else 'default'.",
+    )
+    parser.add_argument(
+        "--split",
+        default=None,
+        help="Dataset split name. Defaults to a dataset-specific preset when known, else 'test'.",
+    )
     parser.add_argument("--offset", type=int, default=0, help="First dataset row offset to run.")
     parser.add_argument("--limit", type=int, default=10, help="Maximum number of tasks to run.")
     parser.add_argument("--workers", type=int, default=2, help="Number of parallel subprocesses.")
-    parser.add_argument("--task-field", default="task", help="Dataset column containing the query text.")
+    parser.add_argument(
+        "--task-field",
+        default=None,
+        help=(
+            "Dataset column containing the query text. Use 'auto' to try common fields "
+            f"({', '.join(TASK_FIELD_CANDIDATES)}). Defaults to a dataset-specific preset when known."
+        ),
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
         default=None,
-        help="Directory for per-task logs and summary.jsonl. Defaults to logs/webvoyager2025valid/<timestamp>.",
+        help="Directory for per-task logs and summary.jsonl. Defaults to logs/<dataset-name>/<timestamp>.",
     )
     parser.add_argument("--timeout", type=float, default=None, help="Per-task timeout in seconds.")
     parser.add_argument(
@@ -94,7 +124,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--metadata-initial-url",
         action="store_true",
-        help="Forward metadata['web'] as --initial_url when present.",
+        help="Forward a URL-like dataset field (web, website, url, initial_url) as --initial_url when present.",
     )
     parser.add_argument(
         "--extra-arg",
@@ -107,7 +137,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Print commands and write summary records without executing subprocesses.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    _apply_dataset_defaults(args)
+    return args
+
+
+def _apply_dataset_defaults(args: argparse.Namespace) -> None:
+    preset = DATASET_DEFAULTS.get(args.dataset, {})
+    args.config = args.config or preset.get("config", DEFAULT_CONFIG)
+    args.split = args.split or preset.get("split", DEFAULT_SPLIT)
+    args.task_field = args.task_field or preset.get("task_field", "auto")
 
 
 def fetch_tasks(
@@ -138,10 +177,18 @@ def fetch_tasks(
         for item in page_rows:
             row_index = int(item.get("row_idx", next_offset + len(rows)))
             row = item.get("row", {})
-            task = row.get(task_field)
-            if not isinstance(task, str) or not task.strip():
-                raise ValueError(f"Row {row_index} does not contain a non-empty {task_field!r} field: {row!r}")
-            rows.append(TaskRow(index=row_index, task=task.strip(), metadata=_parse_metadata(row.get("metadata"))))
+            if not isinstance(row, dict):
+                raise ValueError(f"Row {row_index} is not an object: {row!r}")
+            task, selected_task_field = _extract_task(row, task_field)
+            if task is None:
+                raise ValueError(f"Row {row_index} does not contain a non-empty task field: {row!r}")
+            rows.append(
+                TaskRow(
+                    index=row_index,
+                    task=task,
+                    metadata=_extract_metadata(row, task_field=selected_task_field),
+                )
+            )
 
         fetched = len(page_rows)
         if fetched < page_size:
@@ -150,6 +197,50 @@ def fetch_tasks(
         remaining -= fetched
 
     return rows
+
+
+def _extract_task(row: dict[str, Any], task_field: str) -> tuple[str | None, str | None]:
+    fields = TASK_FIELD_CANDIDATES if task_field == "auto" else (task_field,)
+    for field in fields:
+        value = row.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip(), field
+    return None, None
+
+
+def _extract_metadata(row: dict[str, Any], *, task_field: str | None) -> dict[str, Any]:
+    metadata = _parse_metadata(row.get("metadata"))
+    for field, value in row.items():
+        if field == "metadata" or field == task_field:
+            continue
+        metadata[field] = _parse_structured_value(value)
+    return metadata
+
+
+def _parse_structured_value(value: Any) -> Any:
+    if not isinstance(value, str) or not value.strip():
+        return value
+    text = value.strip()
+    if not text.startswith(("{", "[")):
+        return value
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        try:
+            return ast.literal_eval(text)
+        except (ValueError, SyntaxError):
+            return value
+
+
+def _normalize_url(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.startswith(("http://", "https://")):
+        return text
+    if "." in text and not text.startswith(("/", "#")):
+        return "https://" + text
+    return None
 
 
 def _request_rows(*, dataset: str, config: str, split: str, offset: int, length: int) -> dict[str, Any]:
@@ -168,7 +259,6 @@ def _request_rows(*, dataset: str, config: str, split: str, offset: int, length:
         raise RuntimeError(f"Could not reach Hugging Face datasets-server: {exc}") from exc
 
 
-
 def _ssl_context() -> ssl.SSLContext:
     """Return an HTTPS context that works in both uv and macOS framework Python.
 
@@ -182,6 +272,7 @@ def _ssl_context() -> ssl.SSLContext:
     except ImportError:
         return ssl.create_default_context()
     return ssl.create_default_context(cafile=certifi.where())
+
 
 def _parse_metadata(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
@@ -323,7 +414,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.workers < 1:
         raise SystemExit("--workers must be >= 1")
 
-    output_dir = args.output_dir or Path("logs") / "webvoyager2025valid" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    dataset_log_name = "webvoyager2025valid" if args.dataset == DEFAULT_DATASET else _slugify(args.dataset.replace("/", "-"))
+    output_dir = args.output_dir or Path("logs") / dataset_log_name / datetime.now().strftime("%Y%m%d-%H%M%S")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     tasks = fetch_tasks(
