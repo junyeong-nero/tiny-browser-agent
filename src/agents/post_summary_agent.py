@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 from dataclasses import dataclass
@@ -358,6 +360,50 @@ ACTION_SUMMARY_FORMATTERS = {
 DEFAULT_PHASE = ("phase-observation", "페이지 확인")
 
 
+def _ambiguity_fields(
+    ambiguity_candidate: AmbiguityCandidate | None,
+) -> dict[str, Any]:
+    return {
+        "ambiguity_flag": ambiguity_candidate is not None,
+        "ambiguity_type": ambiguity_candidate.ambiguity_type if ambiguity_candidate else None,
+        "ambiguity_message": ambiguity_candidate.message if ambiguity_candidate else None,
+        "review_evidence": ambiguity_candidate.review_evidence if ambiguity_candidate else [],
+    }
+
+
+def _action_summary_fields(action_step_summary: ActionStepSummary) -> dict[str, Any]:
+    return {
+        "what": action_step_summary.what,
+        "why": action_step_summary.why,
+        "outcome": action_step_summary.outcome,
+        "action_summary": action_step_summary.action_summary,
+        "reason": action_step_summary.reason,
+        "summary_source": action_step_summary.summary_source,
+    }
+
+
+def _a11y_path_from_artifacts(artifacts: Optional[dict[str, Any]]) -> Any:
+    return artifacts.get("a11y_path") if artifacts else None
+
+
+def _verification_item_for_ambiguity(
+    *,
+    step_id: int,
+    function_call_index: int,
+    ambiguity_candidate: AmbiguityCandidate,
+    artifacts: Optional[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "id": f"ambiguity-step-{step_id}-{function_call_index}",
+        "message": ambiguity_candidate.message,
+        "detail": f"Review evidence: {', '.join(ambiguity_candidate.review_evidence)}",
+        "source_step_id": step_id,
+        "status": "needs_review",
+        "a11y_path": _a11y_path_from_artifacts(artifacts),
+        **_ambiguity_fields(ambiguity_candidate),
+    }
+
+
 @dataclass(frozen=True)
 class ActionReviewContext:
     action_name: str
@@ -610,37 +656,23 @@ class ActionReviewService:
                 reasoning=reasoning,
                 step_id=step_id,
             ),
-            "what": action_step_summary.what,
-            "why": action_step_summary.why,
-            "outcome": action_step_summary.outcome,
-            "action_summary": action_step_summary.action_summary,
-            "reason": action_step_summary.reason,
-            "summary_source": action_step_summary.summary_source,
+            **_action_summary_fields(action_step_summary),
             "subgoal_id": subgoal_id,
             "user_visible_label": action_step_summary.action_summary,
-            "ambiguity_flag": ambiguity_candidate is not None,
-            "ambiguity_type": ambiguity_candidate.ambiguity_type if ambiguity_candidate else None,
-            "ambiguity_message": ambiguity_candidate.message if ambiguity_candidate else None,
-            "review_evidence": ambiguity_candidate.review_evidence if ambiguity_candidate else [],
-            "a11y_path": artifacts.get("a11y_path") if artifacts else None,
+            **_ambiguity_fields(ambiguity_candidate),
+            "a11y_path": _a11y_path_from_artifacts(artifacts),
             "verification_items": [],
         }
         if ambiguity_candidate is None:
             return review_metadata
 
         review_metadata["verification_items"] = [
-            {
-                "id": f"ambiguity-step-{step_id}-{function_call_index}",
-                "message": ambiguity_candidate.message,
-                "detail": f"Review evidence: {', '.join(ambiguity_candidate.review_evidence)}",
-                "source_step_id": step_id,
-                "status": "needs_review",
-                "a11y_path": artifacts.get("a11y_path") if artifacts else None,
-                "ambiguity_flag": True,
-                "ambiguity_type": ambiguity_candidate.ambiguity_type,
-                "ambiguity_message": ambiguity_candidate.message,
-                "review_evidence": ambiguity_candidate.review_evidence,
-            }
+            _verification_item_for_ambiguity(
+                step_id=step_id,
+                function_call_index=function_call_index,
+                ambiguity_candidate=ambiguity_candidate,
+                artifacts=artifacts,
+            )
         ]
         return review_metadata
 
@@ -666,20 +698,12 @@ class ActionReviewService:
                 "name": function_call.name,
                 "args": dict(function_call.args or {}),
             },
-            "what": action_step_summary.what,
-            "why": action_step_summary.why,
-            "outcome": action_step_summary.outcome,
-            "action_summary": action_step_summary.action_summary,
-            "reason": action_step_summary.reason,
+            **_action_summary_fields(action_step_summary),
             "reasoning_text": cleaned_reasoning,
-            "summary_source": action_step_summary.summary_source,
             "model_step_id": step_id,
             "function_call_index_within_step": function_call_index,
-            "ambiguity_flag": ambiguity_candidate is not None,
-            "ambiguity_type": ambiguity_candidate.ambiguity_type if ambiguity_candidate else None,
-            "ambiguity_message": ambiguity_candidate.message if ambiguity_candidate else None,
-            "review_evidence": ambiguity_candidate.review_evidence if ambiguity_candidate else [],
-            "a11y_path": artifacts.get("a11y_path") if artifacts else None,
+            **_ambiguity_fields(ambiguity_candidate),
+            "a11y_path": _a11y_path_from_artifacts(artifacts),
         }
 
     def merge_step_review_metadata(
