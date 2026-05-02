@@ -14,6 +14,7 @@ Use `uv` for local setup and execution.
 - `uv run main.py "summarize this page" --initial_url "https://example.com"`: start from a specific page.
 - `uv run main.py "summarize this page" --headless True`: run Playwright headless.
 - `uv run main.py "summarize this page" --log`: save Playwright history and video under `logs/history/<timestamp>/`.
+- `uv run main.py "summarize this page" --stealth --locale ko-KR --timezone Asia/Seoul --user-agent "<desktop Chrome UA>"`: enable anti-detection patches and a Korean profile (the same defaults `scripts/run.sh` and `scripts/run_batch.sh` apply).
 - `uv run playwright install chromium`: install the browser binary required for the Playwright backend.
 - `uv run playwright install-deps chromium`: install Playwright system dependencies when required by your machine.
 

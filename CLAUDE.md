@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Python `>=3.12,<3.13`, managed via `uv` (see `pyproject.toml`, `uv.lock`).
 - `pyproject.toml` sets `pythonpath = ["src", "."]` for pytest; `main.py` also inserts `src/` onto `sys.path`, so imports inside `src/` are written as top-level (`from agents...`, `from llm...`) — don't rewrite them to `src....`.
-- Requires `GEMINI_API_KEY`. Optional: `OPENAI_API_KEY` / `OPENROUTER_API_KEY` (+ base URLs) for the action-step summarizer, `ACTION_SUMMARY_PROVIDER`/`ACTION_SUMMARY_MODEL`/`ACTION_SUMMARY_TIMEOUT_SECONDS`, `COMPUTER_USE_FFMPEG_COMMAND`.
+- Requires `GEMINI_API_KEY`. Optional: `OPENAI_API_KEY` / `OPENROUTER_API_KEY` (+ base URLs) for the action-step summarizer, `ACTION_SUMMARY_PROVIDER`/`ACTION_SUMMARY_MODEL`/`ACTION_SUMMARY_TIMEOUT_SECONDS`, `COMPUTER_USE_FFMPEG_COMMAND`, `USE_PATCHRIGHT=1` (opt-in to import `patchright.sync_api` instead of `playwright.sync_api` for deeper anti-detection; default is stock playwright because patchright's chromium-headless-shell has shown DNS resolution flakiness on some networks).
 
 ## Common commands
 
@@ -78,7 +78,7 @@ When changing UI behavior, update `tests/test_ui_panel.py` for static HTML/JS co
 
 ### Browser layer (`src/browser/`)
 
-- `playwright.py::PlaywrightBrowser` — context manager that owns the Playwright lifecycle; yields itself as `browser_computer`. In UI mode the same instance is reused across tasks (`reset_to_blank`, `set_artifact_logger`).
+- `playwright.py::PlaywrightBrowser` — context manager that owns the Playwright lifecycle; yields itself as `browser_computer`. In UI mode the same instance is reused across tasks (`reset_to_blank`, `set_artifact_logger`). Anti-detection knobs (all optional, all surfaced as CLI flags on `main.py`): `channel` (e.g. `"chrome"`), `user_agent`, `locale`, `timezone_id`, `proxy` (`{"server","username","password"}`), `extra_http_headers`, `storage_state_path` (loaded on enter, saved on exit so a hand-solved login/CAPTCHA persists), and `stealth=True` which `add_init_script`s `_STEALTH_INIT_SCRIPT` to patch `navigator.webdriver`/`plugins`/`languages`/`chrome.runtime`/`permissions.query`/WebGL vendor. Launch args intentionally drop `--disable-extensions`/`--disable-plugins` (themselves bot tells) and add `--disable-blink-features=AutomationControlled`. Stock playwright is the default import; set `USE_PATCHRIGHT=1` to swap in `patchright.sync_api` for deeper CDP-leak patches when you need it.
 - `actions.py::build_browser_action_functions` — exposes the tool set; `EnvState` is the return type for built-in computer-use actions.
 - `aria_snapshot.py` — produces ARIA snapshots and `ref`s for text-grounding tools.
 - `artifact_logger.py::ArtifactLogger` — when `--log`, writes `actions.jsonl`, `history/step-*.{png,html,json}`, and Playwright video under `logs/history/<timestamp>/`.
