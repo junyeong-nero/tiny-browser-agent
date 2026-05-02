@@ -153,8 +153,6 @@ class BrowserToolExecutor:
         executed_call: ExecutedCall,
         extra_response_fields: dict[str, Any] | None = None,
     ) -> types.FunctionResponse:
-        response_fields = dict(extra_response_fields or {})
-
         if not is_env_state_result(executed_call.result):
             dict_result = executed_call.result
             if not isinstance(dict_result, dict):
@@ -166,57 +164,49 @@ class BrowserToolExecutor:
             )
 
         env_state = executed_call.result
+        response = self._build_env_state_response(env_state.url, extra_response_fields)
+        parts = self._build_env_state_response_parts(env_state.screenshot)
 
-        if self._grounding == "vision":
-            return types.FunctionResponse(
-                name=executed_call.function_call.name,
-                id=executed_call.function_call.id,
-                response={"url": env_state.url, **response_fields},
-                parts=[
-                    types.FunctionResponsePart(
-                        inline_data=types.FunctionResponseBlob(
-                            mime_type="image/png",
-                            data=env_state.screenshot,
-                        )
-                    )
-                ],
-            )
-
-        if self._grounding == "text":
-            snapshot = self._browser_computer.take_aria_snapshot()
-            aria_snapshot, aria_metadata = compact_aria_snapshot_text(snapshot.text)
-            return types.FunctionResponse(
-                name=executed_call.function_call.name,
-                id=executed_call.function_call.id,
-                response={
-                    "url": env_state.url,
-                    "aria_snapshot": aria_snapshot,
-                    **aria_metadata,
-                    **response_fields,
-                },
-            )
-
-        # mixed: both screenshot and ARIA snapshot
-        snapshot = self._browser_computer.take_aria_snapshot()
-        aria_snapshot, aria_metadata = compact_aria_snapshot_text(snapshot.text)
         return types.FunctionResponse(
             name=executed_call.function_call.name,
             id=executed_call.function_call.id,
-            response={
-                "url": env_state.url,
-                "aria_snapshot": aria_snapshot,
-                **aria_metadata,
-                **response_fields,
-            },
-            parts=[
-                types.FunctionResponsePart(
-                    inline_data=types.FunctionResponseBlob(
-                        mime_type="image/png",
-                        data=env_state.screenshot,
-                    )
-                )
-            ],
+            response=response,
+            parts=parts,
         )
+
+    def _build_env_state_response(
+        self,
+        url: str,
+        extra_response_fields: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        response_fields = dict(extra_response_fields or {})
+        response: dict[str, Any] = {"url": url}
+        if self._grounding in {"text", "mixed"}:
+            snapshot = self._browser_computer.take_aria_snapshot()
+            aria_snapshot, aria_metadata = compact_aria_snapshot_text(snapshot.text)
+            response.update(
+                {
+                    "aria_snapshot": aria_snapshot,
+                    **aria_metadata,
+                }
+            )
+        response.update(response_fields)
+        return response
+
+    def _build_env_state_response_parts(
+        self,
+        screenshot: bytes,
+    ) -> list[types.FunctionResponsePart] | None:
+        if self._grounding not in {"vision", "mixed"}:
+            return None
+        return [
+            types.FunctionResponsePart(
+                inline_data=types.FunctionResponseBlob(
+                    mime_type="image/png",
+                    data=screenshot,
+                )
+            )
+        ]
 
     def execute(self, action: types.FunctionCall) -> ToolResult:
         name = action.name
