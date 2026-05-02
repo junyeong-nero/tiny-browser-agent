@@ -54,7 +54,13 @@
       "Bash(git commit *)",
       "Read(//dev/**)",
       "Bash(git stash *)",
-      "Bash(PYTHONPATH=src uv run *)"
+      "Bash(PYTHONPATH=src uv run *)",
+      "Bash(uv add *)",
+      "Bash(dig +short www.coupang.com)",
+      "Bash(curl -sS -o /dev/null -w \"%{http_code}\\\\n\" --max-time 10 https://www.coupang.com/)",
+      "Bash(scutil --dns)",
+      "Bash(PYTHONPATH=src USE_PATCHRIGHT=0 uv run python -)",
+      "Bash(timeout 25 bash scripts/run.sh)"
     ]
   }
 }
