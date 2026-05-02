@@ -22,6 +22,9 @@ When planning:
 - Do not split tightly coupled interactions such as "click X then type Y" into unnecessary micro-steps.
 - Include navigation, extraction, verification, and fallback steps when they are needed for the goal.
 - If the goal is already a single browser action, return a single subgoal.
+- If the user specifies a target website, web app, or service, preserve that scope in every subgoal.
+- For site-specific tasks, use the target site's own search, filters, forms, and navigation; do not create fallback subgoals that switch to external search engines.
+- If the scoped site cannot complete the task, make the final fallback a blocker report rather than an out-of-scope search.
 - Do not name a search provider such as Google, Naver, Bing, or DuckDuckGo unless
   the user explicitly requested that provider or the current task is about that provider.
 - For generic web searches, say to use the browser's default search engine or search
@@ -46,6 +49,8 @@ When re-planning:
 - Avoid repeating the failed path unless the failure context suggests a simple retry is appropriate.
 - Return only concrete replacement subgoals that a browser agent can execute and verify.
 - Prefer a short fallback plan over a long speculative plan.
+- Preserve any target website, web app, or service scope from the original user goal.
+- For site-specific tasks, retry in-scope navigation/search/filtering first; if blocked, report the blocker instead of switching to external search engines.
 - Do not switch to or name a specific search provider such as Google, Naver, Bing,
   or DuckDuckGo unless the user explicitly requested that provider or the failure
   context proves that provider is necessary.

@@ -1050,6 +1050,57 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(events[-1]["type"], "step_complete")
         self.assertEqual(events[-1]["final_reasoning"], agent.final_reasoning)
 
+    def test_agent_loop_with_subgoals_enforces_subgoal_budget(self):
+        events = []
+        subgoals = [
+            Subgoal(id=1, description="Open example", success_criteria="Example is open"),
+            Subgoal(id=2, description="Search page", success_criteria="Search is done"),
+            Subgoal(id=3, description="Summarize page", success_criteria="Summary is ready"),
+        ]
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+            subgoals=subgoals,
+            max_subgoals=2,
+        )
+
+        with patch.object(agent, "_run_subgoal_loop") as mock_subgoal_loop:
+            with self.assertRaisesRegex(RuntimeError, "Exceeded max subgoals"):
+                agent.agent_loop()
+
+        mock_subgoal_loop.assert_not_called()
+        self.assertEqual(events[-1]["type"], "step_error")
+        self.assertIn("Exceeded max subgoals", events[-1]["error_message"])
+
+    def test_agent_loop_with_subgoals_enforces_total_step_budget(self):
+        events = []
+        subgoals = [
+            Subgoal(id=1, description="Open example", success_criteria="Example is open"),
+        ]
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+            subgoals=subgoals,
+            max_steps_per_subgoal=5,
+            max_total_steps=2,
+        )
+
+        with patch.object(agent, "run_one_iteration", return_value="CONTINUE") as mock_iteration:
+            with self.assertRaisesRegex(RuntimeError, "Exceeded max total steps"):
+                agent.agent_loop()
+
+        self.assertEqual(mock_iteration.call_count, 2)
+        self.assertEqual(events[-1]["type"], "step_error")
+        self.assertIn("Exceeded max total steps", events[-1]["error_message"])
+
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_subgoal_loop_retries_missing_final_reasoning_before_failing(
         self,

@@ -34,6 +34,7 @@ from agents.post_summary_agent import (
     AmbiguityCandidate,
     ActionStepSummarizer,
 )
+from agents.task_scope import NavigationScope
 from agents.safety import (
     SafetyConfirmationCallback,
     SafetyDecision,
@@ -86,6 +87,14 @@ When deciding what to do:
 - After each tool result, reassess the page before continuing.
 - Stop calling tools and give a concise final answer once the user task is complete or cannot be completed.
 
+Site and service scope rules:
+- If the user names a specific website, web app, or service, complete the task inside that site/app.
+- Prefer the target site's own search box, filters, forms, and navigation.
+- Do not navigate to external search engines such as Google Search, Naver, Bing, DuckDuckGo, Yahoo, Baidu, or Yandex for a site-specific task.
+- If you are not on the requested site/service, navigate directly to the requested site or service page, not to a general search-results page.
+- If the requested site's UI is unavailable or blocks progress, report the blocker instead of silently switching to another site.
+- General web search is allowed only when the user asks for open-web search or no target site/service is specified.
+
 If a planner subgoal is active, finish with SUBGOAL_DONE: when its success criteria are satisfied, or SUBGOAL_FAILED: when they cannot be satisfied.
 """
 
@@ -118,6 +127,7 @@ class BrowserAgent:
         interrupt_checker: Callable[[], bool] | None = None,
         safety_confirmation_callback: SafetyConfirmationCallback | None = None,
         max_total_steps: int = 100,
+        max_subgoals: int = 10,
     ):
         self._browser_computer = browser_computer
         self._query = query
@@ -147,6 +157,8 @@ class BrowserAgent:
         self._interrupt_checker = interrupt_checker
         self._safety_confirmation_callback = safety_confirmation_callback
         self._max_total_steps = max_total_steps
+        self._max_subgoals = max_subgoals
+        self._total_steps_used = 0
         browser_actions = build_browser_action_functions(
             browser_computer,
             include=("reload_page", *(extra_browser_tools or [])),
@@ -159,12 +171,14 @@ class BrowserAgent:
         self._latest_url: str | None = None
         self._current_subgoal_id: int | None = None
         self._empty_model_turn_retries = 0
+        self._navigation_scope = NavigationScope.from_query(self._query)
         if step_summarizer is _UNSET_STEP_SUMMARIZER:
             step_summarizer = ActionStepSummarizer.from_env()
         self._tool_executor = BrowserToolExecutor(
             browser_computer=self._browser_computer,
             custom_functions=self._custom_functions,
             grounding=grounding,
+            navigation_scope=self._navigation_scope,
         )
         self._review_service = ActionReviewService(
             query=self._query,
@@ -177,6 +191,7 @@ class BrowserAgent:
         initial_prompt = self._build_initial_prompt(
             query=self._query,
             conversation_context=conversation_context,
+            navigation_scope=self._navigation_scope,
         )
         self._contents: list[Content] = [
             Content(
@@ -228,9 +243,18 @@ class BrowserAgent:
         *,
         query: str,
         conversation_context: str | None,
+        navigation_scope: NavigationScope | None = None,
     ) -> str:
+        scope_text = (
+            "\n\nTask navigation scope:\n"
+            f"{navigation_scope.description}\n"
+            "If this scope blocks a shortcut, stay in scope and use the target site's own UI; "
+            "if that is impossible, explain the blocker."
+            if navigation_scope is not None
+            else ""
+        )
         if not conversation_context:
-            return query
+            return f"{query}{scope_text}"
         return (
             "Conversation memory from previous tasks:\n"
             f"{conversation_context}\n\n"
@@ -238,7 +262,7 @@ class BrowserAgent:
             "apparent workflow. The current user task is authoritative; ignore "
             "memory that is irrelevant or contradictory.\n\n"
             "Current user task:\n"
-            f"{query}"
+            f"{query}{scope_text}"
         )
 
     @property
@@ -1036,6 +1060,28 @@ class BrowserAgent:
             return self._safety_confirmation_callback(safety)
         return prompt_for_safety_confirmation(safety)
 
+    def _raise_if_total_step_budget_exceeded(self) -> None:
+        if self._total_steps_used < self._max_total_steps:
+            return
+        message = f"Exceeded max total steps ({self._max_total_steps})."
+        self._emit_event(
+            "step_error",
+            step_id=self._step_id,
+            error_message=message,
+        )
+        raise RuntimeError(message)
+
+    def _raise_if_subgoal_budget_exceeded(self, subgoal_count: int) -> None:
+        if subgoal_count <= self._max_subgoals:
+            return
+        message = f"Exceeded max subgoals ({self._max_subgoals})."
+        self._emit_event(
+            "step_error",
+            step_id=self._step_id,
+            error_message=message,
+        )
+        raise RuntimeError(message)
+
     def _run_subgoal_loop(self, subgoal: Subgoal) -> tuple[Literal["done", "failed"], str]:
         self.final_reasoning = None
         self._current_subgoal_id = subgoal.id
@@ -1061,12 +1107,14 @@ class BrowserAgent:
             steps = 0
             while status == "CONTINUE":
                 self._raise_if_interrupted()
+                self._raise_if_total_step_budget_exceeded()
                 if steps >= self._max_steps_per_subgoal:
                     return "failed", (
                         f"Exceeded max steps ({self._max_steps_per_subgoal}) for subgoal {subgoal.id}."
                     )
                 status = self.run_one_iteration()
                 steps += 1
+                self._total_steps_used += 1
                 final_text = (self.final_reasoning or "").strip()
                 if status == "COMPLETE" and not self._has_subgoal_marker(final_text):
                     if steps >= self._max_steps_per_subgoal:
@@ -1148,24 +1196,18 @@ class BrowserAgent:
         )
 
     def agent_loop(self):
+        self._total_steps_used = 0
         if self._subgoals is None:
             status = "CONTINUE"
-            steps = 0
             while status == "CONTINUE":
                 self._raise_if_interrupted()
-                if steps >= self._max_total_steps:
-                    message = f"Exceeded max total steps ({self._max_total_steps})."
-                    self._emit_event(
-                        "step_error",
-                        step_id=self._step_id,
-                        error_message=message,
-                    )
-                    raise RuntimeError(message)
+                self._raise_if_total_step_budget_exceeded()
                 status = self.run_one_iteration()
-                steps += 1
+                self._total_steps_used += 1
             return
 
         queue = list(self._subgoals)
+        self._raise_if_subgoal_budget_exceeded(len(queue))
         outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]] = []
         index = 0
         while index < len(queue):
@@ -1200,6 +1242,7 @@ class BrowserAgent:
                     )
                     return
                 queue = queue[: index + 1] + list(revised)
+                self._raise_if_subgoal_budget_exceeded(len(queue))
             index += 1
         self._finalize_subgoal_plan(outcomes)
 

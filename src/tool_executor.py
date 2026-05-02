@@ -5,6 +5,7 @@ from typing import Any
 
 from google.genai import types
 
+from agents.task_scope import NavigationScope
 from agents.types import GroundingMode
 from browser import PlaywrightBrowser
 from tools.click_at import handle_click_at
@@ -70,9 +71,11 @@ class BrowserToolExecutor:
         browser_computer: PlaywrightBrowser,
         custom_functions: list[CustomFunction] | None = None,
         grounding: GroundingMode = "vision",
+        navigation_scope: NavigationScope | None = None,
     ) -> None:
         self._browser_computer = browser_computer
         self._grounding = grounding
+        self._navigation_scope = navigation_scope
         self._custom_functions = {
             custom_function.__name__: custom_function
             for custom_function in (custom_functions or [])
@@ -220,16 +223,70 @@ class BrowserToolExecutor:
         if name is None:
             raise ValueError(f"Unsupported function: {action}")
 
+        args = action.args or {}
+        scope_violation = self._preflight_scope_violation(name, args)
+        if scope_violation is not None:
+            return scope_violation
+
         handler = self._handlers.get(name)
         if handler is not None:
-            return handler(action.args or {})
+            return self._guard_scoped_result(name, handler(args))
 
         custom_function = self._custom_functions.get(name)
         if custom_function is not None:
-            args = self._filter_args(action.args or {}, custom_function)
-            return custom_function(**args)
+            filtered_args = self._filter_args(args, custom_function)
+            return self._guard_scoped_result(name, custom_function(**filtered_args))
 
         raise ValueError(f"Unsupported function: {action}")
+
+    def _preflight_scope_violation(
+        self,
+        name: str,
+        args: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        scope = self._navigation_scope
+        if scope is None:
+            return None
+
+        url = args.get("url")
+        if name in {"navigate", "open_web_browser"} and isinstance(url, str):
+            if scope.blocks_search_url(url) or not scope.allows_url(url):
+                return self._scope_error_payload(name, url)
+
+        if name == "search":
+            return self._scope_error_payload(name, "browser search page")
+
+        return None
+
+    def _guard_scoped_result(self, name: str, result: ToolResult) -> ToolResult:
+        scope = self._navigation_scope
+        if scope is None or not is_env_state_result(result):
+            return result
+
+        url = result.url
+        if not url or url == "about:blank":
+            return result
+        if scope.allows_url(url):
+            return result
+        if not scope.blocks_search_url(url) and name in {"go_back", "go_forward"}:
+            return result
+
+        return self._scope_error_payload(name, url)
+
+    def _scope_error_payload(self, name: str, url: str) -> dict[str, Any]:
+        scope = self._navigation_scope
+        message = (
+            scope.violation_message(url)
+            if scope is not None
+            else f"Navigation blocked by task scope: {url}"
+        )
+        return {
+            "status": "error",
+            "tool_name": name,
+            "error_type": "TaskScopeViolation",
+            "error": message,
+            "blocked_url": url,
+        }
 
     def _filter_args(
         self, args: dict[str, Any], func: Callable[..., object]

@@ -1,1 +1,1 @@
-uv run main.py --ui --planner --log
+uv run main.py --ui --highlight_mouse --planner --log

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 
 from google.genai import types
 
+from agents.task_scope import NavigationScope
 from browser.aria_snapshot import NodeInfo
 from browser import build_browser_action_functions, EnvState
 from tool_executor import (
@@ -121,6 +122,126 @@ class TestBrowserToolExecutor(unittest.TestCase):
         )
 
         self.mock_browser_computer.navigate.assert_called_once_with("https://example.com")
+
+    def test_navigation_scope_blocks_external_search_for_site_task(self):
+        scoped_executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            navigation_scope=NavigationScope.from_query("allrecipes.com에서 pasta 검색"),
+        )
+
+        result = scoped_executor.execute(
+            types.FunctionCall(
+                name="navigate",
+                args={"url": "https://www.google.com/search?q=allrecipes+pasta"},
+            )
+        )
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["error_type"], "TaskScopeViolation")
+        self.assertIn("allrecipes.com", result["error"])
+        self.mock_browser_computer.navigate.assert_not_called()
+
+    def test_navigation_scope_allows_target_site_navigation(self):
+        env_state = EnvState(
+            screenshot=b"screenshot",
+            url="https://www.allrecipes.com/search?q=pasta",
+        )
+        self.mock_browser_computer.navigate.return_value = env_state
+        scoped_executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            navigation_scope=NavigationScope.from_query("allrecipes.com에서 pasta 검색"),
+        )
+
+        result = scoped_executor.execute(
+            types.FunctionCall(
+                name="navigate",
+                args={"url": "https://www.allrecipes.com/search?q=pasta"},
+            )
+        )
+
+        self.assertEqual(result, env_state)
+        self.mock_browser_computer.navigate.assert_called_once_with(
+            "https://www.allrecipes.com/search?q=pasta"
+        )
+
+    def test_navigation_scope_allows_known_target_site_redirect_alias(self):
+        env_state = EnvState(
+            screenshot=b"screenshot",
+            url="https://www.allrecipes.com/search?q=pasta",
+        )
+        self.mock_browser_computer.navigate.return_value = env_state
+        scoped_executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            navigation_scope=NavigationScope.from_query("allrecipe.com에서 pasta 검색"),
+        )
+
+        result = scoped_executor.execute(
+            types.FunctionCall(
+                name="navigate",
+                args={"url": "https://www.allrecipe.com/search?q=pasta"},
+            )
+        )
+
+        self.assertEqual(result, env_state)
+
+    def test_navigation_scope_blocks_search_tool_for_site_task(self):
+        scoped_executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            navigation_scope=NavigationScope.from_query("allrecipes.com에서 pasta 검색"),
+        )
+
+        result = scoped_executor.execute(types.FunctionCall(name="search", args={}))
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["tool_name"], "search")
+        self.mock_browser_computer.search.assert_not_called()
+
+    def test_navigation_scope_blocks_post_action_escape(self):
+        self.mock_browser_computer.click_at.return_value = EnvState(
+            screenshot=b"screenshot",
+            url="https://search.naver.com/search.naver?query=allrecipes",
+        )
+        scoped_executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            navigation_scope=NavigationScope.from_query("allrecipes.com에서 pasta 검색"),
+        )
+
+        result = scoped_executor.execute(
+            types.FunctionCall(name="click_at", args={"x": 10, "y": 10})
+        )
+
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["error_type"], "TaskScopeViolation")
+        self.assertIn("search.naver.com", result["blocked_url"])
+
+    def test_google_flights_scope_allows_flights_but_blocks_google_search(self):
+        scope = NavigationScope.from_query("googleflight에서 서울 도쿄 항공권 검색")
+        self.assertIsNotNone(scope)
+        scoped_executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            navigation_scope=scope,
+        )
+        self.mock_browser_computer.navigate.return_value = EnvState(
+            screenshot=b"screenshot",
+            url="https://www.google.com/travel/flights",
+        )
+
+        allowed = scoped_executor.execute(
+            types.FunctionCall(
+                name="navigate",
+                args={"url": "https://www.google.com/travel/flights"},
+            )
+        )
+        blocked = scoped_executor.execute(
+            types.FunctionCall(
+                name="navigate",
+                args={"url": "https://www.google.com/search?q=flights+icn+nrt"},
+            )
+        )
+
+        self.assertFalse(isinstance(allowed, dict))
+        self.assertEqual(blocked["status"], "error")
+        self.assertIn("Google Flights", blocked["error"])
 
     def test_execute_key_combination(self):
         self.executor.execute(
