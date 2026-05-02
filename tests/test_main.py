@@ -21,6 +21,13 @@ class TestMain(unittest.TestCase):
         mock_args.ui = False
         mock_args.grounding = "vision"
         mock_args.planner = False
+        mock_args.stealth = False
+        mock_args.channel = None
+        mock_args.user_agent = None
+        mock_args.locale = None
+        mock_args.timezone_id = None
+        mock_args.proxy = None
+        mock_args.storage_state = None
         mock_arg_parser.return_value.parse_args.return_value = mock_args
 
         main.main()
@@ -32,6 +39,13 @@ class TestMain(unittest.TestCase):
             highlight_mouse=True,
             headless=True,
             artifact_logger=ANY,
+            channel=None,
+            user_agent=None,
+            locale=None,
+            timezone_id=None,
+            proxy=None,
+            storage_state_path=None,
+            stealth=False,
         )
         mock_browser_agent.assert_called_once()
         mock_browser_agent.return_value.agent_loop.assert_called_once()
@@ -59,6 +73,13 @@ class TestMain(unittest.TestCase):
         mock_args.ui = False
         mock_args.grounding = "vision"
         mock_args.planner = True
+        mock_args.stealth = False
+        mock_args.channel = None
+        mock_args.user_agent = None
+        mock_args.locale = None
+        mock_args.timezone_id = None
+        mock_args.proxy = None
+        mock_args.storage_state = None
         mock_arg_parser.return_value.parse_args.return_value = mock_args
         subgoals = [MagicMock()]
         mock_planner_agent.return_value.plan.return_value = subgoals
@@ -86,6 +107,13 @@ class TestMain(unittest.TestCase):
         mock_args.ui = False
         mock_args.grounding = "vision"
         mock_args.planner = False
+        mock_args.stealth = False
+        mock_args.channel = None
+        mock_args.user_agent = None
+        mock_args.locale = None
+        mock_args.timezone_id = None
+        mock_args.proxy = None
+        mock_args.storage_state = None
         mock_arg_parser.return_value.parse_args.return_value = mock_args
 
         main.main()
@@ -97,6 +125,13 @@ class TestMain(unittest.TestCase):
             highlight_mouse=False,
             headless=False,
             artifact_logger=ANY,
+            channel=None,
+            user_agent=None,
+            locale=None,
+            timezone_id=None,
+            proxy=None,
+            storage_state_path=None,
+            stealth=False,
         )
 
 
