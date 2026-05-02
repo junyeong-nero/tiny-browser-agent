@@ -486,6 +486,31 @@ class TestBrowserToolExecutor(unittest.TestCase):
         self.assertEqual(response["aria_snapshot_original_chars"], len(oversized_snapshot))
         self.assertIn("ARIA snapshot truncated", response["aria_snapshot"])
 
+    def test_serialize_mixed_grounding_includes_aria_and_screenshot(self):
+        executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            grounding="mixed",
+        )
+        self.mock_browser_computer.take_aria_snapshot.return_value.text = "- button: Continue"
+        executed_call = ExecutedCall(
+            function_call=types.FunctionCall(id="call-mixed", name="navigate"),
+            result=EnvState(screenshot=b"screenshot", url="https://example.com"),
+            artifacts=None,
+        )
+
+        function_response = executor.serialize_function_response(executed_call)
+
+        self.assertEqual(
+            function_response.response,
+            {
+                "url": "https://example.com",
+                "aria_snapshot": "- button: Continue",
+            },
+        )
+        inline_data = self.get_inline_data(function_response)
+        self.assertEqual(inline_data.mime_type, "image/png")
+        self.assertEqual(inline_data.data, b"screenshot")
+
     def test_compact_aria_snapshot_text_preserves_small_snapshots(self):
         snapshot = "- button: Continue"
 
