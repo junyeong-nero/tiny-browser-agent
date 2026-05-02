@@ -22,12 +22,13 @@ from google.genai.types import (
     Content,
     Candidate,
     FunctionResponse,
-    FinishReason,
 )
 from rich.console import Console
 from rich.table import Table
 
 import config as app_config
+from agents import model_turn
+from agents.review_events import build_review_metadata_event_payload
 from agents.post_summary_agent import (
     ActionMetadataWriter,
     ActionReviewService,
@@ -40,6 +41,8 @@ from agents.safety import (
     SafetyDecision,
     prompt_for_safety_confirmation,
 )
+from agents import subgoals as subgoal_helpers
+from agents import tool_orchestration
 from agents.types import GroundingMode, Subgoal
 from browser import (
     ArtifactLogger,
@@ -56,7 +59,6 @@ from tools.types import (
     ExecutedCall,
     ToolBatchResult,
     ToolResult,
-    build_tool_error_payload,
     extract_tool_argument_error,
     is_env_state_result,
 )
@@ -303,51 +305,15 @@ class BrowserAgent:
         reasoning: Optional[str],
         final_result_summary: Optional[str] = None,
     ) -> None:
-        step_review_metadata = self._step_review_metadata.get(step_id, {})
-        if final_result_summary is not None:
-            default_phase_id = "phase-complete"
-            default_phase_label = "완료"
-            default_user_visible_label = "결과 정리"
-        else:
-            default_phase_id = "all-steps"
-            default_phase_label = "전체 과정 보기"
-            default_user_visible_label = f"Step {step_id}"
         self._emit_event(
             "review_metadata_extracted",
-            step_id=step_id,
-            subgoal_id=step_review_metadata.get("subgoal_id", self._current_subgoal_id),
-            phase_id=step_review_metadata.get("phase_id", default_phase_id),
-            phase_label=step_review_metadata.get("phase_label", default_phase_label),
-            phase_summary=step_review_metadata.get("phase_summary", reasoning),
-            what=step_review_metadata.get("what"),
-            why=step_review_metadata.get("why"),
-            outcome=step_review_metadata.get("outcome"),
-            action_summary=step_review_metadata.get(
-                "action_summary",
-                step_review_metadata.get("user_visible_label", default_user_visible_label),
+            **build_review_metadata_event_payload(
+                step_id=step_id,
+                step_review_metadata=self._step_review_metadata.get(step_id, {}),
+                reasoning=reasoning,
+                final_result_summary=final_result_summary,
+                current_subgoal_id=self._current_subgoal_id,
             ),
-            reason=step_review_metadata.get("reason", reasoning),
-            summary_source=step_review_metadata.get("summary_source", "app_derived"),
-            user_visible_label=step_review_metadata.get(
-                "user_visible_label",
-                default_user_visible_label,
-            ),
-            verification_items=step_review_metadata.get(
-                "verification_items",
-                [],
-            ),
-            run_summary=final_result_summary or reasoning,
-            final_result_summary=final_result_summary,
-            ambiguity_flag=step_review_metadata.get("ambiguity_flag"),
-            ambiguity_type=step_review_metadata.get("ambiguity_type"),
-            ambiguity_message=step_review_metadata.get(
-                "ambiguity_message"
-            ),
-            review_evidence=step_review_metadata.get(
-                "review_evidence",
-                [],
-            ),
-            a11y_path=step_review_metadata.get("a11y_path"),
         )
 
     def append_user_message(self, text: str) -> None:
@@ -389,11 +355,11 @@ class BrowserAgent:
 
     def get_text(self, candidate: Candidate) -> Optional[str]:
         """Extracts the text from the candidate."""
-        return self._collect_text(candidate, include_thoughts=True)
+        return model_turn.collect_text(candidate, include_thoughts=True)
 
     def get_visible_text(self, candidate: Candidate) -> Optional[str]:
         """Extracts only user-visible text from the candidate."""
-        return self._collect_text(candidate, include_thoughts=False)
+        return model_turn.collect_text(candidate, include_thoughts=False)
 
     def _collect_text(
         self,
@@ -401,13 +367,7 @@ class BrowserAgent:
         *,
         include_thoughts: bool,
     ) -> Optional[str]:
-        if not candidate.content or not candidate.content.parts:
-            return None
-        text = []
-        for part in candidate.content.parts:
-            if part.text and (include_thoughts or not getattr(part, "thought", False)):
-                text.append(part.text)
-        return " ".join(text) or None
+        return model_turn.collect_text(candidate, include_thoughts=include_thoughts)
 
     @staticmethod
     def _strip_thought_parts(content: Content) -> Content:
@@ -417,22 +377,11 @@ class BrowserAgent:
         and can trigger validation errors when replayed to models that do not
         support the `thought` flag.
         """
-        if not content.parts:
-            return content
-        filtered = [part for part in content.parts if not getattr(part, "thought", False)]
-        if len(filtered) == len(content.parts):
-            return content
-        return Content(role=content.role, parts=filtered)
+        return model_turn.strip_thought_parts(content)
 
     def extract_function_calls(self, candidate: Candidate) -> list[types.FunctionCall]:
         """Extracts the function call from the candidate."""
-        if not candidate.content or not candidate.content.parts:
-            return []
-        ret = []
-        for part in candidate.content.parts:
-            if part.function_call:
-                ret.append(part.function_call)
-        return ret
+        return model_turn.extract_function_calls(candidate)
 
     def _request_model_response(
         self, step_id: int
@@ -478,29 +427,7 @@ class BrowserAgent:
 
     @staticmethod
     def _should_retry_model_request(error: Exception) -> bool:
-        message = str(error).lower()
-        status_code = getattr(error, "code", None) or getattr(error, "status_code", None)
-        if isinstance(status_code, int) and status_code in {408, 429, 500, 502, 503, 504}:
-            return True
-        retryable_markers = (
-            "timeout",
-            "timed out",
-            "temporarily unavailable",
-            "temporarily_unavailable",
-            "service unavailable",
-            "unavailable",
-            "internal error",
-            "deadline exceeded",
-            "rate limit",
-            "resource_exhausted",
-            "resource exhausted",
-            "connection reset",
-            "connection aborted",
-            "connection error",
-            "broken pipe",
-            "retry",
-        )
-        return any(marker in message for marker in retryable_markers)
+        return model_turn.should_retry_model_request(error)
 
     def _extract_candidate_turn(
         self,
@@ -550,10 +477,10 @@ class BrowserAgent:
         reasoning: Optional[str],
         function_calls: list[types.FunctionCall],
     ) -> bool:
-        if (
-            not function_calls
-            and not reasoning
-            and candidate.finish_reason == FinishReason.MALFORMED_FUNCTION_CALL
+        if model_turn.is_malformed_function_call_turn(
+            candidate,
+            reasoning=reasoning,
+            function_calls=function_calls,
         ):
             self._emit_event(
                 "step_error",
@@ -780,27 +707,14 @@ class BrowserAgent:
         function_call: types.FunctionCall,
         exc: Exception,
     ) -> str:
-        tool_name = function_call.name or "<missing name>"
-        return (
-            f"Tool execution failed for {tool_name}: "
-            f"{type(exc).__name__}: {exc}"
-        )
+        return tool_orchestration.build_tool_execution_error_message(function_call, exc)
 
     def _build_tool_execution_error_call(
         self,
         function_call: types.FunctionCall,
         exc: Exception,
     ) -> ExecutedCall:
-        error_message = self._build_tool_execution_error_message(function_call, exc)
-        return ExecutedCall(
-            function_call=function_call,
-            result=build_tool_error_payload(
-                tool_name=function_call.name,
-                error_type=type(exc).__name__,
-                error_message=error_message,
-            ),
-            artifacts=None,
-        )
+        return tool_orchestration.build_tool_execution_error_call(function_call, exc)
 
     def _resolve_ref_name(self, args: Any) -> Optional[str]:
         if not args or not hasattr(args, "get") or args.get("ref") is None:
@@ -853,13 +767,8 @@ class BrowserAgent:
                 executed_call = self._build_tool_execution_error_call(function_call, exc)
 
         fc_result = executed_call.result
-        action_args = dict(function_call.args or {})
-        if ref_name and "ref_name" not in action_args:
-            action_args["ref_name"] = ref_name
-        action_payload = {
-            "name": function_call.name,
-            "args": action_args,
-        }
+        action_payload = tool_orchestration.action_payload_with_ref_name(function_call, ref_name)
+        action_args = action_payload["args"]
         review_metadata = self._review_service.build_review_metadata_for_action(
             step_id=step_id,
             function_call_index=function_call_index,
@@ -875,16 +784,8 @@ class BrowserAgent:
             function_call=executed_call.function_call,
             reasoning=reasoning,
             artifacts=executed_call.artifacts,
-            ambiguity_candidate=(
-                AmbiguityCandidate(
-                    ambiguity_type=review_metadata["ambiguity_type"],
-                    message=review_metadata["ambiguity_message"],
-                    review_evidence=list(review_metadata.get("review_evidence") or []),
-                )
-                if review_metadata.get("ambiguity_flag")
-                and review_metadata.get("ambiguity_type")
-                and review_metadata.get("ambiguity_message")
-                else None
+            ambiguity_candidate=tool_orchestration.ambiguity_candidate_from_review_metadata(
+                review_metadata
             ),
         )
         if is_env_state_result(fc_result):
@@ -1132,40 +1033,21 @@ class BrowserAgent:
         finally:
             self._current_subgoal_id = None
 
-        final_text = (self.final_reasoning or "").strip()
-        if not final_text:
-            return "failed", (
-                f"Subgoal {subgoal.id} did not produce a final status message after "
-                f"{steps} step(s)."
-            )
-        upper = final_text.upper()
-        if "SUBGOAL_FAILED" in upper:
-            return "failed", final_text
-        if "SUBGOAL_DONE" in upper:
-            return "done", final_text
-        # No explicit marker: treat as failure so the planner can verify/replan.
-        return "failed", (
-            f"Subgoal {subgoal.id} completed without declaring success. Final text: {final_text[:200]}"
+        return subgoal_helpers.classify_subgoal_final_text(
+            subgoal_id=subgoal.id,
+            final_text=self.final_reasoning or "",
+            steps=steps,
         )
 
     @staticmethod
     def _has_subgoal_marker(final_text: str) -> bool:
-        upper = final_text.upper()
-        return "SUBGOAL_DONE" in upper or "SUBGOAL_FAILED" in upper
+        return subgoal_helpers.has_subgoal_marker(final_text)
 
     def _build_subgoal_plan_summary(
         self,
         outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]],
     ) -> str:
-        header = (
-            "All planner subgoals completed."
-            if all(result == "done" for _, result, _ in outcomes)
-            else "Planner subgoals completed with failures."
-        )
-        lines = [header]
-        for subgoal, _result, reason in outcomes:
-            lines.append(f"[{subgoal.id}] {subgoal.description}: {reason}")
-        return "\n".join(lines)
+        return subgoal_helpers.build_subgoal_plan_summary(outcomes)
 
     def _finalize_subgoal_plan(
         self,
