@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
 from google.genai import types
+import config as app_config
 from agents.actor_agent import BrowserAgent
 from agents.post_summary_agent import ActionReviewService
 from agents.types import Subgoal
@@ -165,8 +166,9 @@ class TestBrowserAgent(unittest.TestCase):
         self,
         mock_from_provider_name,
     ):
+        expected_provider = app_config.actor_provider()
         llm_client = MagicMock(spec=LLMClient)
-        llm_client.provider_name = "openrouter"
+        llm_client.provider_name = expected_provider
         llm_client.build_function_declaration.side_effect = (
             lambda callable_: types.FunctionDeclaration(
                 name=callable_.__name__,
@@ -184,8 +186,8 @@ class TestBrowserAgent(unittest.TestCase):
             step_summarizer=None,
         )
 
-        mock_from_provider_name.assert_called_once_with("openrouter", max_retries=1)
-        self.assertEqual(agent._llm_client.provider_name, "openrouter")
+        mock_from_provider_name.assert_called_once_with(expected_provider, max_retries=1)
+        self.assertEqual(agent._llm_client.provider_name, expected_provider)
 
     def test_generate_content_config_tools_match_expected_structure(self):
         tools = self.get_tools()

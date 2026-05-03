@@ -194,6 +194,7 @@ def main() -> int:
         else:
             subgoals = None
             replan_callback = None
+            execution_constraints = app_config.execution_constraints()
             if args.log:
                 artifact_logger.record_session_meta(
                     {
@@ -202,6 +203,7 @@ def main() -> int:
                         "grounding": args.grounding,
                         "started_at": datetime.now().isoformat(timespec="seconds"),
                         "use_planner": args.planner,
+                        "constraints": execution_constraints.model_dump(),
                     }
                 )
                 register_event_sink(artifact_logger.record_event)
@@ -228,6 +230,9 @@ def main() -> int:
                     grounding=grounding,
                     subgoals=subgoals,
                     replan_callback=replan_callback,
+                    max_steps_per_subgoal=execution_constraints.max_steps_per_subgoal,
+                    max_total_steps=execution_constraints.max_total_steps,
+                    max_subgoals=execution_constraints.max_subgoals,
                 )
                 agent.agent_loop()
                 emit({"type": "task_complete", "query": args.query})

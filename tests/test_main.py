@@ -90,6 +90,9 @@ class TestMain(unittest.TestCase):
         call_kwargs = mock_browser_agent.call_args.kwargs
         self.assertIs(call_kwargs["subgoals"], subgoals)
         self.assertIs(call_kwargs["replan_callback"], mock_planner_agent.return_value.replan)
+        self.assertEqual(call_kwargs["max_steps_per_subgoal"], main.app_config.max_steps_per_subgoal())
+        self.assertEqual(call_kwargs["max_total_steps"], main.app_config.max_total_steps())
+        self.assertEqual(call_kwargs["max_subgoals"], main.app_config.max_subgoals())
 
     @patch("main.argparse.ArgumentParser")
     @patch("main.PlaywrightBrowser")

@@ -1,7 +1,7 @@
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import yaml
 
 LLMProviderName = Literal["gemini", "openai", "openrouter", "nvidia"]
@@ -48,10 +48,26 @@ class ModelsConfig(BaseModel):
     summary: SummaryAgentModelConfig
 
 
+class ExecutionConstraintsConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    max_steps_per_subgoal: int = 15
+    max_total_steps: int = 100
+    max_subgoals: int = 10
+
+    @field_validator("max_steps_per_subgoal", "max_total_steps", "max_subgoals")
+    @classmethod
+    def _validate_positive_int(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("must be greater than or equal to 1")
+        return value
+
+
 class AppConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     models: ModelsConfig
+    constraints: ExecutionConstraintsConfig = Field(default_factory=ExecutionConstraintsConfig)
 
 
 def _load() -> AppConfig:
@@ -82,6 +98,10 @@ def summary_config() -> SummaryAgentModelConfig:
     return _get().models.summary
 
 
+def execution_constraints() -> ExecutionConstraintsConfig:
+    return _get().constraints
+
+
 def actor_model() -> str:
     return actor_config().model
 
@@ -104,3 +124,15 @@ def summary_model() -> str:
 
 def summary_provider() -> SummaryProviderName:
     return summary_config().provider
+
+
+def max_steps_per_subgoal() -> int:
+    return execution_constraints().max_steps_per_subgoal
+
+
+def max_total_steps() -> int:
+    return execution_constraints().max_total_steps
+
+
+def max_subgoals() -> int:
+    return execution_constraints().max_subgoals

@@ -7,6 +7,7 @@ from typing import Literal
 from agents.actor_agent import AgentInterrupted, BrowserAgent
 from agents.types import GroundingMode
 from browser import ArtifactLogger, PlaywrightBrowser
+import config as app_config
 from ui.bridge import (
     clear_task_interrupt,
     emit,
@@ -100,6 +101,7 @@ class BrowserSession:
     def run_task(self, query: str) -> None:
         artifact_logger = self._make_artifact_logger()
         sink_registered = self._log_enabled
+        execution_constraints = app_config.execution_constraints()
         if sink_registered:
             artifact_logger.record_session_meta(
                 {
@@ -108,6 +110,7 @@ class BrowserSession:
                     "grounding": self._grounding,
                     "started_at": datetime.now().isoformat(timespec="seconds"),
                     "use_planner": self._use_planner,
+                    "constraints": execution_constraints.model_dump(),
                 }
             )
             register_event_sink(artifact_logger.record_event)
@@ -146,6 +149,9 @@ class BrowserSession:
             conversation_context=conversation_context,
             interrupt_checker=is_task_interrupted,
             safety_confirmation_callback=self._reject_ui_safety_confirmation,
+            max_steps_per_subgoal=execution_constraints.max_steps_per_subgoal,
+            max_total_steps=execution_constraints.max_total_steps,
+            max_subgoals=execution_constraints.max_subgoals,
         )
         try:
             try:

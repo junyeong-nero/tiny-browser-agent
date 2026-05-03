@@ -1,13 +1,25 @@
+# provider : openai, gemini, openrouter
+# models : inclusionai/ling-2.6-1t:free, gemini-3-flash-preview
+
 models:
   actor:
-    provider: openrouter
-    model: inclusionai/ling-2.6-1t:free # nvidia/nemotron-3-super-120b-a12b:free
+    provider: openai
+    model: gpt-5.4-nano-2026-03-17
   planner:
-    provider: openrouter # gemini
-    model: inclusionai/ling-2.6-1t:free # gemini-3-flash-preview
+    provider: openai
+    model: gpt-5.4-mini-2026-03-17
   summary:
     provider: openai
     model: gpt-4o-mini
+
+# Execution constraints used by BrowserAgent.
+# - max_steps_per_subgoal: per-planner-subgoal step budget.
+# - max_total_steps: total step budget for one task.
+# - max_subgoals: maximum planned/replanned subgoals.
+constraints:
+  max_steps_per_subgoal: 30
+  max_total_steps: 300
+  max_subgoals: 10
 
 # Supported providers:
 #   actor/planner: gemini, openai, openrouter, nvidia

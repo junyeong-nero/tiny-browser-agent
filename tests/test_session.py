@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from agents.actor_agent import AgentInterrupted
+import config as app_config
 from session import MAX_CONVERSATION_MEMORY_ITEMS, BrowserSession, TaskMemory
 
 
@@ -32,6 +33,9 @@ def test_run_task_passes_planner_replan_callback(
     assert call_kwargs["subgoals"] is subgoals
     assert call_kwargs["replan_callback"] is planner.replan
     assert call_kwargs["conversation_context"] is None
+    assert call_kwargs["max_steps_per_subgoal"] == app_config.max_steps_per_subgoal()
+    assert call_kwargs["max_total_steps"] == app_config.max_total_steps()
+    assert call_kwargs["max_subgoals"] == app_config.max_subgoals()
 
 
 @patch("session.emit")
