@@ -18,8 +18,8 @@ models:
 # - max_subgoals: maximum planned/replanned subgoals.
 constraints:
   max_steps_per_subgoal: 30
-  max_total_steps: 300
-  max_subgoals: 10
+  max_total_steps: 500
+  max_subgoals: 20
 
 # Supported providers:
 #   actor/planner: gemini, openai, openrouter, nvidia
