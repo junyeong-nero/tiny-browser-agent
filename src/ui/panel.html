@@ -492,9 +492,19 @@
   .graph-node.url circle { stroke: var(--primary); }
   .graph-node.viewport circle { stroke: var(--orange-dim); fill: rgba(253, 214, 99, 0.12); }
   .graph-node.action circle { stroke: var(--green); fill: rgba(129, 201, 149, 0.12); }
-  .graph-node.current circle { fill: var(--primary); stroke: var(--primary); }
+  .graph-node.current circle {
+    stroke: var(--md-sys-color-tertiary);
+    stroke-width: 3;
+    fill: color-mix(in srgb, var(--md-sys-color-tertiary) 22%, var(--surface-2));
+    filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--md-sys-color-tertiary) 34%, transparent));
+  }
+  .graph-node.running circle {
+    stroke: var(--md-sys-color-warning);
+    stroke-width: 3;
+    fill: color-mix(in srgb, var(--md-sys-color-warning) 22%, var(--surface-2));
+    filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--md-sys-color-warning) 34%, transparent));
+  }
   .graph-node circle { cursor: pointer; }
-  .graph-node:hover circle { stroke: var(--orange); stroke-width: 2.3; filter: drop-shadow(0 4px 10px rgba(0,0,0,.34)); }
   .graph-node.selected circle {
     stroke: var(--md-sys-color-primary);
     stroke-width: 3;
@@ -509,7 +519,8 @@
     pointer-events: none;
     user-select: none;
   }
-  .graph-node.current text { fill: var(--orange); }
+  .graph-node.current text { fill: var(--md-sys-color-tertiary); font-weight: 600; }
+  .graph-node.running text { fill: var(--md-sys-color-warning); font-weight: 600; }
 
   .graph-tooltip {
     position: absolute;
@@ -1578,9 +1589,12 @@ let trajectoryNodes = new Map();
 let trajectoryRoots = [];
 let trajectoryLastKey = null;
 let trajectoryCurrentKey = null;
+let trajectoryCurrentViewportId = null;
+let trajectoryCurrentActionId = null;
 let currentTimelineStepId = null;
 let currentTimelineStepGroup = null;
 let selectedTimelineStepId = null;
+let activeGraphStepId = null;
 
 // ── WebSocket ──────────────────────────────────────────
 function connect() {
@@ -1639,6 +1653,7 @@ function resetTimeline() {
   currentTimelineStepId = null;
   currentTimelineStepGroup = null;
   selectedTimelineStepId = null;
+  activeGraphStepId = null;
 }
 
 function setAgentModel(modelName) {
@@ -1658,18 +1673,24 @@ function appendTimelineElement(el) {
 
 function beginActionStepGroup(stepId) {
   currentTimelineStepId = stepId;
+  activeGraphStepId = stepId != null ? String(stepId) : null;
   currentTimelineStepGroup = document.createElement('div');
   currentTimelineStepGroup.className = 'action-step-group';
   currentTimelineStepGroup.dataset.stepId = String(stepId);
   timeline.appendChild(currentTimelineStepGroup);
   timeline.scrollTop = timeline.scrollHeight;
   updateTimelineHighlight();
+  updateGraphRunningClass();
 }
 
 function finishActionStepGroup(stepId) {
   if (currentTimelineStepId != null && String(currentTimelineStepId) === String(stepId)) {
     currentTimelineStepId = null;
     currentTimelineStepGroup = null;
+  }
+  if (activeGraphStepId != null && String(activeGraphStepId) === String(stepId)) {
+    activeGraphStepId = null;
+    updateGraphRunningClass();
   }
 }
 
@@ -1697,6 +1718,14 @@ function highlightTimelineActionStep(stepId) {
   selectedTimelineStepId = stepId != null ? String(stepId) : null;
   updateTimelineHighlight();
   scrollHighlightedTimelineStep();
+}
+
+function isRunningGraphNode(d) {
+  if (activeGraphStepId == null || !d) return false;
+  if (d.step != null) return String(d.step) === String(activeGraphStepId);
+  if (d.firstStep == null || d.lastStep == null) return false;
+  const activeStep = Number(activeGraphStepId);
+  return Number(d.firstStep) <= activeStep && activeStep <= Number(d.lastStep);
 }
 
 function addRow(cls, html) {
@@ -1737,6 +1766,8 @@ function resetSidebar() {
   trajectoryRoots = [];
   trajectoryLastKey = null;
   trajectoryCurrentKey = null;
+  trajectoryCurrentViewportId = null;
+  trajectoryCurrentActionId = null;
   trajectoryEdges.clear();
   trajectoryViewports.clear();
   trajectoryActions.clear();
@@ -1744,6 +1775,7 @@ function resetSidebar() {
   actionSequence = 0;
   currentTimelineStepId = null;
   currentTimelineStepGroup = null;
+  activeGraphStepId = null;
   highlightTimelineActionStep(null);
   sideTask.className = 'side-empty';
   sideTask.textContent = 'no active task.';
@@ -2050,6 +2082,21 @@ function actionLabel(actionName, args) {
   return String(actionName || 'Action').replace(/_/g, ' ');
 }
 
+function stableActionValue(value) {
+  if (Array.isArray(value)) return value.map(stableActionValue);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).sort().reduce((acc, key) => {
+      acc[key] = stableActionValue(value[key]);
+      return acc;
+    }, {});
+  }
+  return value;
+}
+
+function actionSignature(actionName, args) {
+  return `${actionName}|${JSON.stringify(stableActionValue(args || {}))}`;
+}
+
 function recordNavigation(url, stepId) {
   if (!url || url === 'about:blank') return null;
   const { key, host, path, full } = parseUrlParts(url);
@@ -2120,45 +2167,58 @@ function recordActionExecution(ev) {
   if (viewport.screenshot) viewportNode.screenshot = viewport.screenshot;
   if (viewport.artifactStep != null) viewportNode.artifactStep = viewport.artifactStep;
   urlNode.viewportSequence.push(viewportId);
+  trajectoryCurrentViewportId = viewportId;
 
   const action = ev.action || {};
   const actionName = action.name || 'action';
   const actionArgs = action.args || {};
-  const actionOrder = actionSequence++;
-  const actionId = `action|${ev.step_id}|${actionOrder}`;
-  const actionNode = {
-    id: actionId,
-    urlId: urlNode.id,
-    viewportId,
-    label: `#${ev.step_id} ${actionLabel(actionName, actionArgs)}`,
-    type: 'action',
-    actionName,
-    args: actionArgs,
-    step: ev.step_id,
-    order: actionOrder,
-    fullUrl: urlNode.fullUrl,
-    artifacts: ev.artifacts || null,
-    actionGifPath: ev.artifacts && (ev.artifacts.action_clip_gif_path || ev.artifacts.action_gif_path),
-    beforeScreenshotPath: ev.artifacts && ev.artifacts.before_screenshot_path,
-    afterScreenshotPath: ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path),
-    videoPath: ev.artifacts && ev.artifacts.video_path,
-    visits: 1,
-    firstStep: ev.step_id,
-    lastStep: ev.step_id,
-  };
-  trajectoryActions.set(actionId, actionNode);
-  viewportNode.actionIds.add(actionId);
+  const actionId = `action|${viewportId}|${actionSignature(actionName, actionArgs)}`;
+  let actionNode = trajectoryActions.get(actionId);
+  if (!actionNode) {
+    actionNode = {
+      id: actionId,
+      urlId: urlNode.id,
+      viewportId,
+      label: actionLabel(actionName, actionArgs),
+      type: 'action',
+      actionName,
+      args: actionArgs,
+      step: ev.step_id,
+      order: actionSequence++,
+      fullUrl: urlNode.fullUrl,
+      artifacts: ev.artifacts || null,
+      actionGifPath: ev.artifacts && (ev.artifacts.action_clip_gif_path || ev.artifacts.action_gif_path),
+      beforeScreenshotPath: ev.artifacts && ev.artifacts.before_screenshot_path,
+      afterScreenshotPath: ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path),
+      videoPath: ev.artifacts && ev.artifacts.video_path,
+      visits: 0,
+      firstStep: ev.step_id,
+      lastStep: ev.step_id,
+    };
+    trajectoryActions.set(actionId, actionNode);
+    viewportNode.actionIds.add(actionId);
+    urlNode.actionIds.add(actionId);
+  }
+  actionNode.step = ev.step_id;
+  actionNode.lastStep = ev.step_id;
+  actionNode.visits += 1;
+  actionNode.fullUrl = urlNode.fullUrl;
+  actionNode.artifacts = ev.artifacts || actionNode.artifacts;
+  actionNode.actionGifPath = (ev.artifacts && (ev.artifacts.action_clip_gif_path || ev.artifacts.action_gif_path)) || actionNode.actionGifPath;
+  actionNode.beforeScreenshotPath = (ev.artifacts && ev.artifacts.before_screenshot_path) || actionNode.beforeScreenshotPath;
+  actionNode.afterScreenshotPath = (ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path)) || actionNode.afterScreenshotPath;
+  actionNode.videoPath = (ev.artifacts && ev.artifacts.video_path) || actionNode.videoPath;
   viewportNode.actionSequence.push(actionId);
-  urlNode.actionIds.add(actionId);
+  trajectoryCurrentActionId = actionId;
   updateGraph();
 }
 
-function buildSequentialLinks(sequence, allowedIds, rootId = null) {
+function buildSequentialLinks(sequence, allowedIds, rootId = null, allowSelfLoops = false) {
   const edges = new Map();
   let previous = rootId;
   for (const id of sequence || []) {
     if (!allowedIds.has(id)) continue;
-    if (previous && previous !== id) {
+    if (previous && (allowSelfLoops || previous !== id)) {
       const edgeKey = `${previous}|${id}`;
       const edge = edges.get(edgeKey);
       if (edge) edge.count += 1;
@@ -2242,6 +2302,7 @@ function buildViewportGraphData(urlId) {
       lastStep: vp.lastStep,
       actionCount: vp.actionIds.size,
       actionPreviews: collectActionPreviewArtifacts(vp.actionIds),
+      isCurrent: vp.id === trajectoryCurrentViewportId,
       drillable: !!vp.actionIds.size,
     }));
   const viewportIds = new Set(viewports.map(vp => vp.id));
@@ -2275,14 +2336,15 @@ function buildActionGraphData(viewportId) {
     actionCount: viewportNode.actionIds.size,
     actionPreviews: collectActionPreviewArtifacts(viewportNode.actionIds),
     isRoot: true,
+    isCurrent: viewportNode.id === trajectoryCurrentViewportId,
   };
   const actions = Array.from(viewportNode.actionIds || [])
     .map(id => trajectoryActions.get(id))
     .filter(Boolean)
-    .sort((a, b) => (a.step - b.step) || (a.order - b.order))
-    .map(action => ({ ...action, argsText: formatArgs(action.args || {}) }));
+    .sort((a, b) => (a.firstStep - b.firstStep) || (a.order - b.order))
+    .map(action => ({ ...action, argsText: formatArgs(action.args || {}), isCurrent: action.id === trajectoryCurrentActionId }));
   const actionIds = new Set(actions.map(action => action.id));
-  const links = buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id);
+  const links = buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true);
   const crumbs = [{ label: 'URLs', level: 'url' }];
   if (urlNode) crumbs.push({ label: trajectoryLabelFor(urlNode), level: 'viewport', urlId: urlNode.id });
   return { nodes: [root, ...actions], links, mode: 'action', breadcrumb: crumbs };
@@ -2350,6 +2412,12 @@ function updateGraphSelectionClass() {
   }
 }
 
+function updateGraphRunningClass() {
+  if (typeof graph !== 'undefined' && graph && graph.refreshRunning) {
+    graph.refreshRunning();
+  }
+}
+
 function renderSelection(d) {
   const el = document.getElementById('side-selection');
   if (!el) return;
@@ -2412,7 +2480,7 @@ const graph = (() => {
     .on('tick', ticked);
 
   let nodeSel = nodeG.selectAll('g');
-  let linkSel = linkG.selectAll('line');
+  let linkSel = linkG.selectAll('path');
   let nodesData = [];
   let linksData = [];
 
@@ -2426,10 +2494,22 @@ const graph = (() => {
   resize();
 
   function ticked() {
-    linkSel
-      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    linkSel.attr('d', linkPath);
     nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+  }
+
+  function linkPath(d) {
+    const source = d.source || {};
+    const target = d.target || {};
+    const sx = source.x || 0;
+    const sy = source.y || 0;
+    const tx = target.x || 0;
+    const ty = target.y || 0;
+    if ((source.id || source) === (target.id || target)) {
+      const r = 22 + Math.min(14, Math.log2((d.count || 1) + 1) * 4);
+      return `M ${sx} ${sy - 8} C ${sx + r} ${sy - r * 1.6}, ${sx + r * 1.8} ${sy + r * 1.2}, ${sx + 4} ${sy + 8}`;
+    }
+    return `M ${sx} ${sy} L ${tx} ${ty}`;
   }
 
   function showTooltip(event, d) {
@@ -2526,11 +2606,11 @@ const graph = (() => {
 
     emptyEl.style.display = nodesData.length ? 'none' : 'flex';
 
-    linkSel = linkG.selectAll('line').data(linksData, d =>
+    linkSel = linkG.selectAll('path.graph-link').data(linksData, d =>
       (d.source.id || d.source) + '|' + (d.target.id || d.target)
     );
     linkSel.exit().remove();
-    linkSel = linkSel.enter().append('line').attr('class', 'graph-link').merge(linkSel);
+    linkSel = linkSel.enter().append('path').attr('class', 'graph-link').merge(linkSel);
     linkSel.attr('stroke-width', d => Math.min(3, 1 + Math.log2(d.count + 1)));
 
     nodeSel = nodeG.selectAll('g.graph-node').data(nodesData, d => d.id);
@@ -2552,7 +2632,8 @@ const graph = (() => {
       .classed('viewport', d => d.type === 'viewport')
       .classed('action', d => d.type === 'action')
       .classed('drillable', d => !!d.drillable)
-      .classed('current', d => d.isCurrent)
+      .classed('current', d => !!d.isCurrent)
+      .classed('running', d => isRunningGraphNode(d))
       .classed('selected', d => d.id === selectedNodeId);
     nodeSel.select('circle').attr('r', d => 6 + Math.min(8, Math.log2((d.visits || 1) + 1) * 2));
     nodeSel.select('text').text(d => d.label || d.id);
@@ -2580,9 +2661,13 @@ const graph = (() => {
     nodeG.selectAll('g.graph-node').classed('selected', d => d.id === selectedNodeId);
   }
 
+  function refreshRunning() {
+    nodeG.selectAll('g.graph-node').classed('running', d => isRunningGraphNode(d));
+  }
+
   svg.on('click', () => clearGraphSelection());
 
-  return { update, reset, resize, refreshSelection };
+  return { update, reset, resize, refreshSelection, refreshRunning };
 })();
 
 function updateGraph() { graph.update(selectedGraphData()); }
@@ -2777,6 +2862,8 @@ function handleEvent(ev) {
       isRunning = false;
       isSubmitting = false;
       isStopping = false;
+      activeGraphStepId = null;
+      updateGraphRunningClass();
       setStatus('connected', 'ready');
       setInputEnabled(true);
       subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'done'; });
@@ -2788,6 +2875,8 @@ function handleEvent(ev) {
       isRunning = false;
       isSubmitting = false;
       isStopping = false;
+      activeGraphStepId = null;
+      updateGraphRunningClass();
       setStatus('connected', 'ready');
       setInputEnabled(true);
       subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'failed'; });
@@ -2802,6 +2891,8 @@ function handleEvent(ev) {
       isRunning = false;
       isSubmitting = false;
       isStopping = false;
+      activeGraphStepId = null;
+      updateGraphRunningClass();
       setStatus('connected', 'ready');
       setInputEnabled(true);
       subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'failed'; });
@@ -2810,6 +2901,8 @@ function handleEvent(ev) {
       break;
 
     case 'session_closed':
+      activeGraphStepId = null;
+      updateGraphRunningClass();
       setStatus('disconnected', 'session ended');
       setInputEnabled(false);
       addRow('dim', 'session closed.');

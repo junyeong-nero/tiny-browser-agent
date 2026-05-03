@@ -58,7 +58,7 @@ def test_panel_graph_supports_url_viewport_action_drilldown():
     assert "function buildUrlGraphData()" in PANEL_HTML
     assert "function buildViewportGraphData(urlId)" in PANEL_HTML
     assert "function buildActionGraphData(viewportId)" in PANEL_HTML
-    assert "function buildSequentialLinks(sequence, allowedIds, rootId = null)" in PANEL_HTML
+    assert "function buildSequentialLinks(sequence, allowedIds, rootId = null, allowSelfLoops = false)" in PANEL_HTML
     assert "function drillGraphNode(d)" in PANEL_HTML
     assert "setGraphDrilldown({ level: 'viewport', urlId: crumb.urlId, viewportId: null });" in PANEL_HTML
     assert 'id="graph-breadcrumb"' in PANEL_HTML
@@ -79,16 +79,16 @@ def test_panel_viewport_and_action_drilldowns_use_step_dag_edges():
     action_builder = PANEL_HTML.split("function buildActionGraphData(viewportId)", 1)[1].split(
         "function trajectoryLabelFor(n)", 1
     )[0]
-    assert "buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id)" in action_builder
+    assert "buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true)" in action_builder
     assert "actions.map(action => ({ source: root.id, target: action.id" not in action_builder
 
 
 def test_panel_sequence_links_anchor_first_node_and_preserve_returns():
-    link_builder = PANEL_HTML.split("function buildSequentialLinks(sequence, allowedIds, rootId = null)", 1)[1].split(
+    link_builder = PANEL_HTML.split("function buildSequentialLinks(sequence, allowedIds, rootId = null, allowSelfLoops = false)", 1)[1].split(
         "function buildTrajectoryGraphData()", 1
     )[0]
     assert "let previous = rootId;" in link_builder
-    assert "if (previous && previous !== id)" in link_builder
+    assert "if (previous && (allowSelfLoops || previous !== id))" in link_builder
     assert "const edgeKey = `${previous}|${id}`;" in link_builder
     assert "if (edge) edge.count += 1;" in link_builder
 
@@ -100,10 +100,24 @@ def test_panel_uses_user_friendly_viewport_and_action_labels():
     assert "const stepLabel = stepId != null ? `Screen #${stepId}` : 'Screen view';" in PANEL_HTML
     assert "return `${stepLabel} · ${scrollLabel(viewport.scroll)}`;" in PANEL_HTML
     assert "label: viewportLabel(viewport, ev.step_id)" in PANEL_HTML
-    assert "label: `#${ev.step_id} ${actionLabel(actionName, actionArgs)}`" in PANEL_HTML
+    assert "label: actionLabel(actionName, actionArgs)" in PANEL_HTML
     assert "if (actionName === 'click_at') return `Click at (${values.x}, ${values.y})`;" in PANEL_HTML
     assert "if (actionName === 'navigate') return `Open ${values.url || 'page'}`;" in PANEL_HTML
     assert "return String(actionName || 'Action').replace(/_/g, ' ');" in PANEL_HTML
+
+
+def test_panel_action_graph_reuses_same_action_nodes_and_draws_cycles():
+    assert "function stableActionValue(value)" in PANEL_HTML
+    assert "function actionSignature(actionName, args)" in PANEL_HTML
+    assert "const actionId = `action|${viewportId}|${actionSignature(actionName, actionArgs)}`;" in PANEL_HTML
+    assert "let actionNode = trajectoryActions.get(actionId);" in PANEL_HTML
+    assert "if (!actionNode)" in PANEL_HTML
+    assert "actionNode.visits += 1;" in PANEL_HTML
+    assert "viewportNode.actionSequence.push(actionId);" in PANEL_HTML
+    assert "buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true)" in PANEL_HTML
+    assert "linkG.selectAll('path.graph-link')" in PANEL_HTML
+    assert "function linkPath(d)" in PANEL_HTML
+    assert "return `M ${sx} ${sy - 8} C" in PANEL_HTML
 
 def test_panel_removes_browser_state_tree_rendering():
     assert "no BrowserState graph metadata yet." not in PANEL_HTML
@@ -346,6 +360,28 @@ def test_panel_graph_selection_highlights_timeline_action_step_group():
     assert "highlightTimelineActionStep(null);" in PANEL_HTML
     assert "appendTimelineElement(el);" in PANEL_HTML
     assert "if (currentTimelineStepGroup) currentTimelineStepGroup.appendChild(el);" in PANEL_HTML
+
+
+def test_panel_graph_separates_selected_and_running_node_accents():
+    assert "let activeGraphStepId = null;" in PANEL_HTML
+    assert "let trajectoryCurrentViewportId = null;" in PANEL_HTML
+    assert "let trajectoryCurrentActionId = null;" in PANEL_HTML
+    assert "function isRunningGraphNode(d)" in PANEL_HTML
+    assert ".graph-node.selected circle" in PANEL_HTML
+    assert ".graph-node.current circle" in PANEL_HTML
+    assert ".graph-node.running circle" in PANEL_HTML
+    assert "trajectoryCurrentViewportId = viewportId;" in PANEL_HTML
+    assert "trajectoryCurrentActionId = actionId;" in PANEL_HTML
+    assert "isCurrent: vp.id === trajectoryCurrentViewportId" in PANEL_HTML
+    assert "isCurrent: action.id === trajectoryCurrentActionId" in PANEL_HTML
+    assert ".classed('current', d => !!d.isCurrent)" in PANEL_HTML
+    assert ".classed('running', d => isRunningGraphNode(d))" in PANEL_HTML
+    assert ".classed('selected', d => d.id === selectedNodeId)" in PANEL_HTML
+    assert ".classed('current', d => d.isCurrent)" not in PANEL_HTML
+    assert "activeGraphStepId = stepId != null ? String(stepId) : null;" in PANEL_HTML
+    assert "function refreshRunning()" in PANEL_HTML
+    assert "return { update, reset, resize, refreshSelection, refreshRunning };" in PANEL_HTML
+    assert "updateGraphRunningClass();" in PANEL_HTML
 
 
 def test_panel_uses_live_session_id_for_graph_artifacts_outside_replay():
