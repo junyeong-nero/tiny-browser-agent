@@ -1,7 +1,7 @@
 uv run python scripts/batch_runner.py \
 	--dataset junyeong-nero/korean-online-mind2web \
 	--limit 500 \
-	--workers 4 \
+	--workers 1 \
 	--metadata-initial-url \
 	--log-agent \
 	--extra-arg=--stealth \

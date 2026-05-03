@@ -60,7 +60,9 @@
       "Bash(curl -sS -o /dev/null -w \"%{http_code}\\\\n\" --max-time 10 https://www.coupang.com/)",
       "Bash(scutil --dns)",
       "Bash(PYTHONPATH=src USE_PATCHRIGHT=0 uv run python -)",
-      "Bash(timeout 25 bash scripts/run.sh)"
+      "Bash(timeout 25 bash scripts/run.sh)",
+      "Bash(xargs '-I{}' python3 -c ' *)",
+      "Bash(git checkout *)"
     ]
   }
 }
