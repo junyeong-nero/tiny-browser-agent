@@ -96,6 +96,50 @@ class TestMain(unittest.TestCase):
 
     @patch("main.argparse.ArgumentParser")
     @patch("main.PlaywrightBrowser")
+    @patch("main.PlannerAgent")
+    @patch("main.BrowserAgent")
+    def test_main_planner_empty_plan_falls_back_to_actor_loop(
+        self,
+        mock_browser_agent,
+        mock_planner_agent,
+        mock_playwright_browser,
+        mock_arg_parser,
+    ):
+        mock_args = MagicMock()
+        mock_args.env = 'playwright'
+        mock_args.initial_url = 'https://www.google.com'
+        mock_args.search_engine_url = 'https://duckduckgo.com'
+        mock_args.highlight_mouse = False
+        mock_args.headless = False
+        mock_args.query = 'test_query'
+        mock_args.model = 'test_model'
+        mock_args.log = False
+        mock_args.ui = False
+        mock_args.grounding = "vision"
+        mock_args.planner = True
+        mock_args.stealth = False
+        mock_args.channel = None
+        mock_args.user_agent = None
+        mock_args.locale = None
+        mock_args.timezone_id = None
+        mock_args.proxy = None
+        mock_args.storage_state = None
+        mock_arg_parser.return_value.parse_args.return_value = mock_args
+        mock_planner_agent.return_value.plan.return_value = []
+
+        with patch("main.emit") as mock_emit:
+            main.main()
+
+        call_kwargs = mock_browser_agent.call_args.kwargs
+        self.assertIsNone(call_kwargs["subgoals"])
+        self.assertIsNone(call_kwargs["replan_callback"])
+        mock_browser_agent.return_value.agent_loop.assert_called_once()
+        mock_emit.assert_any_call(
+            {"type": "planner_fallback", "reason": "no valid subgoals returned"}
+        )
+
+    @patch("main.argparse.ArgumentParser")
+    @patch("main.PlaywrightBrowser")
     @patch("main.BrowserAgent")
     def test_main_no_log(self, mock_browser_agent, mock_playwright_browser, mock_arg_parser):
         mock_args = MagicMock()

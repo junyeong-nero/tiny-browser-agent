@@ -215,10 +215,14 @@ def main() -> int:
                         planner_kwargs["event_sink"] = emit
                     planner = PlannerAgent(**planner_kwargs)
                     subgoals = planner.plan()
-                    replan_callback = planner.replan
-                    print(f"Planner created {len(subgoals)} subgoal(s):")
-                    for sg in subgoals:
-                        print(f"  [{sg.id}] {sg.description}")
+                    if not subgoals:
+                        emit({"type": "planner_fallback", "reason": "no valid subgoals returned"})
+                        subgoals = None
+                    else:
+                        replan_callback = planner.replan
+                        print(f"Planner created {len(subgoals)} subgoal(s):")
+                        for sg in subgoals:
+                            print(f"  [{sg.id}] {sg.description}")
 
                 grounding: GroundingMode = args.grounding
                 agent = BrowserAgent(
