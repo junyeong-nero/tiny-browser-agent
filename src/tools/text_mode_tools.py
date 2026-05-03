@@ -8,6 +8,16 @@ BrowserToolExecutor handler map.
 from typing import Literal
 
 
+def open_web_browser(url: str = "") -> dict:
+    """Open the browser or observe the current browser state.
+
+    Args:
+        url: Optional URL to navigate to. Leave empty to observe the current
+            page state and ARIA snapshot without choosing a new destination.
+    """
+    ...
+
+
 def navigate(url: str) -> dict:
     """Navigate the browser to a URL.
 
@@ -106,6 +116,7 @@ def wait_for_ref(
 
 # Descriptors exposed for text/mixed mode
 TEXT_MODE_TOOL_DESCRIPTORS = [
+    open_web_browser,
     navigate,
     go_back,
     go_forward,

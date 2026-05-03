@@ -61,3 +61,23 @@ def ambiguity_candidate_from_review_metadata(
         message=review_metadata["ambiguity_message"],
         review_evidence=list(review_metadata.get("review_evidence") or []),
     )
+
+
+def build_reobserve_required_response(
+    function_call: types.FunctionCall,
+) -> types.FunctionResponse:
+    """Return a synthetic response for stale same-turn browser actions."""
+    return types.FunctionResponse(
+        name=function_call.name,
+        id=function_call.id,
+        response={
+            "status": "reobserve_required",
+            "tool_name": function_call.name,
+            "error_type": "ReobserveRequired",
+            "error": (
+                "A previous browser action in this model turn changed the page state. "
+                "This tool call was not executed. Re-observe the browser state before "
+                "choosing the next browser action."
+            ),
+        },
+    )

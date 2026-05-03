@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import dataclasses
 import time
 from pathlib import Path
 from typing import Callable, Literal, Optional, Any
@@ -28,6 +27,7 @@ from rich.table import Table
 
 import config as app_config
 from agents import model_turn
+from agents import subgoal_runner
 from agents.review_events import build_review_metadata_event_payload
 from agents.post_summary_agent import (
     ActionMetadataWriter,
@@ -83,6 +83,7 @@ Use the task as the final goal, and use any active subgoal or latest browser sta
 
 When deciding what to do:
 - Ground every browser action in the visible page state, ARIA tree, screenshot, URL, or tool result you have received.
+- In text grounding mode, if the current page state is unclear at the first step, call open_web_browser with an empty url to observe the current URL and ARIA snapshot before taking another action.
 - Prefer the smallest reliable action or short batch of actions that advances the task.
 - Choose elements by stable labels, roles, text, or refs when available; do not guess coordinates unless the state clearly supports them.
 - Think through the target element and expected outcome before calling tools.
@@ -735,7 +736,7 @@ class BrowserAgent:
         function_call: types.FunctionCall,
         reasoning: Optional[str],
         extra_fr_fields: dict[str, Any],
-    ) -> FunctionResponse:
+    ) -> tuple[FunctionResponse, bool]:
         ref_name = self._resolve_ref_name(function_call.args)
         argument_error = extract_tool_argument_error(function_call.args)
         if argument_error is not None:
@@ -814,10 +815,11 @@ class BrowserAgent:
             args=action_args,
             result_summary=result_summary,
         )
-        return self._tool_executor.serialize_function_response(
+        function_response = self._tool_executor.serialize_function_response(
             executed_call,
             extra_response_fields=extra_fr_fields,
         )
+        return function_response, is_env_state_result(fc_result)
 
     def _execute_function_calls(
         self,
@@ -826,8 +828,15 @@ class BrowserAgent:
         function_calls: list[types.FunctionCall],
     ) -> ToolBatchResult:
         function_responses = []
+        browser_state_observed = False
         for function_call_index, function_call in enumerate(function_calls, start=1):
             self._raise_if_interrupted()
+            if browser_state_observed:
+                function_responses.append(
+                    tool_orchestration.build_reobserve_required_response(function_call)
+                )
+                continue
+
             extra_fr_fields = {}
             if function_call.args and (
                 safety := function_call.args.get("safety_decision")
@@ -844,15 +853,15 @@ class BrowserAgent:
                     return ToolBatchResult(status="COMPLETE", function_responses=[])
                 extra_fr_fields["safety_acknowledgement"] = "true"
 
-            function_responses.append(
-                self._execute_single_function_call(
-                    step_id,
-                    function_call_index,
-                    function_call,
-                    reasoning,
-                    extra_fr_fields,
-                )
+            function_response, produced_browser_state = self._execute_single_function_call(
+                step_id,
+                function_call_index,
+                function_call,
+                reasoning,
+                extra_fr_fields,
             )
+            function_responses.append(function_response)
+            browser_state_observed = browser_state_observed or produced_browser_state
 
         return ToolBatchResult(
             status="CONTINUE",
@@ -984,60 +993,7 @@ class BrowserAgent:
         raise RuntimeError(message)
 
     def _run_subgoal_loop(self, subgoal: Subgoal) -> tuple[Literal["done", "failed"], str]:
-        self.final_reasoning = None
-        self._current_subgoal_id = subgoal.id
-        self._contents = [
-            Content(
-                role="user",
-                parts=[
-                    Part(
-                        text=(
-                            f"[Subgoal {subgoal.id}] {subgoal.description}\n"
-                            f"Success criteria: {subgoal.success_criteria}\n"
-                            "When you determine the success criteria is met, stop calling tools and "
-                            "respond with a final message that begins with either 'SUBGOAL_DONE:' "
-                            "(criteria satisfied) or 'SUBGOAL_FAILED:' (criteria cannot be met), "
-                            "followed by a short explanation."
-                        )
-                    )
-                ],
-            )
-        ]
-        try:
-            status = "CONTINUE"
-            steps = 0
-            while status == "CONTINUE":
-                self._raise_if_interrupted()
-                self._raise_if_total_step_budget_exceeded()
-                if steps >= self._max_steps_per_subgoal:
-                    return "failed", (
-                        f"Exceeded max steps ({self._max_steps_per_subgoal}) for subgoal {subgoal.id}."
-                    )
-                status = self.run_one_iteration()
-                steps += 1
-                self._total_steps_used += 1
-                final_text = (self.final_reasoning or "").strip()
-                if status == "COMPLETE" and not self._has_subgoal_marker(final_text):
-                    if steps >= self._max_steps_per_subgoal:
-                        break
-                    self.append_user_message(
-                        "The previous turn ended this subgoal without the required "
-                        "SUBGOAL_DONE: or SUBGOAL_FAILED: marker. Inspect the latest "
-                        "browser state and respond with exactly one final subgoal "
-                        "status message using the required marker. If the previous "
-                        "turn produced no text because of a transient model error, "
-                        "retry the subgoal decision now."
-                    )
-                    self.final_reasoning = None
-                    status = "CONTINUE"
-        finally:
-            self._current_subgoal_id = None
-
-        return subgoal_helpers.classify_subgoal_final_text(
-            subgoal_id=subgoal.id,
-            final_text=self.final_reasoning or "",
-            steps=steps,
-        )
+        return subgoal_runner.run_subgoal_loop(self, subgoal)
 
     @staticmethod
     def _has_subgoal_marker(final_text: str) -> bool:
@@ -1088,45 +1044,7 @@ class BrowserAgent:
                 self._total_steps_used += 1
             return
 
-        queue = list(self._subgoals)
-        self._raise_if_subgoal_budget_exceeded(len(queue))
-        outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]] = []
-        index = 0
-        while index < len(queue):
-            self._raise_if_interrupted()
-            active_subgoal = dataclasses.replace(queue[index], status="active")
-            queue[index] = active_subgoal
-            self._emit_event(
-                "subgoal_started",
-                subgoal_id=active_subgoal.id,
-                description=active_subgoal.description,
-                success_criteria=active_subgoal.success_criteria,
-            )
-            result, reason = self._run_subgoal_loop(active_subgoal)
-            completed_subgoal = dataclasses.replace(active_subgoal, status=result)
-            queue[index] = completed_subgoal
-            outcomes.append((completed_subgoal, result, reason))
-            self._emit_event(
-                "subgoal_completed" if result == "done" else "subgoal_failed",
-                subgoal_id=completed_subgoal.id,
-                status=result,
-                reason=reason,
-            )
-            if result == "failed" and self._replan_callback is not None:
-                remaining = queue[index + 1 :]
-                try:
-                    revised = self._replan_callback(completed_subgoal, reason, remaining)
-                except Exception as exc:  # noqa: BLE001
-                    self._emit_event(
-                        "replan_error",
-                        subgoal_id=completed_subgoal.id,
-                        error_message=str(exc),
-                    )
-                    return
-                queue = queue[: index + 1] + list(revised)
-                self._raise_if_subgoal_budget_exceeded(len(queue))
-            index += 1
-        self._finalize_subgoal_plan(outcomes)
+        subgoal_runner.run_subgoal_plan(self)
 
     def denormalize_x(self, x: int) -> int:
         return self._tool_executor.denormalize_x(x)

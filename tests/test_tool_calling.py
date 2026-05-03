@@ -486,6 +486,49 @@ class TestBrowserToolExecutor(unittest.TestCase):
         self.assertEqual(response["aria_snapshot_original_chars"], len(oversized_snapshot))
         self.assertIn("ARIA snapshot truncated", response["aria_snapshot"])
 
+    def test_text_grounding_declares_open_web_browser_observation_tool(self):
+        executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            grounding="text",
+        )
+
+        tools = executor.build_tools(
+            lambda callable_: types.FunctionDeclaration(
+                name=callable_.__name__,
+                description=callable_.__doc__,
+                parameters_json_schema={"type": "object", "properties": {}},
+            )
+        )
+
+        declarations = tools[0].function_declarations or []
+        names = [declaration.name for declaration in declarations]
+        self.assertIn("open_web_browser", names)
+
+    def test_text_grounding_open_web_browser_response_includes_aria_snapshot(self):
+        executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            grounding="text",
+        )
+        self.mock_browser_computer.open_web_browser.return_value = EnvState(
+            screenshot=b"screenshot",
+            url="https://example.com",
+        )
+        self.mock_browser_computer.take_aria_snapshot.return_value.text = "- button: Continue"
+
+        executed_call = executor.execute_call(
+            types.FunctionCall(id="call-open", name="open_web_browser", args={})
+        )
+        function_response = executor.serialize_function_response(executed_call)
+
+        self.assertEqual(
+            function_response.response,
+            {
+                "url": "https://example.com",
+                "aria_snapshot": "- button: Continue",
+            },
+        )
+        self.assertIsNone(function_response.parts)
+
     def test_serialize_mixed_grounding_includes_aria_and_screenshot(self):
         executor = BrowserToolExecutor(
             browser_computer=self.mock_browser_computer,

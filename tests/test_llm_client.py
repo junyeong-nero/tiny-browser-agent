@@ -306,6 +306,50 @@ class TestChatCompletionsProviders(unittest.TestCase):
 
     @patch("llm.provider.chat_completion_http.request.urlopen")
     @patch("llm.provider.chat_completion_http.ChatCompletionsProvider._build_ssl_context", return_value=None)
+    def test_chat_completions_generate_content_translates_supported_config_fields(
+        self,
+        _mock_ssl,
+        mock_urlopen,
+    ):
+        from google.genai import types
+
+        from llm.provider.openai import OpenAIProvider
+
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            '{"choices":[{"message":{"content":"answer"}}]}'
+        )
+        provider = OpenAIProvider(
+            api_key="key",
+            base_url="https://example.test/v1",
+            timeout_seconds=3,
+        )
+
+        provider.generate_content(
+            model="gpt-5-mini",
+            contents=[types.Content(role="user", parts=[types.Part(text="hello")])],
+            config=types.GenerateContentConfig(
+                temperature=0.25,
+                top_p=0.9,
+                top_k=40,
+                max_output_tokens=123,
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(include_thoughts=True),
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            ),
+        )
+
+        http_request = mock_urlopen.call_args.args[0]
+        body = __import__("json").loads(http_request.data.decode("utf-8"))
+        self.assertEqual(body["temperature"], 0.25)
+        self.assertEqual(body["top_p"], 0.9)
+        self.assertEqual(body["max_completion_tokens"], 123)
+        self.assertEqual(body["response_format"], {"type": "json_object"})
+        self.assertNotIn("top_k", body)
+        self.assertNotIn("thinking_config", body)
+        self.assertNotIn("automatic_function_calling", body)
+
+    @patch("llm.provider.chat_completion_http.request.urlopen")
+    @patch("llm.provider.chat_completion_http.ChatCompletionsProvider._build_ssl_context", return_value=None)
     def test_openrouter_generate_text_includes_optional_headers(self, _mock_ssl, mock_urlopen):
         from llm.provider.openrouter import OpenRouterProvider
 

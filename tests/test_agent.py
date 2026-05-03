@@ -482,6 +482,94 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIsNone(function_response.parts)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_skips_stale_browser_action_after_env_state(
+        self,
+        mock_get_model_response,
+    ):
+        first_call = types.FunctionCall(
+            id="call-first",
+            name="navigate",
+            args={"url": "https://example.com/one"},
+        )
+        stale_call = types.FunctionCall(
+            id="call-stale",
+            name="navigate",
+            args={"url": "https://example.com/two"},
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [
+                types.Part(function_call=first_call),
+                types.Part(function_call=stale_call),
+            ]
+        )
+        self.mock_browser_computer.navigate.return_value = EnvState(
+            screenshot=b"first",
+            url="https://example.com/one",
+        )
+
+        result = self.agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        self.mock_browser_computer.navigate.assert_called_once_with("https://example.com/one")
+        tool_turn = self.agent._contents[-1]
+        responses = [
+            part.function_response
+            for part in (tool_turn.parts or [])
+            if part.function_response is not None
+        ]
+        self.assertEqual([response.id for response in responses], ["call-first", "call-stale"])
+        self.assertEqual(responses[0].response, {"url": "https://example.com/one"})
+        self.assertEqual(responses[1].response["status"], "reobserve_required")
+        self.assertEqual(responses[1].response["error_type"], "ReobserveRequired")
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_batches_dict_tools_before_browser_state(
+        self,
+        mock_get_model_response,
+    ):
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            step_summarizer=None,
+            custom_functions=[multiply_numbers],
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name=multiply_numbers.__name__,
+                        args={"x": 2, "y": 3},
+                    )
+                ),
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="navigate",
+                        args={"url": "https://example.com"},
+                    )
+                ),
+            ]
+        )
+        self.mock_browser_computer.navigate.return_value = EnvState(
+            screenshot=b"screenshot",
+            url="https://example.com",
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        self.mock_browser_computer.navigate.assert_called_once_with("https://example.com")
+        tool_turn = agent._contents[-1]
+        responses = [
+            part.function_response
+            for part in (tool_turn.parts or [])
+            if part.function_response is not None
+        ]
+        self.assertEqual(responses[0].response, {"result": 6})
+        self.assertEqual(responses[1].response, {"url": "https://example.com"})
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_tool_execution_errors(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -716,7 +804,7 @@ class TestBrowserAgent(unittest.TestCase):
             self.assertEqual(absolute_path, absolute_metadata_path)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
-    def test_run_one_iteration_enriches_each_metadata_file_for_multiple_function_calls(
+    def test_run_one_iteration_skips_metadata_for_stale_same_turn_browser_action(
         self,
         mock_get_model_response,
     ):
@@ -781,11 +869,11 @@ class TestBrowserAgent(unittest.TestCase):
             first_metadata = json.loads((history_dir / "step-0001.json").read_text(encoding="utf-8"))
             second_metadata = json.loads((history_dir / "step-0002.json").read_text(encoding="utf-8"))
             self.assertEqual(first_metadata["function_call_index_within_step"], 1)
-            self.assertEqual(second_metadata["function_call_index_within_step"], 2)
             self.assertEqual(first_metadata["model_step_id"], 1)
-            self.assertEqual(second_metadata["model_step_id"], 1)
             self.assertEqual(first_metadata["action"]["args"], {"url": "https://example.com/one"})
-            self.assertEqual(second_metadata["action"]["args"], {"url": "https://example.com/two"})
+            self.assertNotIn("function_call_index_within_step", second_metadata)
+            self.assertNotIn("model_step_id", second_metadata)
+            self.assertEqual(self.mock_browser_computer.navigate.call_count, 1)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_custom_function_result_skips_metadata_enrichment(
