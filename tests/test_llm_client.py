@@ -272,9 +272,37 @@ class TestChatCompletionsProviders(unittest.TestCase):
                 {"role": "user", "content": "user prompt"},
             ],
         )
-        self.assertEqual(body["max_tokens"], 42)
+        self.assertEqual(body["max_completion_tokens"], 42)
+        self.assertNotIn("max_tokens", body)
         self.assertEqual(body["temperature"], 0.5)
         self.assertEqual(body["response_format"], {"type": "json_object"})
+
+    @patch("llm.provider.chat_completion_http.request.urlopen")
+    @patch("llm.provider.chat_completion_http.ChatCompletionsProvider._build_ssl_context", return_value=None)
+    def test_openai_generate_content_uses_max_completion_tokens(self, _mock_ssl, mock_urlopen):
+        from google.genai import types
+
+        from llm.provider.openai import OpenAIProvider
+
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            '{"choices":[{"message":{"content":"answer"}}]}'
+        )
+        provider = OpenAIProvider(
+            api_key="key",
+            base_url="https://example.test/v1",
+            timeout_seconds=3,
+        )
+
+        provider.generate_content(
+            model="gpt-5-mini",
+            contents=[types.Content(role="user", parts=[types.Part(text="hello")])],
+            config=types.GenerateContentConfig(max_output_tokens=123),
+        )
+
+        http_request = mock_urlopen.call_args.args[0]
+        body = __import__("json").loads(http_request.data.decode("utf-8"))
+        self.assertEqual(body["max_completion_tokens"], 123)
+        self.assertNotIn("max_tokens", body)
 
     @patch("llm.provider.chat_completion_http.request.urlopen")
     @patch("llm.provider.chat_completion_http.ChatCompletionsProvider._build_ssl_context", return_value=None)

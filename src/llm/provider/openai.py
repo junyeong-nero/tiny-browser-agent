@@ -19,6 +19,7 @@ class OpenAIProvider(ChatCompletionsProvider):
             name="openai",
             error_prefix="OpenAI",
             timeout_seconds=timeout_seconds,
+            token_limit_field="max_completion_tokens",
         )
 
     @classmethod

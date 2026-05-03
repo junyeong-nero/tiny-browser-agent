@@ -30,6 +30,7 @@ class ChatCompletionsProvider:
         error_prefix: str,
         timeout_seconds: float = 15.0,
         extra_body: dict[str, Any] | None = None,
+        token_limit_field: str = "max_tokens",
     ):
         self._api_key = api_key
         self._chat_completions_url = f"{base_url.rstrip('/')}/chat/completions"
@@ -37,6 +38,7 @@ class ChatCompletionsProvider:
         self.name = name
         self._error_prefix = error_prefix
         self._extra_body = extra_body or {}
+        self._token_limit_field = token_limit_field
         self._client = None
 
     @property
@@ -104,7 +106,7 @@ class ChatCompletionsProvider:
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": max_tokens,
+            self._token_limit_field: max_tokens,
         }
         if response_format is not None:
             body["response_format"] = response_format
@@ -150,7 +152,7 @@ class ChatCompletionsProvider:
         if config.top_p is not None:
             body["top_p"] = config.top_p
         if config.max_output_tokens is not None:
-            body["max_tokens"] = config.max_output_tokens
+            body[self._token_limit_field] = config.max_output_tokens
         response_format = _build_response_format(config)
         if response_format is not None:
             body["response_format"] = response_format
