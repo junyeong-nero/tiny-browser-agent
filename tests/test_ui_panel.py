@@ -336,6 +336,18 @@ def test_panel_graph_selection_renders_action_before_after_artifacts():
     assert "renderActionArtifacts(d.artifacts)" in PANEL_HTML
 
 
+def test_panel_graph_selection_highlights_timeline_action_step_group():
+    assert ".action-step-group.timeline-highlight" in PANEL_HTML
+    assert "function beginActionStepGroup(stepId)" in PANEL_HTML
+    assert "currentTimelineStepGroup.dataset.stepId = String(stepId);" in PANEL_HTML
+    assert "function highlightTimelineActionStep(stepId)" in PANEL_HTML
+    assert "function timelineStepForGraphNode(d)" in PANEL_HTML
+    assert "highlightTimelineActionStep(timelineStepForGraphNode(selectedNodeData));" in PANEL_HTML
+    assert "highlightTimelineActionStep(null);" in PANEL_HTML
+    assert "appendTimelineElement(el);" in PANEL_HTML
+    assert "if (currentTimelineStepGroup) currentTimelineStepGroup.appendChild(el);" in PANEL_HTML
+
+
 def test_panel_uses_live_session_id_for_graph_artifacts_outside_replay():
     task_started_case = PANEL_HTML.split("case 'task_started':", 1)[1].split(
         "case 'planner_started':", 1

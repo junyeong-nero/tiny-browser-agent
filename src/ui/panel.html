@@ -602,6 +602,25 @@
   .row .args { color: var(--fg-dim); font-family: var(--mono); }
   .row a, .row .url { color: var(--primary); text-decoration: underline; text-decoration-color: rgba(138,180,248,.45); text-underline-offset: 3px; }
 
+  .action-step-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 10px 10px;
+    margin: 4px -10px 2px;
+    border-radius: var(--md-sys-shape-corner-lg);
+    border: 1px solid transparent;
+    transition:
+      background-color 180ms var(--md-sys-motion-easing-standard),
+      border-color 180ms var(--md-sys-motion-easing-standard),
+      box-shadow 180ms var(--md-sys-motion-easing-standard);
+  }
+  .action-step-group.timeline-highlight {
+    background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+    border-color: color-mix(in srgb, var(--md-sys-color-primary) 52%, var(--md-sys-color-outline-variant));
+    box-shadow: var(--md-sys-elevation-1);
+  }
+
   /* Agent speaker line */
   .speaker {
     display: flex;
@@ -1559,6 +1578,9 @@ let trajectoryNodes = new Map();
 let trajectoryRoots = [];
 let trajectoryLastKey = null;
 let trajectoryCurrentKey = null;
+let currentTimelineStepId = null;
+let currentTimelineStepGroup = null;
+let selectedTimelineStepId = null;
 
 // ── WebSocket ──────────────────────────────────────────
 function connect() {
@@ -1614,6 +1636,9 @@ function setInputEnabled(enabled) {
 
 function resetTimeline() {
   timeline.replaceChildren();
+  currentTimelineStepId = null;
+  currentTimelineStepGroup = null;
+  selectedTimelineStepId = null;
 }
 
 function setAgentModel(modelName) {
@@ -1625,13 +1650,61 @@ function clearEmpty() {
   if (emptyState && emptyState.parentNode) emptyState.remove();
 }
 
+function appendTimelineElement(el) {
+  if (currentTimelineStepGroup) currentTimelineStepGroup.appendChild(el);
+  else timeline.appendChild(el);
+  timeline.scrollTop = timeline.scrollHeight;
+}
+
+function beginActionStepGroup(stepId) {
+  currentTimelineStepId = stepId;
+  currentTimelineStepGroup = document.createElement('div');
+  currentTimelineStepGroup.className = 'action-step-group';
+  currentTimelineStepGroup.dataset.stepId = String(stepId);
+  timeline.appendChild(currentTimelineStepGroup);
+  timeline.scrollTop = timeline.scrollHeight;
+  updateTimelineHighlight();
+}
+
+function finishActionStepGroup(stepId) {
+  if (currentTimelineStepId != null && String(currentTimelineStepId) === String(stepId)) {
+    currentTimelineStepId = null;
+    currentTimelineStepGroup = null;
+  }
+}
+
+function highlightedTimelineGroup() {
+  if (selectedTimelineStepId == null) return null;
+  return timeline.querySelector(`.action-step-group[data-step-id="${CSS.escape(String(selectedTimelineStepId))}"]`);
+}
+
+function scrollHighlightedTimelineStep() {
+  const group = highlightedTimelineGroup();
+  if (!group || !document.body.classList.contains('view-timeline')) return;
+  group.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function updateTimelineHighlight() {
+  timeline.querySelectorAll('.action-step-group.timeline-highlight').forEach(el => {
+    el.classList.remove('timeline-highlight');
+  });
+  const group = highlightedTimelineGroup();
+  if (!group) return;
+  group.classList.add('timeline-highlight');
+}
+
+function highlightTimelineActionStep(stepId) {
+  selectedTimelineStepId = stepId != null ? String(stepId) : null;
+  updateTimelineHighlight();
+  scrollHighlightedTimelineStep();
+}
+
 function addRow(cls, html) {
   clearEmpty();
   const el = document.createElement('div');
   el.className = `row ${cls || ''}`;
   el.innerHTML = html;
-  timeline.appendChild(el);
-  timeline.scrollTop = timeline.scrollHeight;
+  appendTimelineElement(el);
   return el;
 }
 
@@ -1643,8 +1716,7 @@ function addSpeaker(name, model) {
     `<span class="marker"></span>` +
     `<span class="name">${escHtml(name)}</span>` +
     (model ? `<span class="sep">·</span><span class="model">${escHtml(model)}</span>` : '');
-  timeline.appendChild(el);
-  timeline.scrollTop = timeline.scrollHeight;
+  appendTimelineElement(el);
 }
 
 function addBlock(cls, html) {
@@ -1652,8 +1724,7 @@ function addBlock(cls, html) {
   const el = document.createElement('div');
   el.className = `block ${cls || ''}`;
   el.innerHTML = html;
-  timeline.appendChild(el);
-  timeline.scrollTop = timeline.scrollHeight;
+  appendTimelineElement(el);
   return el;
 }
 
@@ -1671,6 +1742,9 @@ function resetSidebar() {
   trajectoryActions.clear();
   graphDrilldown = { level: 'url', urlId: null, viewportId: null };
   actionSequence = 0;
+  currentTimelineStepId = null;
+  currentTimelineStepGroup = null;
+  highlightTimelineActionStep(null);
   sideTask.className = 'side-empty';
   sideTask.textContent = 'no active task.';
   renderPlan();
@@ -2250,6 +2324,7 @@ function selectGraphNode(d) {
     selectedNodeData = d;
   }
   renderSelection(selectedNodeData);
+  highlightTimelineActionStep(timelineStepForGraphNode(selectedNodeData));
   updateGraphSelectionClass();
 }
 
@@ -2258,7 +2333,15 @@ function clearGraphSelection() {
   selectedNodeId = null;
   selectedNodeData = null;
   renderSelection(null);
+  highlightTimelineActionStep(null);
   updateGraphSelectionClass();
+}
+
+function timelineStepForGraphNode(d) {
+  if (!d) return null;
+  if (d.step != null) return d.step;
+  if (d.lastStep != null) return d.lastStep;
+  return d.firstStep != null ? d.firstStep : null;
 }
 
 function updateGraphSelectionClass() {
@@ -2523,6 +2606,8 @@ function setMainView(view) {
       if (view === 'graph') {
         graph.resize();
         updateGraph();
+      } else if (view === 'timeline') {
+        scrollHighlightedTimelineStep();
       }
     });
   });
@@ -2614,6 +2699,7 @@ function handleEvent(ev) {
 
     case 'step_started':
       metaStep.textContent = `#${ev.step_id}`;
+      beginActionStepGroup(ev.step_id);
       addSpeaker('browser-agent', `step ${ev.step_id}`);
       break;
 
@@ -2670,6 +2756,7 @@ function handleEvent(ev) {
 
     case 'step_error':
       addBlock('red', `<div class="title">error</div><div class="meta">${escHtml(ev.error_message || 'unknown error')}</div>`);
+      finishActionStepGroup(ev.step_id);
       break;
 
     case 'model_request_retry':
@@ -2683,6 +2770,7 @@ function handleEvent(ev) {
           `<div class="meta">${escHtml(ev.final_reasoning)}</div>`
         );
       }
+      finishActionStepGroup(ev.step_id);
       break;
 
     case 'task_complete':
