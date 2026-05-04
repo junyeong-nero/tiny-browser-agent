@@ -15,6 +15,7 @@ class TestMain(unittest.TestCase):
         mock_args.search_engine_url = 'search_url'
         mock_args.highlight_mouse = True
         mock_args.headless = True
+        mock_args.screen_size = (1280, 720)
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.log = True
@@ -33,11 +34,12 @@ class TestMain(unittest.TestCase):
         main.main()
 
         mock_playwright_browser.assert_called_once_with(
-            screen_size=main.PLAYWRIGHT_SCREEN_SIZE,
+            screen_size=(1280, 720),
             initial_url='test_url',
             search_engine_url='search_url',
             highlight_mouse=True,
             headless=True,
+            fit_window_to_screen=False,
             artifact_logger=ANY,
             channel=None,
             user_agent=None,
@@ -67,6 +69,7 @@ class TestMain(unittest.TestCase):
         mock_args.search_engine_url = 'https://duckduckgo.com'
         mock_args.highlight_mouse = False
         mock_args.headless = False
+        mock_args.screen_size = (1280, 720)
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.log = False
@@ -111,6 +114,7 @@ class TestMain(unittest.TestCase):
         mock_args.search_engine_url = 'https://duckduckgo.com'
         mock_args.highlight_mouse = False
         mock_args.headless = False
+        mock_args.screen_size = (1280, 720)
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.log = False
@@ -148,6 +152,7 @@ class TestMain(unittest.TestCase):
         mock_args.search_engine_url = 'https://duckduckgo.com'
         mock_args.highlight_mouse = False
         mock_args.headless = False
+        mock_args.screen_size = (1280, 720)
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.log = False
@@ -166,11 +171,12 @@ class TestMain(unittest.TestCase):
         main.main()
 
         mock_playwright_browser.assert_called_once_with(
-            screen_size=main.PLAYWRIGHT_SCREEN_SIZE,
+            screen_size=(1280, 720),
             initial_url='https://www.google.com',
             search_engine_url='https://duckduckgo.com',
             highlight_mouse=False,
             headless=False,
+            fit_window_to_screen=True,
             artifact_logger=ANY,
             channel=None,
             user_agent=None,
@@ -180,6 +186,14 @@ class TestMain(unittest.TestCase):
             storage_state_path=None,
             stealth=False,
         )
+
+    @patch("main.detect_screen_size", return_value=(1440, 900))
+    def test_resolve_screen_size_uses_detected_display_size(self, _mock_detect):
+        self.assertEqual(main.resolve_screen_size(None), (1440, 900))
+
+    @patch("main.detect_screen_size", return_value=None)
+    def test_resolve_screen_size_falls_back_when_detection_fails(self, _mock_detect):
+        self.assertEqual(main.resolve_screen_size(None), main.PLAYWRIGHT_SCREEN_SIZE)
 
 
 if __name__ == '__main__':

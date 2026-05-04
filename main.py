@@ -49,6 +49,58 @@ def parse_bool(value: str) -> bool:
     raise argparse.ArgumentTypeError("Expected True or False.")
 
 
+def parse_screen_size(value: str) -> tuple[int, int] | None:
+    """Parse WIDTHxHEIGHT screen sizes; ``auto`` means detect at runtime."""
+    normalized = value.strip().lower()
+    if normalized == "auto":
+        return None
+    separator = "x" if "x" in normalized else "×"
+    try:
+        width_text, height_text = normalized.split(separator, 1)
+        width = int(width_text)
+        height = int(height_text)
+    except (ValueError, AttributeError) as exc:
+        raise argparse.ArgumentTypeError("Expected WIDTHxHEIGHT or auto.") from exc
+    if width <= 0 or height <= 0:
+        raise argparse.ArgumentTypeError("Screen size must be positive.")
+    return width, height
+
+
+def detect_screen_size() -> tuple[int, int] | None:
+    """Return the current desktop's logical screen size, if available."""
+    try:
+        import tkinter
+    except Exception:
+        return None
+
+    root = None
+    try:
+        root = tkinter.Tk()
+        root.withdraw()
+        width = int(root.winfo_screenwidth())
+        height = int(root.winfo_screenheight())
+    except Exception:
+        return None
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def resolve_screen_size(screen_size: tuple[int, int] | None) -> tuple[int, int]:
+    if screen_size is not None:
+        return screen_size
+    detected = detect_screen_size()
+    if detected is not None:
+        return detected
+    return PLAYWRIGHT_SCREEN_SIZE
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the browser agent with a query.")
     parser.add_argument(
@@ -94,6 +146,15 @@ def main() -> int:
         type=parse_bool,
         default=False,
         help="Whether to launch Playwright in headless mode. Use True or False.",
+    )
+    parser.add_argument(
+        "--screen-size",
+        type=parse_screen_size,
+        default=None,
+        help=(
+            "Browser screen size as WIDTHxHEIGHT, or auto to use the current "
+            f"display size. Defaults to auto; fallback is {PLAYWRIGHT_SCREEN_SIZE[0]}x{PLAYWRIGHT_SCREEN_SIZE[1]}."
+        ),
     )
     parser.add_argument(
         "--log",
@@ -172,12 +233,15 @@ def main() -> int:
         log_dir=str(LOGS_DIR / datetime.now().strftime("%Y%m%d-%H%M%S")) if args.log else None
     )
 
+    screen_size = resolve_screen_size(args.screen_size)
+
     env = PlaywrightBrowser(
-        screen_size=PLAYWRIGHT_SCREEN_SIZE,
+        screen_size=screen_size,
         initial_url=args.initial_url,
         search_engine_url=args.search_engine_url,
         highlight_mouse=args.highlight_mouse,
         headless=args.headless,
+        fit_window_to_screen=not args.headless,
         artifact_logger=artifact_logger,
         channel=args.channel,
         user_agent=args.user_agent,
