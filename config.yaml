@@ -3,11 +3,11 @@
 
 models:
   actor:
-    provider: openai
-    model: gpt-5.4-nano-2026-03-17
+    provider: openrouter # openai
+    model: inclusionai/ling-2.6-1t:free # gpt-5.4-nano-2026-03-17
   planner:
-    provider: openai
-    model: gpt-5.4-mini-2026-03-17
+    provider: openrouter # openai
+    model: inclusionai/ling-2.6-1t:free # gpt-5.4-mini-2026-03-17
   summary:
     provider: openai
     model: gpt-4o-mini
