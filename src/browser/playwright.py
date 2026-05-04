@@ -130,6 +130,7 @@ class PlaywrightBrowser:
         search_engine_url: str = "https://www.duckduckgo.com",
         highlight_mouse: bool = False,
         headless: bool = False,
+        fit_window_to_screen: bool = False,
         artifact_logger: Optional[ArtifactLogger] = None,
         allowed_upload_roots: Optional[list[str | Path]] = None,
         channel: Optional[str] = None,
@@ -146,6 +147,7 @@ class PlaywrightBrowser:
         self._search_engine_url = search_engine_url
         self._highlight_mouse = highlight_mouse
         self._headless = headless
+        self._fit_window_to_screen = fit_window_to_screen
         self._artifact_logger = artifact_logger if artifact_logger is not None else ArtifactLogger()
         self._allowed_upload_roots = self._normalize_upload_roots(allowed_upload_roots)
         self._channel = channel
@@ -254,6 +256,13 @@ class PlaywrightBrowser:
                 "--no-first-run",
             ],
         }
+        if self._fit_window_to_screen and not self._headless:
+            launch_kwargs["args"].extend(
+                [
+                    f"--window-size={self._screen_size[0]},{self._screen_size[1]}",
+                    "--window-position=0,0",
+                ]
+            )
         if self._channel:
             launch_kwargs["channel"] = self._channel
         if self._proxy:
@@ -272,7 +281,11 @@ class PlaywrightBrowser:
                 "height": self._screen_size[1],
             },
         )
-        context_kwargs: dict[str, Any] = {"viewport": viewport_size}
+        context_kwargs: dict[str, Any]
+        if self._fit_window_to_screen and not self._headless:
+            context_kwargs = {"no_viewport": True}
+        else:
+            context_kwargs = {"viewport": viewport_size}
         if self._user_agent:
             context_kwargs["user_agent"] = self._user_agent
         if self._locale:

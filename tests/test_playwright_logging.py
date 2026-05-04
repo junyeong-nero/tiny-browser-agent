@@ -108,6 +108,33 @@ class TestPlaywrightLogging(unittest.TestCase):
         page.goto.assert_any_call("https://www.duckduckgo.com/")
         page.goto.assert_any_call("about:blank")
 
+    @patch("browser.playwright.PlaywrightBrowser._start_frame_stream", return_value=None)
+    @patch("browser.playwright.sync_playwright")
+    def test_headful_enter_can_fit_window_to_screen(
+        self, mock_sync_playwright, _mock_start_frame_stream
+    ):
+        page = MagicMock()
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        playwright_instance = MagicMock()
+        playwright_instance.chromium.launch.return_value = browser
+        mock_sync_playwright.return_value.start.return_value = playwright_instance
+        computer = PlaywrightBrowser(
+            screen_size=(1440, 900),
+            headless=False,
+            fit_window_to_screen=True,
+        )
+
+        with computer:
+            pass
+
+        launch_kwargs = playwright_instance.chromium.launch.call_args.kwargs
+        self.assertIn("--window-size=1440,900", launch_kwargs["args"])
+        self.assertIn("--window-position=0,0", launch_kwargs["args"])
+        browser.new_context.assert_called_once_with(no_viewport=True)
+
     def test_handle_new_page_switches_active_page_without_closing_popup(self):
         computer = PlaywrightBrowser(screen_size=(1440, 900))
         current_page = MagicMock()
