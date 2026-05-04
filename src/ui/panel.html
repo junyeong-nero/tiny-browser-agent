@@ -941,10 +941,10 @@
 
   .artifact-compare, .artifact-gallery {
     display: grid;
-    grid-template-columns: 1fr 1fr;
     gap: 8px;
     margin-top: 8px;
   }
+  .artifact-compare { grid-template-columns: 1fr; }
   .artifact-gallery { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
   .artifact-card {
     min-width: 0;
@@ -966,6 +966,92 @@
     object-fit: contain;
     background: #000;
   }
+  .artifact-primary img {
+    max-height: 260px;
+  }
+  .artifact-compare-control {
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--md-sys-shape-corner-md);
+    background: var(--surface-1);
+    overflow: hidden;
+    position: relative;
+  }
+  .artifact-compare-title {
+    padding: 5px 7px;
+    color: var(--fg-dim);
+    font-size: 11px;
+    border-bottom: 1px solid var(--border);
+  }
+  .artifact-compare-control input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .artifact-compare-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    padding: 6px;
+    border-bottom: 1px solid var(--border);
+    background: var(--md-sys-color-surface-container);
+  }
+  .artifact-compare-tabs label {
+    cursor: pointer;
+    padding: 5px 6px;
+    border-radius: var(--md-sys-shape-corner-sm);
+    color: var(--fg-dim);
+    font-size: 11px;
+    text-align: center;
+    user-select: none;
+  }
+  .artifact-compare-control input[data-compare-mode="before"]:checked ~ .artifact-compare-tabs label[for$="-before"],
+  .artifact-compare-control input[data-compare-mode="after"]:checked  ~ .artifact-compare-tabs label[for$="-after"],
+  .artifact-compare-control input[data-compare-mode="split"]:checked  ~ .artifact-compare-tabs label[for$="-split"] {
+    background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+    color: var(--md-sys-color-primary);
+    font-weight: 600;
+  }
+  .artifact-compare-panel { display: none; }
+  .artifact-compare-control input[data-compare-mode="before"]:checked ~ .artifact-compare-panels .artifact-panel-before,
+  .artifact-compare-control input[data-compare-mode="after"]:checked  ~ .artifact-compare-panels .artifact-panel-after,
+  .artifact-compare-control input[data-compare-mode="split"]:checked  ~ .artifact-compare-panels .artifact-panel-split {
+    display: block;
+  }
+  .artifact-compare-panel img {
+    display: block;
+    width: 100%;
+    max-height: 220px;
+    object-fit: contain;
+    background: #000;
+  }
+  .artifact-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+  }
+  .artifact-split figure {
+    min-width: 0;
+    background: #000;
+  }
+  .artifact-split figcaption {
+    padding: 4px 6px;
+    color: var(--fg-dim);
+    font-size: 10px;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border);
+  }
+  .artifact-paths {
+    margin-top: 8px;
+    color: var(--fg-dim);
+    font-size: 11px;
+  }
+  .artifact-paths summary {
+    cursor: pointer;
+    color: var(--fg-dim);
+  }
+  .artifact-paths .bullet { margin-top: 4px; }
   .artifact-link {
     color: var(--md-sys-color-primary);
     text-decoration: none;
@@ -2000,6 +2086,55 @@ function renderArtifactCard(label, href, kind = 'image') {
   return `<div class="artifact-card"><div class="artifact-label">${safeLabel} · <a class="artifact-link" target="_blank" rel="noreferrer" href="${safeHref}">open</a></div>${media}</div>`;
 }
 
+function artifactCompareId(beforeHref, afterHref) {
+  const raw = `${beforeHref || ''}|${afterHref || ''}`;
+  let hash = 0;
+  for (let i = 0; i < raw.length; i += 1) {
+    hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+  }
+  return `artifact-compare-${Math.abs(hash)}`;
+}
+
+function renderActionReplayCard(label, href) {
+  if (!href) return '';
+  const safeLabel = escHtml(label || 'Action replay');
+  const safeHref = escHtml(href);
+  return `<div class="artifact-primary"><div class="artifact-card"><div class="artifact-label">${safeLabel} · <a class="artifact-link" target="_blank" rel="noreferrer" href="${safeHref}">open</a></div><a target="_blank" rel="noreferrer" href="${safeHref}"><img src="${safeHref}" alt="${safeLabel}"></a></div></div>`;
+}
+
+function renderBeforeAfterCompare(beforeHref, afterHref) {
+  if (!beforeHref && !afterHref) return '';
+  if (!beforeHref || !afterHref) {
+    const label = beforeHref ? 'Before screenshot' : 'After screenshot';
+    return renderArtifactCard(label, beforeHref || afterHref);
+  }
+  const id = artifactCompareId(beforeHref, afterHref);
+  const before = escHtml(beforeHref);
+  const after = escHtml(afterHref);
+  return `
+    <div class="artifact-compare-control">
+      <div class="artifact-compare-title">Compare · <a class="artifact-link" target="_blank" rel="noreferrer" href="${before}">open before</a> · <a class="artifact-link" target="_blank" rel="noreferrer" href="${after}">open after</a></div>
+      <input id="${id}-before" name="${id}" type="radio" data-compare-mode="before" checked>
+      <input id="${id}-after" name="${id}" type="radio" data-compare-mode="after">
+      <input id="${id}-split" name="${id}" type="radio" data-compare-mode="split">
+      <div class="artifact-compare-tabs">
+        <label for="${id}-before">Before</label>
+        <label for="${id}-after">After</label>
+        <label for="${id}-split">Split</label>
+      </div>
+      <div class="artifact-compare-panels">
+        <a class="artifact-compare-panel artifact-panel-before" target="_blank" rel="noreferrer" href="${before}"><img src="${before}" alt="Before screenshot"></a>
+        <a class="artifact-compare-panel artifact-panel-after" target="_blank" rel="noreferrer" href="${after}"><img src="${after}" alt="After screenshot"></a>
+        <div class="artifact-compare-panel artifact-panel-split">
+          <div class="artifact-split">
+            <figure><figcaption>Before</figcaption><a target="_blank" rel="noreferrer" href="${before}"><img src="${before}" alt="Before screenshot"></a></figure>
+            <figure><figcaption>After</figcaption><a target="_blank" rel="noreferrer" href="${after}"><img src="${after}" alt="After screenshot"></a></figure>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
 function renderActionArtifacts(artifacts) {
   if (!artifacts) return '';
   const actionGif = replayArtifactHref(artifacts.action_clip_gif_path || artifacts.action_gif_path, 'history');
@@ -2007,9 +2142,8 @@ function renderActionArtifacts(artifacts) {
   const afterShot = replayArtifactHref(artifacts.after_screenshot_path || artifacts.screenshot_path, 'history');
   const video = replayArtifactHref(artifacts.video_path, 'video');
   const cards = [
-    renderArtifactCard('action GIF', actionGif),
-    renderArtifactCard('before', beforeShot),
-    renderArtifactCard('after', afterShot),
+    renderActionReplayCard('Action replay', actionGif),
+    renderBeforeAfterCompare(beforeShot, afterShot),
   ].filter(Boolean);
   const videoCard = renderArtifactCard('session video', video, 'video');
   const names = [];
@@ -2017,10 +2151,10 @@ function renderActionArtifacts(artifacts) {
   if (artifacts.before_screenshot_path) names.push(`before=${escHtml(artifacts.before_screenshot_path)}`);
   if (artifacts.after_screenshot_path || artifacts.screenshot_path) names.push(`after=${escHtml(artifacts.after_screenshot_path || artifacts.screenshot_path)}`);
   if (artifacts.video_path) names.push(`video=${escHtml(artifacts.video_path)}`);
-  const nameLine = names.length
-    ? `<div class="bullet"><span class="dot">•</span><span><span class="k">artifacts</span> <span class="v">${names.join(' · ')}</span></span></div>`
+  const pathDetails = names.length
+    ? `<details class="artifact-paths"><summary>Technical paths</summary>${names.map(name => `<div class="bullet"><span class="dot">•</span><span><span class="v">${name}</span></span></div>`).join('')}</details>`
     : '';
-  return nameLine + (cards.length ? `<div class="artifact-compare">${cards.join('')}</div>` : '') + videoCard;
+  return (cards.length ? `<div class="artifact-compare">${cards.join('')}</div>` : '') + videoCard + pathDetails;
 }
 
 function actionPreviewArtifactsFor(action) {

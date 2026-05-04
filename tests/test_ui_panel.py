@@ -119,6 +119,28 @@ def test_panel_action_graph_reuses_same_action_nodes_and_draws_cycles():
     assert "function linkPath(d)" in PANEL_HTML
     assert "return `M ${sx} ${sy - 8} C" in PANEL_HTML
 
+
+def test_panel_graph_action_artifacts_prioritize_replay_and_compare_controls():
+    assert "function renderActionReplayCard(label, href)" in PANEL_HTML
+    assert "function renderBeforeAfterCompare(beforeHref, afterHref)" in PANEL_HTML
+    assert "class=\"artifact-primary\"" in PANEL_HTML
+    assert "class=\"artifact-compare-tabs\"" in PANEL_HTML
+    assert "data-compare-mode=\"before\"" in PANEL_HTML
+    assert "data-compare-mode=\"after\"" in PANEL_HTML
+    assert "data-compare-mode=\"split\"" in PANEL_HTML
+    assert "class=\"artifact-split\"" in PANEL_HTML
+    assert "Technical paths" in PANEL_HTML
+
+
+def test_panel_graph_action_artifacts_do_not_render_flat_three_card_compare():
+    artifact_renderer = PANEL_HTML.split("function renderActionArtifacts(artifacts)", 1)[1].split(
+        "function actionPreviewArtifactsFor(action)", 1
+    )[0]
+    assert "renderArtifactCard('action GIF', actionGif)" not in artifact_renderer
+    assert "renderArtifactCard('before', beforeShot)" not in artifact_renderer
+    assert "renderArtifactCard('after', afterShot)" not in artifact_renderer
+
+
 def test_panel_removes_browser_state_tree_rendering():
     assert "no BrowserState graph metadata yet." not in PANEL_HTML
     assert ".graph-node.group circle" not in PANEL_HTML
@@ -343,9 +365,8 @@ def test_panel_graph_selection_renders_action_before_after_artifacts():
     assert "afterScreenshotPath: ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path)" in PANEL_HTML
     assert "actionGifPath: ev.artifacts && (ev.artifacts.action_clip_gif_path || ev.artifacts.action_gif_path)" in PANEL_HTML
     assert "videoPath: ev.artifacts && ev.artifacts.video_path" in PANEL_HTML
-    assert "renderArtifactCard('action GIF', actionGif)" in PANEL_HTML
-    assert "renderArtifactCard('before', beforeShot)" in PANEL_HTML
-    assert "renderArtifactCard('after', afterShot)" in PANEL_HTML
+    assert "renderActionReplayCard('Action replay', actionGif)" in PANEL_HTML
+    assert "renderBeforeAfterCompare(beforeShot, afterShot)" in PANEL_HTML
     assert "renderArtifactCard('session video', video, 'video')" in PANEL_HTML
     assert "renderActionArtifacts(d.artifacts)" in PANEL_HTML
 
