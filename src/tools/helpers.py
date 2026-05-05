@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from browser.aria_snapshot import NodeInfo
 
@@ -31,6 +31,24 @@ def denormalized_scroll_magnitude(
 
 def resolve_ref_locator(computer: PlaywrightBrowser, args: dict):
     return computer.resolve_ref(int(args["ref"]))
+
+
+def mark_and_resolve_ref_locator(
+    computer: PlaywrightBrowser,
+    args: dict[str, Any],
+    action_name: str,
+):
+    computer._mark_last_action(action_name)
+    return resolve_ref_locator(computer, args)
+
+
+def wait_for_page_ready(computer: PlaywrightBrowser) -> None:
+    computer._page.wait_for_load_state()
+
+
+def current_state_after_page_ready(computer: PlaywrightBrowser):
+    wait_for_page_ready(computer)
+    return computer.current_state()
 
 
 def resolve_ref_node(computer: PlaywrightBrowser, args: dict) -> NodeInfo | None:
