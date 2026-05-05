@@ -1045,9 +1045,3 @@ class BrowserAgent:
             return
 
         subgoal_runner.run_subgoal_plan(self)
-
-    def denormalize_x(self, x: int) -> int:
-        return self._tool_executor.denormalize_x(x)
-
-    def denormalize_y(self, y: int) -> int:
-        return self._tool_executor.denormalize_y(y)

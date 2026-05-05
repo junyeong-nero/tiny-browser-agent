@@ -32,8 +32,6 @@ from tools.types import (
     ExecutedCall,
     ToolBatchResult,
     ToolResult,
-    denormalize_x as _denormalize_x,
-    denormalize_y as _denormalize_y,
     is_env_state_result,
 )
 from tools.wait_5_seconds import handle_wait_5_seconds
@@ -287,12 +285,6 @@ class BrowserToolExecutor:
             if p.name != "self" and p.kind != inspect.Parameter.VAR_KEYWORD
         }
         return {k: v for k, v in args.items() if k in valid_keys}
-
-    def denormalize_x(self, x: int) -> int:
-        return _denormalize_x(x, self._browser_computer)
-
-    def denormalize_y(self, y: int) -> int:
-        return _denormalize_y(y, self._browser_computer)
 
     def _latest_artifact_metadata(self) -> dict[str, Any] | None:
         latest_artifacts_getter = getattr(

@@ -364,12 +364,6 @@ class TestBrowserToolExecutor(unittest.TestCase):
             destination_y=1600,
         )
 
-    def test_denormalize_x(self):
-        self.assertEqual(self.executor.denormalize_x(500), 1000)
-
-    def test_denormalize_y(self):
-        self.assertEqual(self.executor.denormalize_y(500), 2000)
-
     def test_execute_scroll_at_denormalizes_coordinates_and_magnitude(self):
         self.executor.execute(
             types.FunctionCall(
