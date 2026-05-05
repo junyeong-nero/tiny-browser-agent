@@ -1,18 +1,21 @@
 from browser import PlaywrightBrowser, EnvState
 
-from tools.helpers import click_locator, resolve_ref_locator
+from tools.helpers import (
+    click_locator,
+    mark_and_resolve_ref_locator,
+    wait_for_page_ready,
+)
 
 
 def handle_type_by_ref(computer: PlaywrightBrowser, args: dict) -> EnvState:
-    computer._mark_last_action("type_by_ref")
+    locator = mark_and_resolve_ref_locator(computer, args, "type_by_ref")
     text = str(args["text"])
     press_enter = bool(args.get("press_enter", False))
 
-    locator = resolve_ref_locator(computer, args)
     click_locator(locator)
-    computer._page.wait_for_load_state()
+    wait_for_page_ready(computer)
     locator.fill(text)
-    computer._page.wait_for_load_state()
+    wait_for_page_ready(computer)
 
     if press_enter:
         return computer.key_combination(["Enter"])

@@ -1,11 +1,9 @@
 from browser import PlaywrightBrowser, EnvState
 
-from tools.helpers import resolve_ref_locator
+from tools.helpers import current_state_after_page_ready, mark_and_resolve_ref_locator
 
 
 def handle_hover_by_ref(computer: PlaywrightBrowser, args: dict) -> EnvState:
-    computer._mark_last_action("hover_by_ref")
-    locator = resolve_ref_locator(computer, args)
+    locator = mark_and_resolve_ref_locator(computer, args, "hover_by_ref")
     locator.hover()
-    computer._page.wait_for_load_state()
-    return computer.current_state()
+    return current_state_after_page_ready(computer)
