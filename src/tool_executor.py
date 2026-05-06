@@ -179,6 +179,9 @@ class BrowserToolExecutor:
     ) -> dict[str, Any]:
         response_fields = dict(extra_response_fields or {})
         response: dict[str, Any] = {"url": url}
+        tab_metadata = self._compact_tab_metadata()
+        if tab_metadata:
+            response.update(tab_metadata)
         if self._grounding in {"text", "mixed"}:
             snapshot = self._browser_computer.take_aria_snapshot()
             aria_snapshot, aria_metadata = compact_aria_snapshot_text(snapshot.text)
@@ -190,6 +193,23 @@ class BrowserToolExecutor:
             )
         response.update(response_fields)
         return response
+
+    def _compact_tab_metadata(self) -> dict[str, Any]:
+        list_tabs = getattr(self._browser_computer, "list_tabs", None)
+        if not callable(list_tabs):
+            return {}
+        try:
+            tabs_payload = list_tabs()
+        except Exception:  # noqa: BLE001
+            return {}
+        if not isinstance(tabs_payload, dict):
+            return {}
+        metadata: dict[str, Any] = {}
+        for key in ("active_tab_index", "tab_count"):
+            value = tabs_payload.get(key)
+            if isinstance(value, int):
+                metadata[key] = value
+        return metadata
 
     def _build_env_state_response_parts(
         self,

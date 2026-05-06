@@ -1,4 +1,9 @@
-from .actions import BrowserAction, BrowserActionName, build_browser_action_functions
+from .actions import (
+    DEFAULT_BROWSER_ACTIONS,
+    BrowserAction,
+    BrowserActionName,
+    build_browser_action_functions,
+)
 from .aria_snapshot import AriaSnapshot, NodeInfo, build_aria_snapshot
 from .artifact_logger import ArtifactLogger
 from .playwright import PlaywrightBrowser
@@ -10,6 +15,7 @@ __all__ = [
     "BrowserAction",
     "BrowserActionName",
     "BrowserState",
+    "DEFAULT_BROWSER_ACTIONS",
     "build_browser_action_functions",
     "build_aria_snapshot",
     "EnvState",

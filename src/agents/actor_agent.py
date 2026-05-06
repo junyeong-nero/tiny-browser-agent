@@ -47,6 +47,7 @@ from agents.types import GroundingMode, Subgoal
 from browser import (
     ArtifactLogger,
     BrowserActionName,
+    DEFAULT_BROWSER_ACTIONS,
     build_browser_action_functions,
     EnvState,
     PlaywrightBrowser,
@@ -88,6 +89,8 @@ When deciding what to do:
 - Choose elements by stable labels, roles, text, or refs when available; do not guess coordinates unless the state clearly supports them.
 - Think through the target element and expected outcome before calling tools.
 - After each tool result, reassess the page before continuing.
+- If you seem stuck in a newly opened tab or popup, or go_back does not change the URL/page, call list_tabs before trying more history navigation.
+- To return to the original tab, use switch_to_tab or close_current_tab; closing a tab is different from browser history navigation and is often the right recovery from popups/new tabs.
 - Stop calling tools and give a concise final answer once the user task is complete or cannot be completed.
 
 Site and service scope rules:
@@ -164,7 +167,7 @@ class BrowserAgent:
         self._total_steps_used = 0
         browser_actions = build_browser_action_functions(
             browser_computer,
-            include=("reload_page", *(extra_browser_tools or [])),
+            include=(*DEFAULT_BROWSER_ACTIONS, *(extra_browser_tools or [])),
         )
         self._custom_functions = [
             *browser_actions,

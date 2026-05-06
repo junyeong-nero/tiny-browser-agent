@@ -196,6 +196,111 @@ class TestPlaywrightLogging(unittest.TestCase):
         first_page.bring_to_front.assert_called_once_with()
         self.assertEqual(state.url, "https://example.com/first")
 
+
+    def _make_state_page(self, url: str, title: str):
+        page = MagicMock()
+        page.url = url
+        page.title.return_value = title
+        page.viewport_size = {"width": 1440, "height": 900}
+        page.evaluate.return_value = {"scrollX": 0, "scrollY": 0}
+        page.screenshot.return_value = b"png-bytes"
+        page.content.return_value = f"<html>{title}</html>"
+        page.locator.return_value.aria_snapshot.return_value = "- document\n"
+        page.wait_for_load_state = MagicMock()
+        page.bring_to_front = MagicMock()
+        page.close = MagicMock()
+        return page
+
+    def test_list_tabs_returns_active_index_count_url_and_title(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        first_page = self._make_state_page("https://example.com/first", "First")
+        second_page = self._make_state_page("https://example.com/second", "Second")
+        computer._context = MagicMock()
+        computer._context.pages = [first_page, second_page]
+        computer._page = second_page
+
+        result = computer.list_tabs()
+
+        self.assertEqual(result["active_tab_index"], 1)
+        self.assertEqual(result["tab_count"], 2)
+        self.assertEqual(
+            result["tabs"],
+            [
+                {
+                    "index": 0,
+                    "url": "https://example.com/first",
+                    "title": "First",
+                    "active": False,
+                },
+                {
+                    "index": 1,
+                    "url": "https://example.com/second",
+                    "title": "Second",
+                    "active": True,
+                },
+            ],
+        )
+
+    def test_switch_to_tab_focuses_index_and_clears_stale_refs(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        first_page = self._make_state_page("https://example.com/first", "First")
+        second_page = self._make_state_page("https://example.com/second", "Second")
+        computer._context = MagicMock()
+        computer._context.pages = [first_page, second_page]
+        computer._page = first_page
+        computer._aria_ref_map = {1: MagicMock()}
+        computer._aria_ref_target_map = {1: first_page}
+
+        state = computer.switch_to_tab(1)
+
+        self.assertIs(computer._page, second_page)
+        second_page.bring_to_front.assert_called_once_with()
+        self.assertIsNone(computer._aria_ref_map)
+        self.assertIsNone(computer._aria_ref_target_map)
+        self.assertEqual(state.url, "https://example.com/second")
+
+    def test_switch_to_tab_invalid_index_raises_value_error(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        page = self._make_state_page("https://example.com", "Only")
+        computer._context = MagicMock()
+        computer._context.pages = [page]
+        computer._page = page
+
+        with self.assertRaisesRegex(ValueError, "Invalid tab index 2"):
+            computer.switch_to_tab(2)
+
+    def test_close_current_tab_closes_current_and_focuses_previous_tab(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        first_page = self._make_state_page("https://example.com/first", "First")
+        second_page = self._make_state_page("https://example.com/second", "Second")
+        third_page = self._make_state_page("https://example.com/third", "Third")
+        computer._context = MagicMock()
+        computer._context.pages = [first_page, second_page, third_page]
+        computer._page = third_page
+        computer._aria_ref_map = {1: MagicMock()}
+        computer._aria_ref_target_map = {1: third_page}
+
+        state = computer.close_current_tab()
+
+        third_page.close.assert_called_once_with()
+        self.assertIs(computer._page, second_page)
+        second_page.bring_to_front.assert_called_once_with()
+        self.assertIsNone(computer._aria_ref_map)
+        self.assertIsNone(computer._aria_ref_target_map)
+        self.assertEqual(state.url, "https://example.com/second")
+
+    def test_close_current_tab_single_tab_raises_without_closing(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        page = self._make_state_page("https://example.com", "Only")
+        computer._context = MagicMock()
+        computer._context.pages = [page]
+        computer._page = page
+
+        with self.assertRaisesRegex(ValueError, "Cannot close the only open tab"):
+            computer.close_current_tab()
+
+        page.close.assert_not_called()
+
     def test_take_aria_snapshot_merges_multiple_frames_and_resolves_refs_against_frame(self):
         computer = PlaywrightBrowser(screen_size=(1440, 900))
         main_frame = MagicMock()

@@ -487,6 +487,29 @@ class PlaywrightBrowser:
         self._page.reload()
         return self._state_after_load()
 
+    def list_tabs(self) -> dict[str, Any]:
+        pages = list(self._context.pages)
+        active_index = self._active_tab_index(pages)
+        tabs = []
+        for index, page in enumerate(pages):
+            try:
+                title = page.title()
+            except Exception:  # noqa: BLE001
+                title = ""
+            tabs.append(
+                {
+                    "index": index,
+                    "url": getattr(page, "url", ""),
+                    "title": title,
+                    "active": index == active_index,
+                }
+            )
+        return {
+            "active_tab_index": active_index,
+            "tab_count": len(pages),
+            "tabs": tabs,
+        }
+
     def switch_to_next_tab(self) -> EnvState:
         self._mark_last_action("switch_to_next_tab")
         self._switch_tab(direction=1)
@@ -495,6 +518,29 @@ class PlaywrightBrowser:
     def switch_to_previous_tab(self) -> EnvState:
         self._mark_last_action("switch_to_previous_tab")
         self._switch_tab(direction=-1)
+        return self._state_after_load()
+
+    def switch_to_tab(self, index: int) -> EnvState:
+        self._mark_last_action("switch_to_tab")
+        pages = list(self._context.pages)
+        if index < 0 or index >= len(pages):
+            raise ValueError(f"Invalid tab index {index}; tab_count={len(pages)}")
+        self._focus_tab(pages[index])
+        return self._state_after_load()
+
+    def close_current_tab(self) -> EnvState:
+        self._mark_last_action("close_current_tab")
+        pages = list(self._context.pages)
+        if len(pages) <= 1:
+            raise ValueError("Cannot close the only open tab")
+        current_index = self._active_tab_index(pages)
+        if current_index < 0:
+            current_index = 0
+        target_index = current_index - 1 if current_index > 0 else 1
+        current_page = pages[current_index]
+        target_page = pages[target_index]
+        current_page.close()
+        self._focus_tab(target_page)
         return self._state_after_load()
 
     def upload_file(self, x: int, y: int, path: str) -> EnvState:
@@ -720,17 +766,31 @@ class PlaywrightBrowser:
     def _prepare_log_dirs(self):
         self._artifact_logger.prepare_log_dirs()
 
+    def _active_tab_index(self, pages: list[Any] | None = None) -> int:
+        pages = list(self._context.pages) if pages is None else pages
+        try:
+            return pages.index(self._page)
+        except ValueError:
+            return -1
+
+    def _clear_aria_ref_cache(self) -> None:
+        self._aria_ref_map = None
+        self._aria_ref_target_map = None
+
+    def _focus_tab(self, page: Any) -> None:
+        self._page = page
+        self._page.bring_to_front()
+        self._clear_aria_ref_cache()
+
     def _switch_tab(self, direction: int) -> None:
         pages = list(self._context.pages)
         if not pages:
             return
-        try:
-            current_index = pages.index(self._page)
-        except ValueError:
+        current_index = self._active_tab_index(pages)
+        if current_index < 0:
             current_index = 0
         next_index = (current_index + direction) % len(pages)
-        self._page = pages[next_index]
-        self._page.bring_to_front()
+        self._focus_tab(pages[next_index])
 
     def latest_artifact_metadata(self) -> Optional[dict]:
         return self._artifact_logger.latest_artifact_metadata()

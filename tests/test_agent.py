@@ -146,6 +146,9 @@ class TestBrowserAgent(unittest.TestCase):
         text = "\n".join(part.text or "" for part in system_instruction.parts or [])
         self.assertIn("browser automation agent", text)
         self.assertIn("Ground every browser action", text)
+        self.assertIn("go_back does not change", text)
+        self.assertIn("list_tabs", text)
+        self.assertIn("switch_to_tab or close_current_tab", text)
 
     def test_vision_grounding_rejects_non_computer_use_provider(self):
         llm_client = MagicMock(spec=LLMClient)
@@ -209,8 +212,39 @@ class TestBrowserAgent(unittest.TestCase):
         )
         self.assertEqual(
             [declaration.name for declaration in second_tool.function_declarations],
-            ["reload_page"],
+            [
+                "reload_page",
+                "list_tabs",
+                "switch_to_next_tab",
+                "switch_to_previous_tab",
+                "switch_to_tab",
+                "close_current_tab",
+            ],
         )
+
+
+    def test_mixed_grounding_exposes_default_tab_recovery_tools(self):
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            grounding="mixed",
+            step_summarizer=None,
+        )
+
+        tools = agent._generate_content_config.tools
+        if tools is None:
+            self.fail("Expected generate content tools")
+        declarations = tools[1].function_declarations
+        if declarations is None:
+            self.fail("Expected function declarations tool")
+
+        declaration_names = [declaration.name for declaration in declarations]
+        self.assertIn("check_by_ref", declaration_names)
+        self.assertIn("list_tabs", declaration_names)
+        self.assertIn("switch_to_tab", declaration_names)
+        self.assertIn("close_current_tab", declaration_names)
 
     def test_text_grounding_exposes_ref_verification_tools(self):
         agent = BrowserAgent(
@@ -232,6 +266,9 @@ class TestBrowserAgent(unittest.TestCase):
         declaration_names = [declaration.name for declaration in declarations]
         self.assertIn("check_by_ref", declaration_names)
         self.assertIn("wait_for_ref", declaration_names)
+        self.assertIn("list_tabs", declaration_names)
+        self.assertIn("switch_to_tab", declaration_names)
+        self.assertIn("close_current_tab", declaration_names)
         self.assertNotIn("search", declaration_names)
         self.assertNotIn("get_accessibility_tree", declaration_names)
 
@@ -601,6 +638,38 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(len(step_errors), 1)
         step_error_message = step_errors[0].get("error_message") or ""
         self.assertIn("Tool execution failed for navigate", step_error_message)
+
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_serializes_tab_action_errors(self, mock_get_model_response):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        self.mock_browser_computer.close_current_tab.side_effect = ValueError(
+            "Cannot close the only open tab"
+        )
+        function_call = types.FunctionCall(name="close_current_tab", args={})
+        mock_get_model_response.return_value = self.make_response(
+            [types.Part(function_call=function_call)]
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        function_response = self.get_function_response(agent._contents[-1])
+        self.assertEqual(function_response.name, "close_current_tab")
+        self.assertEqual(function_response.response["status"], "error")
+        self.assertEqual(function_response.response["error_type"], "ValueError")
+        self.assertIn("Cannot close the only open tab", function_response.response["error"])
+        step_errors = [event for event in events if event["type"] == "step_error"]
+        self.assertEqual(len(step_errors), 1)
+        self.assertIn("close_current_tab", step_errors[0]["error_message"])
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_malformed_tool_argument_errors(self, mock_get_model_response):

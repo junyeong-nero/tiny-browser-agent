@@ -7,12 +7,22 @@ from .playwright import EnvState, PlaywrightBrowser
 BrowserAction = Callable[..., EnvState | dict[str, Any]]
 BrowserActionName = Literal[
     "reload_page",
+    "list_tabs",
     "switch_to_next_tab",
     "switch_to_previous_tab",
+    "switch_to_tab",
+    "close_current_tab",
     "get_accessibility_tree",
     "upload_file",
 ]
-DEFAULT_BROWSER_ACTIONS: tuple[BrowserActionName, ...] = ("reload_page",)
+DEFAULT_BROWSER_ACTIONS: tuple[BrowserActionName, ...] = (
+    "reload_page",
+    "list_tabs",
+    "switch_to_next_tab",
+    "switch_to_previous_tab",
+    "switch_to_tab",
+    "close_current_tab",
+)
 
 
 def build_browser_action_functions(
@@ -29,6 +39,15 @@ def build_browser_action_functions(
         """
         return browser_computer.reload_page()
 
+    def list_tabs() -> dict[str, Any]:
+        """Lists open browser tabs with their indexes, URLs, titles, and active status.
+
+        Use this when an action may have opened a new tab or popup, or when
+        go_back does not change the URL/page and you need to identify the
+        original tab before switching or closing the current tab.
+        """
+        return browser_computer.list_tabs()
+
     def switch_to_next_tab() -> EnvState:
         """Switches focus to the next open browser tab.
 
@@ -44,6 +63,23 @@ def build_browser_action_functions(
         window.
         """
         return browser_computer.switch_to_previous_tab()
+
+    def switch_to_tab(index: int) -> EnvState:
+        """Switches focus to the open browser tab at the given zero-based index.
+
+        Args:
+            index: Zero-based tab index from list_tabs.
+        """
+        return browser_computer.switch_to_tab(index=index)
+
+    def close_current_tab() -> EnvState:
+        """Closes the current browser tab and focuses another open tab.
+
+        Use this to return from a newly opened tab or popup to the original tab;
+        do not repeatedly use go_back for that case. Closing a tab is different
+        from browser history navigation.
+        """
+        return browser_computer.close_current_tab()
 
     def get_accessibility_tree() -> dict[str, Any]:
         """Returns a serialized accessibility tree for the current webpage.
@@ -74,8 +110,11 @@ def build_browser_action_functions(
 
     action_functions: dict[BrowserActionName, BrowserAction] = {
         "reload_page": reload_page,
+        "list_tabs": list_tabs,
         "switch_to_next_tab": switch_to_next_tab,
         "switch_to_previous_tab": switch_to_previous_tab,
+        "switch_to_tab": switch_to_tab,
+        "close_current_tab": close_current_tab,
         "get_accessibility_tree": get_accessibility_tree,
         "upload_file": upload_file,
     }

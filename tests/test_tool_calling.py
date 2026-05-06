@@ -39,8 +39,11 @@ class TestBrowserToolExecutor(unittest.TestCase):
                     self.mock_browser_computer,
                     include=(
                         "reload_page",
+                        "list_tabs",
                         "switch_to_next_tab",
                         "switch_to_previous_tab",
+                        "switch_to_tab",
+                        "close_current_tab",
                         "get_accessibility_tree",
                         "upload_file",
                     ),
@@ -279,6 +282,57 @@ class TestBrowserToolExecutor(unittest.TestCase):
         self.mock_browser_computer.switch_to_previous_tab.assert_called_once_with()
         self.assertEqual(result, env_state)
 
+
+    def test_execute_list_tabs_delegates_to_browser_computer(self):
+        tabs_payload = {
+            "active_tab_index": 1,
+            "tab_count": 2,
+            "tabs": [
+                {"index": 0, "url": "https://example.com", "title": "First", "active": False},
+                {"index": 1, "url": "https://example.com/popup", "title": "Popup", "active": True},
+            ],
+        }
+        self.mock_browser_computer.list_tabs.return_value = tabs_payload
+
+        result = self.executor.execute(types.FunctionCall(name="list_tabs", args={}))
+
+        self.mock_browser_computer.list_tabs.assert_called_once_with()
+        self.assertEqual(result, tabs_payload)
+
+    def test_execute_switch_to_tab_delegates_to_browser_computer(self):
+        env_state = EnvState(screenshot=b"screenshot", url="https://example.com/tab")
+        self.mock_browser_computer.switch_to_tab.return_value = env_state
+
+        result = self.executor.execute(
+            types.FunctionCall(name="switch_to_tab", args={"index": 2})
+        )
+
+        self.mock_browser_computer.switch_to_tab.assert_called_once_with(index=2)
+        self.assertEqual(result, env_state)
+
+    def test_execute_close_current_tab_delegates_to_browser_computer(self):
+        env_state = EnvState(screenshot=b"screenshot", url="https://example.com/original")
+        self.mock_browser_computer.close_current_tab.return_value = env_state
+
+        result = self.executor.execute(types.FunctionCall(name="close_current_tab", args={}))
+
+        self.mock_browser_computer.close_current_tab.assert_called_once_with()
+        self.assertEqual(result, env_state)
+
+    def test_execute_switch_to_tab_invalid_index_raises_value_error(self):
+        self.mock_browser_computer.switch_to_tab.side_effect = ValueError("Invalid tab index 5")
+
+        with self.assertRaisesRegex(ValueError, "Invalid tab index"):
+            self.executor.execute(types.FunctionCall(name="switch_to_tab", args={"index": 5}))
+
+    def test_execute_close_current_tab_single_tab_raises_value_error(self):
+        self.mock_browser_computer.close_current_tab.side_effect = ValueError(
+            "Cannot close the only open tab"
+        )
+
+        with self.assertRaisesRegex(ValueError, "Cannot close the only open tab"):
+            self.executor.execute(types.FunctionCall(name="close_current_tab", args={}))
+
     def test_execute_upload_file_denormalizes_coordinates(self):
         env_state = EnvState(screenshot=b"screenshot", url="https://example.com")
         self.mock_browser_computer.upload_file.return_value = env_state
@@ -458,6 +512,30 @@ class TestBrowserToolExecutor(unittest.TestCase):
         inline_data = self.get_inline_data(function_response)
         self.assertEqual(inline_data.mime_type, "image/png")
         self.assertEqual(inline_data.data, b"screenshot")
+
+
+    def test_serialize_env_state_response_includes_compact_tab_metadata(self):
+        self.mock_browser_computer.list_tabs.return_value = {
+            "active_tab_index": 1,
+            "tab_count": 3,
+            "tabs": [
+                {"index": 0, "url": "https://example.com", "title": "First", "active": False},
+                {"index": 1, "url": "https://example.com/popup", "title": "Popup", "active": True},
+                {"index": 2, "url": "https://example.com/other", "title": "Other", "active": False},
+            ],
+        }
+        executed_call = ExecutedCall(
+            function_call=types.FunctionCall(id="call-tabs", name="navigate"),
+            result=EnvState(screenshot=b"screenshot", url="https://example.com/popup"),
+            artifacts=None,
+        )
+
+        function_response = self.executor.serialize_function_response(executed_call)
+
+        self.assertEqual(function_response.response["active_tab_index"], 1)
+        self.assertEqual(function_response.response["tab_count"], 3)
+        self.assertNotIn("tabs", function_response.response)
+
 
     def test_serialize_text_grounding_compacts_oversized_aria_snapshot(self):
         executor = BrowserToolExecutor(
