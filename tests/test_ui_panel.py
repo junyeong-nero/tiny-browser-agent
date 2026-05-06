@@ -262,12 +262,37 @@ def test_panel_plan_status_uses_icons_instead_of_text_markers():
         assert marker not in render_plan
 
 
+def test_panel_graph_pins_root_nodes_and_seeds_children_from_parent():
+    graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
+        "function updateGraph()", 1
+    )[0]
+
+    assert "function rootPosition(" in graph_renderer
+    assert "function arrangeGraphNodes(" in graph_renderer
+    assert "x: graphMode === 'url' ? (index - (count - 1) / 2) * 140 : 0," in graph_renderer
+    assert "y: graphMode === 'url' ? -180 : -220," in graph_renderer
+    assert "node.fx = pinned.x;" in graph_renderer
+    assert "node.fy = pinned.y;" in graph_renderer
+    assert "node.x = baseX + offsetX;" in graph_renderer
+    assert "node.y = baseY + 150;" in graph_renderer
+    assert "return d && d.isRoot ? rootPosition().y : 90;" in graph_renderer
+    assert "simulation.force('x').x(d => targetX(d));" in graph_renderer
+    assert "simulation.force('y').y(d => targetY(d));" in graph_renderer
+    assert "if (d.isRoot) {" in graph_renderer
+
+
 def test_panel_main_card_aligns_to_chat_input_width():
     main_css = PANEL_HTML.split("main#main {", 2)[2].split("}", 1)[0]
     footer_css = PANEL_HTML.split("\n  footer {", 1)[1].split("}", 1)[0]
 
     assert "margin: 16px 16px 12px;" in main_css
     assert "padding: 4px 16px 16px;" in footer_css
+
+
+def test_panel_chatbox_has_all_corners_rounded():
+    input_shell_css = PANEL_HTML.split(".input-shell {", 1)[1].split("}", 1)[0]
+
+    assert "border-radius: var(--md-sys-shape-corner-xl);" in input_shell_css
 
 
 def test_panel_sidebar_itself_is_viewport_constrained_and_scrollable():

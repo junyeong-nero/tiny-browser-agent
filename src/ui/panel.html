@@ -1171,7 +1171,7 @@
     position: relative;
     border: 0;
     border-bottom: 1px solid var(--md-sys-color-outline);
-    border-radius: var(--md-sys-shape-corner-xl) var(--md-sys-shape-corner-xl) var(--md-sys-shape-corner-xs) var(--md-sys-shape-corner-xs);
+    border-radius: var(--md-sys-shape-corner-xl);
     padding: 14px 16px 12px;
     background:
       linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 5%, transparent), transparent),
@@ -2637,8 +2637,8 @@ const graph = (() => {
   const simulation = d3.forceSimulation()
     .force('link', d3.forceLink().id(d => d.id).distance(80).strength(0.7))
     .force('charge', d3.forceManyBody().strength(-260))
-    .force('x', d3.forceX().strength(0.04))
-    .force('y', d3.forceY().strength(0.04))
+    .force('x', d3.forceX(d => targetX(d)).strength(0.12))
+    .force('y', d3.forceY(d => targetY(d)).strength(0.05))
     .force('collide', d3.forceCollide(22))
     .on('tick', ticked);
 
@@ -2646,6 +2646,7 @@ const graph = (() => {
   let linkSel = linkG.selectAll('path');
   let nodesData = [];
   let linksData = [];
+  let graphMode = 'url';
 
   function resize() {
     const { width, height } = wrapEl.getBoundingClientRect();
@@ -2659,6 +2660,50 @@ const graph = (() => {
   function ticked() {
     linkSel.attr('d', linkPath);
     nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+  }
+
+  function rootPosition(index = 0, count = 1) {
+    return {
+      x: graphMode === 'url' ? (index - (count - 1) / 2) * 140 : 0,
+      y: graphMode === 'url' ? -180 : -220,
+    };
+  }
+
+  function targetX(d) {
+    if (d && d.isRoot && d._rootPin) return d._rootPin.x;
+    if (d && d.isRoot) return rootPosition().x;
+    return 0;
+  }
+
+  function targetY(d) {
+    if (d && d.isRoot && d._rootPin) return d._rootPin.y;
+    return d && d.isRoot ? rootPosition().y : 90;
+  }
+
+  function arrangeGraphNodes(nodes, previousById) {
+    const rootNodes = nodes.filter(n => n.isRoot);
+    const rootsById = new Map(rootNodes.map((node, index) => {
+      const pinned = rootPosition(index, rootNodes.length);
+      node._rootPin = pinned;
+      node.fx = pinned.x;
+      node.fy = pinned.y;
+      node.x = pinned.x;
+      node.y = pinned.y;
+      return [node.id, node];
+    }));
+    const parentRoot = rootNodes[0] || null;
+    const childNodes = nodes.filter(n => !n.isRoot);
+    childNodes.forEach((node, index) => {
+      node.fx = null;
+      node.fy = null;
+      if (previousById.has(node.id) && Number.isFinite(node.x) && Number.isFinite(node.y)) return;
+      const parent = parentRoot || rootsById.get(node.urlId);
+      const baseX = parent ? parent.fx : -80;
+      const baseY = parent ? parent.fy : 0;
+      const offsetX = (index - (childNodes.length - 1) / 2) * 42;
+      node.x = baseX + offsetX;
+      node.y = baseY + 150;
+    });
   }
 
   function linkPath(d) {
@@ -2730,6 +2775,12 @@ const graph = (() => {
       .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
       .on('end', (event, d) => {
         if (!event.active) simulation.alphaTarget(0);
+        if (d.isRoot) {
+          const pinned = d._rootPin || rootPosition();
+          d.fx = pinned.x;
+          d.fy = pinned.y;
+          return;
+        }
         d.fx = null; d.fy = null;
       });
   }
@@ -2757,6 +2808,7 @@ const graph = (() => {
   }
 
   function update(payload) {
+    graphMode = payload.mode || 'url';
     emptyEl.textContent = payload.mode === 'url' ? 'no navigation yet.' : 'no child nodes yet.';
     renderBreadcrumb(payload);
     const levelEl = document.getElementById('graph-level');
@@ -2771,6 +2823,7 @@ const graph = (() => {
       const prev = prevById.get(src.id);
       return Object.assign(prev || {}, src);
     });
+    arrangeGraphNodes(nodesData, prevById);
     linksData = (payload.links || []).map(e => ({ ...e }));
     const maxWorkCount = Math.max(1, ...nodesData.map(graphNodeWorkCount));
     updateGraphLegend(maxWorkCount, nodesData.length > 0);
@@ -2812,6 +2865,8 @@ const graph = (() => {
 
     simulation.nodes(nodesData);
     simulation.force('link').links(linksData);
+    simulation.force('x').x(d => targetX(d));
+    simulation.force('y').y(d => targetY(d));
     simulation.alpha(0.6).restart();
   }
 
