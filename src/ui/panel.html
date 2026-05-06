@@ -482,34 +482,24 @@
     marker-end: url(#graph-arrow);
   }
   .graph-node circle {
-    fill: var(--surface-2);
-    stroke: var(--primary);
-    stroke-width: 1.8;
-    transition: fill 0.16s ease, stroke 0.16s ease, filter 0.16s ease;
+    fill: var(--graph-node-fill, var(--surface-2));
+    stroke: transparent;
+    stroke-width: 0;
+    transition: fill 0.16s ease, stroke 0.16s ease, stroke-width 0.16s ease, filter 0.16s ease;
     filter: drop-shadow(0 2px 4px rgba(0,0,0,.26));
   }
-  .graph-node.root circle { stroke: var(--orange-dim); }
-  .graph-node.url circle { stroke: var(--primary); }
-  .graph-node.viewport circle { stroke: var(--orange-dim); fill: rgba(253, 214, 99, 0.12); }
-  .graph-node.action circle { stroke: var(--green); fill: rgba(129, 201, 149, 0.12); }
   .graph-node.current circle {
     stroke: var(--md-sys-color-tertiary);
     stroke-width: 3;
-    fill: color-mix(in srgb, var(--md-sys-color-tertiary) 22%, var(--surface-2));
-    filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--md-sys-color-tertiary) 34%, transparent));
   }
   .graph-node.running circle {
     stroke: var(--md-sys-color-warning);
     stroke-width: 3;
-    fill: color-mix(in srgb, var(--md-sys-color-warning) 22%, var(--surface-2));
-    filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--md-sys-color-warning) 34%, transparent));
   }
   .graph-node circle { cursor: pointer; }
   .graph-node.selected circle {
     stroke: var(--md-sys-color-primary);
     stroke-width: 3;
-    fill: color-mix(in srgb, var(--md-sys-color-primary) 22%, var(--surface-2));
-    filter: drop-shadow(0 4px 14px color-mix(in srgb, var(--md-sys-color-primary) 38%, transparent));
   }
   .graph-node.selected text { fill: var(--md-sys-color-primary); font-weight: 600; }
   .graph-node text {
@@ -570,6 +560,40 @@
     background: var(--md-sys-color-primary-container);
   }
   .graph-breadcrumb .sep { color: var(--fg-mute); }
+  .graph-legend {
+    position: absolute;
+    left: 14px;
+    bottom: 14px;
+    z-index: 10;
+    width: 180px;
+    padding: 8px 10px;
+    border-radius: var(--md-sys-shape-corner-md);
+    background: color-mix(in srgb, var(--md-sys-color-surface-container-high) 92%, transparent);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(12px);
+    pointer-events: none;
+    font-family: var(--sans);
+    color: var(--fg-dim);
+  }
+  .graph-legend.hidden { display: none; }
+  .graph-legend .legend-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 6px;
+  }
+  .graph-legend .legend-bar {
+    height: 8px;
+    border-radius: var(--md-sys-shape-corner-full);
+    background: linear-gradient(90deg, #482878 0%, #3e4989 25%, #26828e 50%, #35b779 75%, #fde725 100%);
+  }
+  .graph-legend .legend-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 5px;
+    font-size: 10px;
+  }
   .graph-tooltip.hidden { display: none; }
   .graph-tooltip .tt-url {
     color: var(--orange);
@@ -1539,6 +1563,11 @@
     <div id="graph-breadcrumb" class="graph-breadcrumb"></div>
     <div id="graph-empty">no navigation yet.</div>
     <div id="graph-tooltip" class="graph-tooltip hidden"></div>
+    <div id="graph-legend" class="graph-legend hidden" aria-label="Node color legend">
+      <div class="legend-title">work count</div>
+      <div class="legend-bar" role="presentation"></div>
+      <div class="legend-labels"><span>low</span><span data-legend-max>max 1</span></div>
+    </div>
   </div>
 </main>
 
@@ -2593,6 +2622,7 @@ const graph = (() => {
   const emptyEl = document.getElementById('graph-empty');
   const breadcrumbEl = document.getElementById('graph-breadcrumb');
   const tooltip = document.getElementById('graph-tooltip');
+  const legendEl = document.getElementById('graph-legend');
 
   const svg = d3.select(svgEl);
   const root = svg.append('g').attr('class', 'graph-root');
@@ -2647,30 +2677,12 @@ const graph = (() => {
   }
 
   function showTooltip(event, d) {
-    const outgoing = linksData.filter(l =>
-      (l.source.id || l.source) === d.id
-    ).length;
-    const incoming = linksData.filter(l =>
-      (l.target.id || l.target) === d.id
-    ).length;
     const rows = [];
-    const title = d.fullUrl || d.label || d.id;
+    const title = d.label || d.host || d.actionName || d.id;
     rows.push(`<div class="tt-row"><span>level</span><span class="v">${escHtml(d.type || '—')}</span></div>`);
-    if (d.host) rows.push(`<div class="tt-row"><span>host</span><span class="v">${escHtml(d.host)}</span></div>`);
-    if (d.path) rows.push(`<div class="tt-row"><span>path</span><span class="v">${escHtml(d.path || '/')}</span></div>`);
-    if (d.size) rows.push(`<div class="tt-row"><span>size</span><span class="v">${escHtml(d.size)}</span></div>`);
-    if (d.scroll) rows.push(`<div class="tt-row"><span>scroll</span><span class="v">${escHtml(d.scroll)}</span></div>`);
-    if (d.screenshot) rows.push(`<div class="tt-row"><span>shot</span><span class="v">${escHtml(d.screenshot)}</span></div>`);
-    if (d.actionName) rows.push(`<div class="tt-row"><span>action</span><span class="v">${escHtml(d.actionName)}</span></div>`);
-    if (d.argsText) rows.push(`<div class="tt-row"><span>args</span><span class="v">${escHtml(d.argsText)}</span></div>`);
-    if (d.visits != null) rows.push(`<div class="tt-row"><span>visits</span><span class="v">${d.visits}</span></div>`);
-    if (d.viewportCount != null) rows.push(`<div class="tt-row"><span>viewports</span><span class="v">${d.viewportCount}</span></div>`);
     if (d.actionCount != null) rows.push(`<div class="tt-row"><span>actions</span><span class="v">${d.actionCount}</span></div>`);
-    rows.push(`<div class="tt-row"><span>first step</span><span class="v">#${d.firstStep ?? d.step ?? '—'}</span></div>`);
-    rows.push(`<div class="tt-row"><span>last step</span><span class="v">#${d.lastStep ?? d.step ?? '—'}</span></div>`);
-    rows.push(`<div class="tt-row"><span>out / in</span><span class="v">${outgoing} / ${incoming}</span></div>`);
-    rows.push(`<div class="tt-row"><span>click</span><span class="v">select</span></div>`);
-    if (d.drillable) rows.push(`<div class="tt-row"><span>double-click</span><span class="v">narrow down</span></div>`);
+    else if (d.visits != null) rows.push(`<div class="tt-row"><span>visits</span><span class="v">${d.visits}</span></div>`);
+    if (d.drillable) rows.push(`<div class="tt-row"><span>double-click</span><span class="v">drill in</span></div>`);
     tooltip.innerHTML = `<div class="tt-url">${escHtml(title)}</div>` + rows.join('');
     tooltip.classList.remove('hidden');
     moveTooltip(event);
@@ -2685,6 +2697,30 @@ const graph = (() => {
     tooltip.style.top  = Math.max(6, Math.min(y, maxY)) + 'px';
   }
   function hideTooltip() { tooltip.classList.add('hidden'); }
+
+  function graphNodeWorkCount(d) {
+    if (!d) return 0;
+    if (Number.isFinite(d.actionCount)) return d.actionCount;
+    return Number.isFinite(d.visits) ? d.visits : 0;
+  }
+
+  function graphNodeFill(d, maxWorkCount) {
+    const count = graphNodeWorkCount(d);
+    if (!count || !maxWorkCount) return d3.interpolateViridis(0.12);
+    const t = 0.12 + (Math.min(count, maxWorkCount) / maxWorkCount) * 0.82;
+    return d3.interpolateViridis(t);
+  }
+
+  function updateGraphLegend(maxWorkCount, hasNodes) {
+    if (!legendEl) return;
+    if (!hasNodes) {
+      legendEl.classList.add('hidden');
+      return;
+    }
+    const maxLabel = legendEl.querySelector('[data-legend-max]');
+    if (maxLabel) maxLabel.textContent = `max ${maxWorkCount}`;
+    legendEl.classList.remove('hidden');
+  }
 
   function drag() {
     return d3.drag()
@@ -2737,6 +2773,8 @@ const graph = (() => {
       return Object.assign(prev || {}, src);
     });
     linksData = (payload.links || []).map(e => ({ ...e }));
+    const maxWorkCount = Math.max(1, ...nodesData.map(graphNodeWorkCount));
+    updateGraphLegend(maxWorkCount, nodesData.length > 0);
 
     emptyEl.style.display = nodesData.length ? 'none' : 'flex';
 
@@ -2768,7 +2806,8 @@ const graph = (() => {
       .classed('drillable', d => !!d.drillable)
       .classed('current', d => !!d.isCurrent)
       .classed('running', d => isRunningGraphNode(d))
-      .classed('selected', d => d.id === selectedNodeId);
+      .classed('selected', d => d.id === selectedNodeId)
+      .style('--graph-node-fill', d => graphNodeFill(d, maxWorkCount));
     nodeSel.select('circle').attr('r', d => 6 + Math.min(8, Math.log2((d.visits || 1) + 1) * 2));
     nodeSel.select('text').text(d => d.label || d.id);
 
@@ -2784,6 +2823,7 @@ const graph = (() => {
     linkG.selectAll('*').remove();
     nodeG.selectAll('*').remove();
     hideTooltip();
+    updateGraphLegend(1, false);
     breadcrumbEl.innerHTML = '<span>URLs</span>';
     emptyEl.style.display = 'flex';
     emptyEl.textContent = 'no navigation yet.';

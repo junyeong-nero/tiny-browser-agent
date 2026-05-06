@@ -405,6 +405,73 @@ def test_panel_graph_separates_selected_and_running_node_accents():
     assert "updateGraphRunningClass();" in PANEL_HTML
 
 
+def test_panel_graph_uses_opaque_plotly_viridis_work_color_scale():
+    assert "fill: var(--graph-node-fill, var(--surface-2));" in PANEL_HTML
+    assert "function graphNodeWorkCount(d)" in PANEL_HTML
+    assert "if (Number.isFinite(d.actionCount)) return d.actionCount;" in PANEL_HTML
+    assert "function graphNodeFill(d, maxWorkCount)" in PANEL_HTML
+    assert "d3.interpolateViridis(0.12)" in PANEL_HTML
+    assert "d3.interpolateViridis(t)" in PANEL_HTML
+    assert "d3.interpolateBlues" not in PANEL_HTML
+    assert "const maxWorkCount = Math.max(1, ...nodesData.map(graphNodeWorkCount));" in PANEL_HTML
+    assert ".style('--graph-node-fill', d => graphNodeFill(d, maxWorkCount));" in PANEL_HTML
+    assert "stroke: transparent;" in PANEL_HTML
+    assert "stroke-width: 0;" in PANEL_HTML
+    assert ".graph-node.viewport circle { stroke:" not in PANEL_HTML
+    assert ".graph-node.action circle { stroke:" not in PANEL_HTML
+    assert "rgba(253, 214, 99, 0.12)" not in PANEL_HTML
+    assert "rgba(129, 201, 149, 0.12)" not in PANEL_HTML
+
+
+def test_panel_current_node_accent_preserves_work_fill():
+    current_rule = PANEL_HTML.split(".graph-node.current circle {", 1)[1].split("}", 1)[0]
+    assert "stroke: var(--md-sys-color-tertiary);" in current_rule
+    assert "stroke-width: 3;" in current_rule
+    assert "fill:" not in current_rule
+    assert "filter:" not in current_rule
+
+
+def test_panel_graph_base_nodes_hide_stroke_until_accented():
+    base_rule = PANEL_HTML.split(".graph-node circle {", 1)[1].split("}", 1)[0]
+    assert "stroke: transparent;" in base_rule
+    assert "stroke-width: 0;" in base_rule
+    assert "stroke-width 0.16s ease" in base_rule
+    assert ".graph-node.root circle" not in PANEL_HTML
+    assert ".graph-node.url circle" not in PANEL_HTML
+    assert ".graph-node.viewport circle" not in PANEL_HTML
+    assert ".graph-node.action circle" not in PANEL_HTML
+    for accent in (".graph-node.current circle", ".graph-node.running circle", ".graph-node.selected circle"):
+        rule = PANEL_HTML.split(accent + " {", 1)[1].split("}", 1)[0]
+        assert "stroke:" in rule
+        assert "stroke-width: 3;" in rule
+        assert "fill:" not in rule
+        assert "filter:" not in rule
+
+
+def test_panel_graph_shows_work_color_legend():
+    assert 'id="graph-legend"' in PANEL_HTML
+    assert 'aria-label="Node color legend"' in PANEL_HTML
+    assert "work count" in PANEL_HTML
+    assert "data-legend-max" in PANEL_HTML
+    assert "background: linear-gradient(90deg, #482878 0%, #3e4989 25%, #26828e 50%, #35b779 75%, #fde725 100%);" in PANEL_HTML
+    assert "const legendEl = document.getElementById('graph-legend');" in PANEL_HTML
+    assert "function updateGraphLegend(maxWorkCount, hasNodes)" in PANEL_HTML
+    assert "maxLabel.textContent = `max ${maxWorkCount}`;" in PANEL_HTML
+    assert "updateGraphLegend(maxWorkCount, nodesData.length > 0);" in PANEL_HTML
+    assert "updateGraphLegend(1, false);" in PANEL_HTML
+
+
+def test_panel_graph_hover_tooltip_stays_compact():
+    tooltip_block = PANEL_HTML.split("function showTooltip(event, d) {", 1)[1].split("function moveTooltip(event)", 1)[0]
+    assert "const title = d.label || d.host || d.actionName || d.id;" in tooltip_block
+    assert "<span>level</span>" in tooltip_block
+    assert "<span>actions</span>" in tooltip_block
+    assert "<span>visits</span>" in tooltip_block
+    assert "drill in" in tooltip_block
+    for hidden_detail in ("<span>host</span>", "<span>path</span>", "<span>size</span>", "<span>scroll</span>", "<span>shot</span>", "<span>args</span>", "<span>first step</span>", "<span>last step</span>", "<span>out / in</span>", "<span>click</span>"):
+        assert hidden_detail not in tooltip_block
+
+
 def test_panel_uses_live_session_id_for_graph_artifacts_outside_replay():
     task_started_case = PANEL_HTML.split("case 'task_started':", 1)[1].split(
         "case 'planner_started':", 1
