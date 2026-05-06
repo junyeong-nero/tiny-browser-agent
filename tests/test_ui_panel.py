@@ -250,6 +250,18 @@ def test_panel_sidebar_task_plan_and_activity_use_scroll_panel_sections():
     assert "details.side-scroll-section > .side-body" not in PANEL_HTML
 
 
+def test_panel_plan_status_uses_icons_instead_of_text_markers():
+    render_plan = PANEL_HTML.split("function renderPlan()", 1)[1].split(
+        "function addActivity", 1
+    )[0]
+
+    assert "const statusIcons = {" in render_plan
+    assert '<span class="status-icon">' in render_plan
+    assert "<svg aria-hidden=\"true\"" in render_plan
+    for marker in ("[ ]", "[›]", "[✓]", "[✗]"):
+        assert marker not in render_plan
+
+
 def test_panel_main_card_aligns_to_chat_input_width():
     main_css = PANEL_HTML.split("main#main {", 2)[2].split("}", 1)[0]
     footer_css = PANEL_HTML.split("\n  footer {", 1)[1].split("}", 1)[0]
@@ -265,9 +277,9 @@ def test_panel_sidebar_itself_is_viewport_constrained_and_scrollable():
     side_scroll_css = PANEL_HTML.split("details.side-scroll-section[open] {", 1)[1].split("}", 1)[0]
     task_section_css = PANEL_HTML.split("details.side-task-section[open] {", 1)[1].split("}", 1)[0]
 
-    # Sheet container fills viewport; rows lay out header / divider / scrollable body / footer.
+    # Sheet container fills viewport; rows lay out header / divider / scrollable body.
     assert "display: grid;" in sidebar_css
-    assert "grid-template-rows: auto 1px 1fr auto;" in sidebar_css
+    assert "grid-template-rows: auto 1px 1fr;" in sidebar_css
     assert "height: 100dvh;" in sidebar_css
     assert "max-height: 100dvh;" in sidebar_css
     assert "align-self: stretch;" in sidebar_css
