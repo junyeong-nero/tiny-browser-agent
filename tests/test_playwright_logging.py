@@ -26,6 +26,38 @@ from agents.actor_agent import BrowserAgent
 
 
 class TestPlaywrightLogging(unittest.TestCase):
+    @patch("browser.playwright.time.sleep", return_value=None)
+    def test_highlight_mouse_draws_pointer_marker_when_enabled(self, _mock_sleep):
+        computer = PlaywrightBrowser(screen_size=(1440, 900), highlight_mouse=True)
+        computer._page = MagicMock()
+
+        computer.highlight_mouse(10, 20, kind="click")
+
+        computer._page.evaluate.assert_called_once()
+        script, payload = computer._page.evaluate.call_args.args
+        self.assertIn("tiny-browser-agent-pointer-highlight", script)
+        self.assertEqual(payload, {"x": 10, "y": 20, "kind": "click"})
+
+    def test_highlight_mouse_is_noop_when_disabled(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900), highlight_mouse=False)
+        computer._page = MagicMock()
+
+        computer.highlight_mouse(10, 20, kind="click")
+
+        computer._page.evaluate.assert_not_called()
+
+    @patch("browser.playwright.time.sleep", return_value=None)
+    def test_highlight_locator_draws_marker_at_locator_center(self, _mock_sleep):
+        computer = PlaywrightBrowser(screen_size=(1440, 900), highlight_mouse=True)
+        computer._page = MagicMock()
+        locator = MagicMock()
+        locator.bounding_box.return_value = {"x": 10, "y": 20, "width": 40, "height": 20}
+
+        computer.highlight_locator(locator, kind="click")
+
+        _, payload = computer._page.evaluate.call_args.args
+        self.assertEqual(payload, {"x": 30, "y": 30, "kind": "click"})
+
     def test_search_uses_duckduckgo_by_default(self):
         computer = PlaywrightBrowser(screen_size=(1440, 900))
         computer.navigate = MagicMock(

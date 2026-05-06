@@ -71,5 +71,6 @@ def handle_click_by_ref(computer: PlaywrightBrowser, args: dict) -> EnvState | d
             error_type="NotEnabled",
             reason=f"Ref {ref} is not enabled.",
         )
+    computer.highlight_locator(locator, kind="click")
     click_locator(locator, node=node)
     return current_state_after_page_ready(computer)

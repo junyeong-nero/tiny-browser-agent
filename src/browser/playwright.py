@@ -339,7 +339,7 @@ class PlaywrightBrowser:
 
     def click_at(self, x: int, y: int) -> EnvState:
         self._mark_last_action("click_at")
-        self.highlight_mouse(x, y)
+        self.highlight_mouse(x, y, kind="click")
         self._page.mouse.click(x, y)
         return self._state_after_load()
 
@@ -358,7 +358,7 @@ class PlaywrightBrowser:
         clear_before_typing: bool = True,
     ) -> EnvState:
         self._mark_last_action("type_text_at")
-        self.highlight_mouse(x, y)
+        self.highlight_mouse(x, y, kind="click")
         self._page.mouse.click(x, y)
         self._page.wait_for_load_state()
 
@@ -559,6 +559,7 @@ class PlaywrightBrowser:
             )
 
         with self._page.expect_file_chooser() as file_chooser_info:
+            self.highlight_mouse(x, y, kind="click")
             self._page.mouse.click(x, y)
         file_chooser_info.value.set_files(str(resolved_path))
         return self.current_state()
@@ -599,12 +600,12 @@ class PlaywrightBrowser:
         self, x: int, y: int, destination_x: int, destination_y: int
     ) -> EnvState:
         self._mark_last_action("drag_and_drop")
-        self.highlight_mouse(x, y)
+        self.highlight_mouse(x, y, kind="drag-start")
         self._page.mouse.move(x, y)
         self._page.wait_for_load_state()
         self._page.mouse.down()
         self._page.wait_for_load_state()
-        self.highlight_mouse(destination_x, destination_y)
+        self.highlight_mouse(destination_x, destination_y, kind="drag-end")
         self._page.mouse.move(destination_x, destination_y)
         self._page.wait_for_load_state()
         self._page.mouse.up()
@@ -699,35 +700,89 @@ class PlaywrightBrowser:
             return viewport_size["width"], viewport_size["height"]
         return self._screen_size
 
-    def highlight_mouse(self, x: int, y: int):
+    def highlight_mouse(self, x: int, y: int, *, kind: str = "pointer") -> None:
         if not self._highlight_mouse:
             return
         self._page.evaluate(
-            f"""
-        () => {{
-            const element_id = "playwright-feedback-circle";
-            const div = document.createElement('div');
-            div.id = element_id;
-            div.style.pointerEvents = 'none';
-            div.style.border = '4px solid red';
-            div.style.borderRadius = '50%';
-            div.style.width = '20px';
-            div.style.height = '20px';
-            div.style.position = 'fixed';
-            div.style.zIndex = '9999';
-            document.body.appendChild(div);
+            """
+            ({ x, y, kind }) => {
+                const styleId = "tiny-browser-agent-pointer-highlight-style";
+                if (!document.getElementById(styleId)) {
+                    const style = document.createElement("style");
+                    style.id = styleId;
+                    style.textContent = `
+                        .tiny-browser-agent-pointer-highlight {
+                            position: fixed;
+                            width: 32px;
+                            height: 32px;
+                            border: 3px solid #ff1744;
+                            border-radius: 999px;
+                            box-shadow: 0 0 0 4px rgba(255, 23, 68, .18),
+                                        0 0 24px rgba(255, 23, 68, .55);
+                            box-sizing: border-box;
+                            pointer-events: none;
+                            z-index: 2147483647;
+                            animation: tba-pointer-pulse 900ms ease-out forwards;
+                        }
+                        .tiny-browser-agent-pointer-highlight::after {
+                            content: "";
+                            position: absolute;
+                            left: 50%;
+                            top: 50%;
+                            width: 7px;
+                            height: 7px;
+                            transform: translate(-50%, -50%);
+                            border-radius: 999px;
+                            background: #ff1744;
+                            box-shadow: 0 0 0 2px rgba(255, 255, 255, .9);
+                        }
+                        .tiny-browser-agent-pointer-highlight[data-kind^="drag"] {
+                            border-color: #2962ff;
+                            box-shadow: 0 0 0 4px rgba(41, 98, 255, .18),
+                                        0 0 24px rgba(41, 98, 255, .55);
+                        }
+                        .tiny-browser-agent-pointer-highlight[data-kind^="drag"]::after {
+                            background: #2962ff;
+                        }
+                        @keyframes tba-pointer-pulse {
+                            0% { opacity: 0; transform: scale(.65); }
+                            18% { opacity: 1; transform: scale(1); }
+                            100% { opacity: 0; transform: scale(1.9); }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
 
-            div.hidden = false;
-            div.style.left = {x} - 10 + 'px';
-            div.style.top = {y} - 10 + 'px';
-
-            setTimeout(() => {{
-                div.hidden = true;
-            }}, 2000);
-        }}
-    """
+                const marker = document.createElement("div");
+                marker.className = "tiny-browser-agent-pointer-highlight";
+                marker.dataset.kind = kind || "pointer";
+                marker.style.left = `${Math.round(x) - 16}px`;
+                marker.style.top = `${Math.round(y) - 16}px`;
+                document.documentElement.appendChild(marker);
+                setTimeout(() => marker.remove(), 950);
+            }
+            """,
+            {"x": int(x), "y": int(y), "kind": kind},
         )
-        time.sleep(1)
+        time.sleep(0.12)
+
+    def highlight_locator(self, locator: Any, *, kind: str = "click") -> None:
+        """Highlight the center of a resolved locator when mouse highlighting is enabled."""
+        if not self._highlight_mouse:
+            return
+        try:
+            box = locator.bounding_box(timeout=1_000)
+        except TypeError:
+            box = locator.bounding_box()
+        except Exception:
+            return
+        if not box:
+            return
+        self.highlight_mouse(
+            int(box["x"] + box["width"] / 2),
+            int(box["y"] + box["height"] / 2),
+            kind=kind,
+        )
 
     def _start_frame_stream(self) -> None:
         self._recording.start_frame_stream(fps=FRAME_CAPTURE_FPS)
