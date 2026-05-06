@@ -87,6 +87,8 @@ When deciding what to do:
 - In text grounding mode, if the current page state is unclear at the first step, call open_web_browser with an empty url to observe the current URL and ARIA snapshot before taking another action.
 - Prefer the smallest reliable action or short batch of actions that advances the task.
 - Choose elements by stable labels, roles, text, or refs when available; do not guess coordinates unless the state clearly supports them.
+- In text grounding mode, prefer refs marked actionable. Do not click refs marked read-only; choose another actionable control, observe again, or finish if the requested state is already reflected.
+- Do not repeat the same click on the same ref when the page state already appears updated; reassess whether the action succeeded before retrying.
 - Think through the target element and expected outcome before calling tools.
 - After each tool result, reassess the page before continuing.
 - If you seem stuck in a newly opened tab or popup, or go_back does not change the URL/page, call list_tabs before trying more history navigation.

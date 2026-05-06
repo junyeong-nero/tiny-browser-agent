@@ -34,6 +34,8 @@ def test_node_info_role_and_name():
     assert node.role == "heading"
     assert node.name == "Welcome"
     assert node.nth == 0
+    assert node.actionable is False
+    assert node.states == {"level": "1"}
 
 
 def test_duplicate_role_name_nth():
@@ -54,6 +56,8 @@ def test_text_contains_ref_brackets():
     assert "[1]" in snapshot.text
     assert "[4]" in snapshot.text
     assert "textbox" in snapshot.text
+    assert '[1] heading "Welcome" [level=1] read-only' in snapshot.text
+    assert '[5] button "Submit" actionable' in snapshot.text
 
 
 def test_non_node_lines_preserved():
@@ -81,7 +85,7 @@ def test_node_without_name():
     assert node.role == "main"
     assert node.name == ""
     assert node.nth == 0
-    assert "[1] main" in snapshot.text
+    assert "[1] main read-only" in snapshot.text
 
 
 def test_ref_offset_applies_to_assigned_refs():
@@ -89,3 +93,35 @@ def test_ref_offset_applies_to_assigned_refs():
 
     assert list(snapshot.ref_map.keys()) == [7, 8, 9, 10, 11, 12]
     assert "[7] heading \"Welcome\"" in snapshot.text
+
+
+def test_actionable_roles_and_aria_states_are_parsed():
+    yaml = """\
+- button "Menu" [expanded=false]
+- checkbox "Open now" [checked]
+- tab "Details" [selected=true]
+- img "Logo"
+"""
+    snapshot = build_aria_snapshot(yaml, "https://example.com")
+
+    assert snapshot.ref_map[1].actionable is True
+    assert snapshot.ref_map[1].states == {"expanded": False}
+    assert snapshot.ref_map[2].actionable is True
+    assert snapshot.ref_map[2].states == {"checked": True}
+    assert snapshot.ref_map[3].states == {"selected": True}
+    assert snapshot.ref_map[4].actionable is False
+    assert '[1] button "Menu" [expanded=false] actionable' in snapshot.text
+    assert '[4] img "Logo" read-only' in snapshot.text
+
+
+def test_disabled_actionable_role_is_read_only():
+    snapshot = build_aria_snapshot(
+        '- button "Submit" [disabled]\n- link "Next" [aria-disabled=true]\n',
+        "https://example.com",
+    )
+
+    assert snapshot.ref_map[1].actionable is False
+    assert snapshot.ref_map[1].states == {"disabled": True}
+    assert snapshot.ref_map[2].actionable is False
+    assert snapshot.ref_map[2].states == {"aria-disabled": True}
+    assert '[1] button "Submit" [disabled] read-only' in snapshot.text

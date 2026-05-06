@@ -41,6 +41,43 @@ class TestAmbiguityDetector(unittest.TestCase):
             self.fail("Expected repeated click ambiguity candidate")
         self.assertEqual(candidate.ambiguity_type, "repeated_click_pattern")
 
+    def test_flags_repeated_click_by_ref_pattern(self):
+        candidate = detect_ambiguity_candidate(
+            query="open the first result",
+            current_action=ActionReviewContext(
+                action_name="click_by_ref",
+                action_args={"ref": 3},
+                current_url="https://example.com/results",
+            ),
+            previous_action=ActionReviewContext(
+                action_name="click_by_ref",
+                action_args={"ref": 3},
+                current_url="https://example.com/results",
+            ),
+        )
+
+        self.assertIsNotNone(candidate)
+        if candidate is None:
+            self.fail("Expected repeated click_by_ref ambiguity candidate")
+        self.assertEqual(candidate.ambiguity_type, "repeated_click_pattern")
+
+    def test_does_not_flag_different_click_by_ref(self):
+        candidate = detect_ambiguity_candidate(
+            query="open the first result",
+            current_action=ActionReviewContext(
+                action_name="click_by_ref",
+                action_args={"ref": 4},
+                current_url="https://example.com/results",
+            ),
+            previous_action=ActionReviewContext(
+                action_name="click_by_ref",
+                action_args={"ref": 3},
+                current_url="https://example.com/results",
+            ),
+        )
+
+        self.assertIsNone(candidate)
+
     def test_flags_url_change_without_explicit_navigation(self):
         candidate = detect_ambiguity_candidate(
             query="continue with the current page",

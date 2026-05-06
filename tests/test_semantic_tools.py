@@ -75,6 +75,60 @@ class TestClickByRef:
         assert "HTMLOptionElement" in mock_locator.evaluate.call_args.args[0]
         assert result == browser.current_state.return_value
 
+    def test_read_only_ref_is_not_clicked(self):
+        browser, _ = _make_browser_with_snapshot('- heading "Title"\n')
+        mock_locator = MagicMock()
+        browser.resolve_ref.return_value = mock_locator
+
+        from tools.click_by_ref import handle_click_by_ref
+        result = handle_click_by_ref(browser, {"ref": 1})
+
+        browser.resolve_ref.assert_called_once_with(1)
+        mock_locator.click.assert_not_called()
+        assert result["status"] == "not_actionable"
+        assert result["error_type"] == "NotActionable"
+        assert result["role"] == "heading"
+        assert result["name"] == "Title"
+
+    def test_disabled_ref_is_not_clicked(self):
+        browser, _ = _make_browser_with_snapshot('- button "Submit" [disabled]\n')
+        mock_locator = MagicMock()
+        browser.resolve_ref.return_value = mock_locator
+
+        from tools.click_by_ref import handle_click_by_ref
+        result = handle_click_by_ref(browser, {"ref": 1})
+
+        mock_locator.click.assert_not_called()
+        assert result["status"] == "not_actionable"
+        assert result["error_type"] == "NotActionable"
+
+    def test_invisible_ref_is_not_clicked(self):
+        browser, _ = _make_browser_with_snapshot('- button "Submit"\n')
+        mock_locator = MagicMock()
+        mock_locator.is_visible.return_value = False
+        browser.resolve_ref.return_value = mock_locator
+
+        from tools.click_by_ref import handle_click_by_ref
+        result = handle_click_by_ref(browser, {"ref": 1})
+
+        mock_locator.click.assert_not_called()
+        assert result["status"] == "not_actionable"
+        assert result["error_type"] == "NotVisible"
+
+    def test_disabled_locator_is_not_clicked(self):
+        browser, _ = _make_browser_with_snapshot('- button "Submit"\n')
+        mock_locator = MagicMock()
+        mock_locator.is_visible.return_value = True
+        mock_locator.is_enabled.return_value = False
+        browser.resolve_ref.return_value = mock_locator
+
+        from tools.click_by_ref import handle_click_by_ref
+        result = handle_click_by_ref(browser, {"ref": 1})
+
+        mock_locator.click.assert_not_called()
+        assert result["status"] == "not_actionable"
+        assert result["error_type"] == "NotEnabled"
+
     def test_stale_ref_raises(self):
         browser, _ = _make_browser_with_snapshot()
         browser.resolve_ref.side_effect = ValueError("ref 99 is stale, request a new snapshot")

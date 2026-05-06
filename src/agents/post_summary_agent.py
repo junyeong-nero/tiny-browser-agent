@@ -443,14 +443,14 @@ def detect_ambiguity_candidate(
 
     if (
         previous_action is not None
-        and current_action.action_name in {"click_at", "type_text_at"}
+        and current_action.action_name in {"click_at", "click_by_ref", "type_text_at"}
         and current_action.action_name == previous_action.action_name
         and current_action.current_url == previous_action.current_url
         and current_action.action_args == previous_action.action_args
     ):
         evidence = (
             "repeated_click_pattern"
-            if current_action.action_name == "click_at"
+            if current_action.action_name in {"click_at", "click_by_ref"}
             else "repeated_type_pattern"
         )
         return AmbiguityCandidate(
