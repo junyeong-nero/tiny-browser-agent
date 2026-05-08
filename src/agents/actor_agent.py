@@ -28,6 +28,7 @@ from rich.table import Table
 import config as app_config
 from agents import model_turn
 from agents import subgoal_runner
+from agents.context_compaction import build_effective_contents
 from agents.review_events import build_review_metadata_event_payload
 from agents.post_summary_agent import (
     ActionMetadataWriter,
@@ -66,6 +67,8 @@ from tools.types import (
 
 MAX_RECENT_TURN_WITH_SCREENSHOTS = 3
 MAX_RECENT_TURNS_WITH_ARIA = 1
+MAX_RECENT_CONTEXT_TURNS = 8
+COMPACT_CONTEXT_AFTER_TURNS = 16
 _UNSET_STEP_SUMMARIZER: object = object()
 COMPUTER_USE_PROVIDER_NAMES = {"gemini_api", "gemini_computer_use"}
 
@@ -353,9 +356,16 @@ class BrowserAgent:
         return self._tool_executor.execute(action)
 
     def get_model_response(self) -> types.GenerateContentResponse:
+        effective_contents = build_effective_contents(
+            self._contents,
+            query=self._query,
+            current_subgoal_id=self._current_subgoal_id,
+            recent_turn_limit=MAX_RECENT_CONTEXT_TURNS,
+            compact_after=COMPACT_CONTEXT_AFTER_TURNS,
+        )
         return self._llm_client.generate_content(
             model=self._model_name,
-            contents=self._contents,
+            contents=effective_contents,
             config=self._generate_content_config,
         )
 

@@ -285,6 +285,62 @@ class TestBrowserAgent(unittest.TestCase):
             config=self.agent._generate_content_config,
         )
 
+    def test_get_model_response_compacts_long_trajectory_for_llm_only(self):
+        mock_response = MagicMock()
+        self.mock_llm_client.generate_content.return_value = mock_response
+        for index in range(10):
+            self.agent._contents.append(
+                types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                name="navigate",
+                                args={"url": f"https://example.com/{index}"},
+                            )
+                        )
+                    ],
+                )
+            )
+            self.agent._contents.append(
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                name="navigate",
+                                response={"url": f"https://example.com/{index}"},
+                            )
+                        )
+                    ],
+                )
+            )
+        full_contents = list(self.agent._contents)
+
+        response = self.agent.get_model_response()
+
+        self.assertIs(response, mock_response)
+        self.assertEqual(self.agent._contents, full_contents)
+        effective_contents = self.mock_llm_client.generate_content.call_args.kwargs[
+            "contents"
+        ]
+        self.assertLess(len(effective_contents), len(self.agent._contents))
+        self.assertIs(effective_contents[0], self.agent._contents[0])
+        self.assertIn("test query", effective_contents[0].parts[0].text)
+        self.assertEqual(effective_contents[1].role, "user")
+        self.assertTrue(
+            effective_contents[1].parts[0].text.startswith(
+                "Compacted trajectory summary:"
+            )
+        )
+        self.assertEqual(effective_contents[2:], self.agent._contents[-8:])
+        for model_turn, tool_turn in zip(
+            effective_contents[2::2],
+            effective_contents[3::2],
+        ):
+            self.assertIsNotNone(model_turn.parts[0].function_call)
+            self.assertIsNotNone(tool_turn.parts[0].function_response)
+
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_no_function_calls(self, mock_get_model_response):
         mock_response = MagicMock()
