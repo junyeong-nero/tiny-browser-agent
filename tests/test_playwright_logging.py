@@ -383,6 +383,19 @@ class TestPlaywrightLogging(unittest.TestCase):
         self.assertIn("Frame 2: https://accounts.example.com", result["tree"])
         self.assertEqual(computer.resolve_ref(2), "child-locator")
 
+    def test_take_aria_snapshot_targets_document_body_without_shadow_body_matches(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900))
+        page = MagicMock()
+        page.url = "https://example.com"
+        page.frames = [page]
+        page.locator.return_value.aria_snapshot.return_value = '- button "Search"\n'
+        computer._page = page
+
+        snapshot = computer.take_aria_snapshot()
+
+        page.locator.assert_called_once_with("html > body")
+        self.assertIn('[1] button "Search"', snapshot.text)
+
     @patch("browser.playwright.time.sleep", return_value=None)
     def test_current_state_writes_history_files_when_logging_enabled(self, _mock_sleep):
         with tempfile.TemporaryDirectory() as tmp_dir:

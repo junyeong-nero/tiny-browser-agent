@@ -873,7 +873,7 @@ class PlaywrightBrowser:
 
         for index, target in enumerate(targets, start=1):
             target_url = getattr(target, "url", self._page.url)
-            raw_yaml = target.locator("body").aria_snapshot()
+            raw_yaml = target.locator("html > body").aria_snapshot()
             snapshot = build_aria_snapshot(raw_yaml, target_url, ref_offset=ref_offset)
             if multi_frame:
                 combined_lines.append(f"Frame {index}: {target_url}")
