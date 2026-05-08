@@ -374,6 +374,77 @@ class TestChatCompletionsProviders(unittest.TestCase):
 
     @patch("llm.provider.chat_completion_http.request.urlopen")
     @patch("llm.provider.chat_completion_http.ChatCompletionsProvider._build_ssl_context", return_value=None)
+    def test_openrouter_generate_content_sends_function_response_screenshot_as_image(
+        self,
+        _mock_ssl,
+        mock_urlopen,
+    ):
+        from google.genai import types
+
+        from llm.provider.openrouter import OpenRouterProvider
+
+        mock_urlopen.return_value = _FakeHTTPResponse(
+            '{"choices":[{"message":{"content":"next"}}]}'
+        )
+        provider = OpenRouterProvider(
+            api_key="router-key",
+            base_url="https://router.test/api/v1/",
+        )
+
+        provider.generate_content(
+            model="vision-model",
+            contents=[
+                types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                id="call-1",
+                                name="open_web_browser",
+                                args={},
+                            )
+                        )
+                    ],
+                ),
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(
+                            function_response=types.FunctionResponse(
+                                id="call-1",
+                                name="open_web_browser",
+                                response={"url": "https://example.com"},
+                                parts=[
+                                    types.FunctionResponsePart(
+                                        inline_data=types.FunctionResponseBlob(
+                                            mime_type="image/png",
+                                            data=b"png",
+                                        )
+                                    )
+                                ],
+                            )
+                        )
+                    ],
+                ),
+            ],
+            config=types.GenerateContentConfig(),
+        )
+
+        http_request = mock_urlopen.call_args.args[0]
+        body = __import__("json").loads(http_request.data.decode("utf-8"))
+        self.assertEqual(body["messages"][1]["role"], "tool")
+        self.assertEqual(body["messages"][1]["tool_call_id"], "call-1")
+        observation = body["messages"][2]
+        self.assertEqual(observation["role"], "user")
+        self.assertEqual(observation["content"][0]["type"], "text")
+        self.assertEqual(observation["content"][1]["type"], "image_url")
+        self.assertEqual(
+            observation["content"][1]["image_url"]["url"],
+            "data:image/png;base64,cG5n",
+        )
+
+    @patch("llm.provider.chat_completion_http.request.urlopen")
+    @patch("llm.provider.chat_completion_http.ChatCompletionsProvider._build_ssl_context", return_value=None)
     def test_nvidia_generate_content_includes_thinking_extra_body(self, _mock_ssl, mock_urlopen):
         from google.genai import types
 

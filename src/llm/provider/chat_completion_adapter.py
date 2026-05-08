@@ -1,5 +1,6 @@
 import json
 import inspect
+import base64
 from collections.abc import Callable
 from typing import Any, Literal, get_args, get_origin
 
@@ -147,18 +148,27 @@ def contents_to_messages(contents: list[types.Content]) -> list[dict[str, Any]]:
 
         role = _map_role(content.role)
         text_parts: list[str] = []
+        image_parts: list[dict[str, Any]] = []
         tool_calls: list[dict[str, Any]] = []
         tool_messages: list[dict[str, Any]] = []
+        post_tool_observations: list[dict[str, Any]] = []
 
         for index, part in enumerate(content.parts):
             if part.text:
                 text_parts.append(part.text)
             elif part.inline_data:
-                text_parts.append(f"[{part.inline_data.mime_type}]")
+                image_content = _inline_data_to_image_content(part.inline_data)
+                if image_content is None:
+                    text_parts.append(f"[{part.inline_data.mime_type}]")
+                else:
+                    image_parts.append(image_content)
             elif part.function_call:
                 tool_calls.append(_function_call_to_tool_call(part.function_call, index))
             elif part.function_response:
                 tool_messages.append(_function_response_to_tool_message(part.function_response))
+                observation = _function_response_to_image_observation(part.function_response)
+                if observation is not None:
+                    post_tool_observations.append(observation)
 
         if tool_calls:
             messages.append(
@@ -168,10 +178,11 @@ def contents_to_messages(contents: list[types.Content]) -> list[dict[str, Any]]:
                     "tool_calls": tool_calls,
                 }
             )
-        elif text_parts:
-            messages.append({"role": role, "content": "\n".join(text_parts)})
+        elif text_parts or image_parts:
+            messages.append({"role": role, "content": _content_payload(text_parts, image_parts)})
 
         messages.extend(tool_messages)
+        messages.extend(post_tool_observations)
 
     return messages
 
@@ -298,6 +309,62 @@ def _function_response_to_tool_message(
         "role": "tool",
         "tool_call_id": function_response.id or function_response.name or "call_0",
         "content": json.dumps(function_response.response or {}, ensure_ascii=False),
+    }
+
+
+def _function_response_to_image_observation(
+    function_response: types.FunctionResponse,
+) -> dict[str, Any] | None:
+    image_parts = []
+    for response_part in function_response.parts or []:
+        inline_data = getattr(response_part, "inline_data", None)
+        if inline_data is None:
+            continue
+        image_content = _inline_data_to_image_content(inline_data)
+        if image_content is not None:
+            image_parts.append(image_content)
+    if not image_parts:
+        return None
+    name = function_response.name or "browser tool"
+    return {
+        "role": "user",
+        "content": _content_payload(
+            [f"Screenshot observation returned after `{name}`."],
+            image_parts,
+        ),
+    }
+
+
+def _content_payload(
+    text_parts: list[str],
+    image_parts: list[dict[str, Any]],
+) -> str | list[dict[str, Any]]:
+    text = "\n".join(part for part in text_parts if part).strip()
+    if not image_parts:
+        return text
+    payload: list[dict[str, Any]] = []
+    if text:
+        payload.append({"type": "text", "text": text})
+    payload.extend(image_parts)
+    return payload
+
+
+def _inline_data_to_image_content(inline_data: Any) -> dict[str, Any] | None:
+    mime_type = getattr(inline_data, "mime_type", None) or "image/png"
+    if mime_type not in {"image/png", "image/jpeg", "image/webp", "image/gif"}:
+        return None
+    raw_data = getattr(inline_data, "data", None)
+    if isinstance(raw_data, str):
+        encoded = raw_data
+    elif isinstance(raw_data, bytes):
+        encoded = base64.b64encode(raw_data).decode("ascii")
+    else:
+        return None
+    return {
+        "type": "image_url",
+        "image_url": {
+            "url": f"data:{mime_type};base64,{encoded}",
+        },
     }
 
 
