@@ -790,33 +790,12 @@ class PlaywrightBrowser:
     def _stop_frame_stream(self) -> None:
         self._recording.stop_frame_stream()
 
-    def _frame_pipe_loop(self) -> None:
-        self._recording._frame_pipe_loop(FRAME_CAPTURE_FPS)
-
-
     def begin_action_capture(self) -> None:
         """Best-effort capture of frames emitted while a browser action runs."""
         self._recording.begin_action_capture(page=self._page, context=self._context)
 
     def end_action_capture(self) -> dict[str, Any] | None:
         return self._recording.end_action_capture()
-
-    def _sample_action_frames(
-        self,
-        frames: list[tuple[float, bytes]],
-        *,
-        max_frames: int,
-    ) -> list[tuple[float, bytes]]:
-        return self._recording.sample_action_frames(frames, max_frames=max_frames)
-
-    def _action_gif_input_fps(self, frames: list[tuple[float, bytes]]) -> float:
-        return self._recording.action_gif_input_fps(frames)
-
-    def _write_action_clip_gif(self, frames: list[tuple[float, bytes]], metadata: dict[str, Any]) -> str | None:
-        return self._recording.write_action_clip_gif(frames, metadata)
-
-    def _merge_latest_metadata(self, updates: dict[str, Any]) -> None:
-        self._recording.merge_latest_metadata(updates)
 
     def _prepare_log_dirs(self):
         self._artifact_logger.prepare_log_dirs()
