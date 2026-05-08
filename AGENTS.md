@@ -13,14 +13,15 @@ Use `uv` for local setup and execution.
 - `uv run main.py "summarize this page"`: run the agent locally with the Playwright backend.
 - `uv run main.py "summarize this page" --initial_url "https://example.com"`: start from a specific page.
 - `uv run main.py "summarize this page" --headless True`: run Playwright headless.
-- `uv run main.py "summarize this page" --log`: save Playwright history and video under `logs/history/<timestamp>/`.
+- `uv run main.py "summarize this page" --log`: save Playwright history, GIF artifacts, and JSON action trajectory under `logs/history/<timestamp>/`.
+- `uv run main.py "summarize this page" --video`: save Playwright `.webm` and `session_60fps.mp4` recordings under `logs/history/<timestamp>/video/`.
 - `uv run main.py "summarize this page" --stealth --locale ko-KR --timezone Asia/Seoul --user-agent "<desktop Chrome UA>"`: enable anti-detection patches and a Korean profile (the same defaults `scripts/run.sh` and `scripts/run_batch.sh` apply).
 - `uv run playwright install chromium`: install the browser binary required for the Playwright backend.
 - `uv run playwright install-deps chromium`: install Playwright system dependencies when required by your machine.
 
 Important CLI/UI behavior:
 - `query` is a positional argument (not a flag).
-- `--log` saves Playwright video, per-step history, and `actions.jsonl`.
+- `--log` saves per-step history, GIF artifacts, and JSON action trajectory; `--video` separately saves `.webm`/`.mp4` recordings.
 - `--model` overrides the default actor model from `config.yaml`.
 - The default actor is OpenRouter `nvidia/nemotron-3-super-120b-a12b:free`; the default planner is Gemini `gemini-3-flash-preview`.
 - `--grounding` defaults to `text`, which is compatible with standard function-calling providers such as OpenRouter.
@@ -39,4 +40,4 @@ Run tests with `pytest`, but note that the current suite is written in `unittest
 Recent history uses concise, imperative commit subjects. Prefer one focused change per commit. Pull requests should describe the behavioral change, note any config or dependency updates, and link the relevant issue when applicable.
 
 ## Security & Configuration Tips
-Do not hardcode secrets. Use the environment variables actually read by the code: `OPENROUTER_API_KEY` for the default actor, `GEMINI_API_KEY` for the default planner, and `OPENAI_API_KEY` when OpenAI-backed summary or model configuration is enabled. Validate browser-related setup locally before opening a PR. Be careful with `--log`: it stores screenshots, DOM snapshots, metadata, action history (`actions.jsonl`), and Playwright video under `logs/history/<timestamp>/`, which can capture sensitive page content and URLs. Keep the existing Playwright launch hardening intact; the local backend intentionally does not disable the browser sandbox.
+Do not hardcode secrets. Use the environment variables actually read by the code: `OPENROUTER_API_KEY` for the default actor, `GEMINI_API_KEY` for the default planner, and `OPENAI_API_KEY` when OpenAI-backed summary or model configuration is enabled. Validate browser-related setup locally before opening a PR. Be careful with `--log` and `--video`: they store screenshots, DOM snapshots, metadata, action history (`actions.jsonl`), GIFs, and/or Playwright video under `logs/history/<timestamp>/`, which can capture sensitive page content and URLs. Keep the existing Playwright launch hardening intact; the local backend intentionally does not disable the browser sandbox.

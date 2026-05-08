@@ -32,11 +32,12 @@ uv run main.py "Summarize this page" --initial_url "https://example.com"
 uv run main.py "Summarize this page" --headless True
 uv run main.py "Click the first link" --highlight_mouse
 uv run main.py "오늘 서울 날씨 알려줘" --log
+uv run main.py "오늘 서울 날씨 알려줘" --log --video
 ```
 
 ### Session logging
 
-`--log` writes artifacts under `logs/history/<timestamp>/`:
+`--log` writes trajectory and replay artifacts under `logs/history/<timestamp>/`:
 
 ```text
 session.json         # task/model metadata for replay listings
@@ -45,8 +46,13 @@ actions.jsonl        # action history (one JSON record per step)
 history/step-*.png   # screenshot per step
 history/step-*.html  # DOM snapshot
 history/step-*.json  # step metadata
-video/               # Playwright recording (session_60fps.mp4 if ffmpeg available)
+history/step-*.gif   # before/after and action GIFs when ffmpeg is available
 ```
+
+`--video` is separate and writes browser recordings under
+`logs/history/<timestamp>/video/` (`.webm` from Playwright and
+`session_60fps.mp4` when ffmpeg is available). Use `--log --video` when a
+session needs both replay JSON/GIF artifacts and video.
 
 New logged sessions include `events.jsonl`, which lets the web UI replay the same
 timeline, plan, activity, and navigation graph that appeared during the live run.
@@ -69,7 +75,8 @@ Each `actions.jsonl` entry:
 | `--initial_url` | Starting page. | `https://www.duckduckgo.com` |
 | `--highlight_mouse` | Highlight cursor in screenshots. | `False` |
 | `--headless` | Launch Playwright headless (`True`/`False`). | `False` |
-| `--log` | Save video + per-step history + action history. | `False` |
+| `--log` | Save per-step history, GIF artifacts, and JSON action trajectory. | `False` |
+| `--video` | Save `.webm`/`.mp4` browser recordings. | `False` |
 | `--model` | Actor model name. | `models.actor.model` from `config.yaml` |
 | `--grounding` | Page grounding mode: `text`, `vision`, or `mixed`. | `text` |
 | `--planner` | Decompose the query into subgoals before execution. | `False` |
@@ -86,7 +93,7 @@ Each `actions.jsonl` entry:
 | `ACTION_SUMMARY_MODEL` | Summarizer model (default `gpt-4o-mini`). |
 | `ACTION_SUMMARY_TIMEOUT_SECONDS` | Summarizer timeout (default `15`). |
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | OpenAI key and optional base URL. |
-| `COMPUTER_USE_FFMPEG_COMMAND` | Path to ffmpeg binary for video recording. |
+| `COMPUTER_USE_FFMPEG_COMMAND` | Path to ffmpeg binary for GIF/video encoding. |
 
 ## Configuration Notes
 
@@ -150,5 +157,5 @@ uv run main.py --help
 ## Security Notes
 
 - Use env vars for secrets; do not hardcode.
-- `--log` writes screenshots, DOM snapshots, video, and action history under `logs/history/` — they may capture sensitive content and URLs.
+- `--log` writes screenshots, DOM snapshots, GIFs, metadata, and action history under `logs/history/`; `--video` writes browser recordings there too. These artifacts may capture sensitive content and URLs.
 - The Playwright backend keeps the browser sandbox enabled.

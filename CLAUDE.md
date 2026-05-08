@@ -21,7 +21,7 @@ uv run pytest tests/test_agent.py::TestBrowserAgent::test_xxx  # single test
 
 uv run main.py "query"                # run CLI agent
 uv run main.py --ui                   # start FastAPI/uvicorn control panel at :8765
-uv run main.py "query" --planner --grounding mixed --log --headless True
+uv run main.py "query" --planner --grounding mixed --log --video --headless True
 uv run main.py --help
 ```
 
@@ -81,7 +81,7 @@ When changing UI behavior, update `tests/test_ui_panel.py` for static HTML/JS co
 - `playwright.py::PlaywrightBrowser` — context manager that owns the Playwright lifecycle; yields itself as `browser_computer`. In UI mode the same instance is reused across tasks (`reset_to_blank`, `set_artifact_logger`). Anti-detection knobs (all optional, all surfaced as CLI flags on `main.py`): `channel` (e.g. `"chrome"`), `user_agent`, `locale`, `timezone_id`, `proxy` (`{"server","username","password"}`), `extra_http_headers`, `storage_state_path` (loaded on enter, saved on exit so a hand-solved login/CAPTCHA persists), and `stealth=True` which `add_init_script`s `_STEALTH_INIT_SCRIPT` to patch `navigator.webdriver`/`plugins`/`languages`/`chrome.runtime`/`permissions.query`/WebGL vendor. Launch args intentionally drop `--disable-extensions`/`--disable-plugins` (themselves bot tells) and add `--disable-blink-features=AutomationControlled`. Stock playwright is the default import; set `USE_PATCHRIGHT=1` to swap in `patchright.sync_api` for deeper CDP-leak patches when you need it.
 - `actions.py::build_browser_action_functions` — exposes the tool set; `EnvState` is the return type for built-in computer-use actions.
 - `aria_snapshot.py` — produces ARIA snapshots and `ref`s for text-grounding tools.
-- `artifact_logger.py::ArtifactLogger` — when `--log`, writes `actions.jsonl`, `history/step-*.{png,html,json}`, and Playwright video under `logs/history/<timestamp>/`.
+- `artifact_logger.py::ArtifactLogger` — when `--log`, writes `actions.jsonl`, `events.jsonl`, and `history/step-*.{png,html,json,gif}`; `--video` separately enables `.webm` and `session_60fps.mp4` recordings under `logs/history/<timestamp>/video/`.
 
 ### Tools (`src/tools/` + `src/tool_executor.py`)
 
