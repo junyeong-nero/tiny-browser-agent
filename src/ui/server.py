@@ -7,6 +7,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ui.bridge import clear_task_interrupt, register_ws, request_task_interrupt, set_server_loop, task_queue, unregister_ws
@@ -32,6 +33,7 @@ def _find_free_port(start: int, count: int) -> int:
 
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 app.include_router(replay_router)
 
 

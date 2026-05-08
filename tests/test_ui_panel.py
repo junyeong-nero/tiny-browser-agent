@@ -1,12 +1,59 @@
 from pathlib import Path
 
+from fastapi.testclient import TestClient
 
-PANEL_HTML = Path("src/ui/panel.html").read_text(encoding="utf-8")
+from ui.server import app
 
+
+PANEL_HTML_ONLY = Path("src/ui/panel.html").read_text(encoding="utf-8")
+PANEL_CSS = Path("src/ui/static/panel.css").read_text(encoding="utf-8")
+PANEL_JS = Path("src/ui/static/panel.js").read_text(encoding="utf-8")
+GRAPH_JS = Path("src/ui/static/graph.js").read_text(encoding="utf-8")
+# Existing static-contract tests search the asset that now owns the code/CSS.
+PANEL_HTML = PANEL_HTML_ONLY + "\n" + PANEL_CSS + "\n" + PANEL_JS + "\n" + GRAPH_JS
+
+
+
+
+def test_panel_loads_split_static_assets():
+    assert '<link rel="stylesheet" href="/static/panel.css">' in PANEL_HTML_ONLY
+    assert '<script src="https://d3js.org/d3.v7.min.js"></script>' in PANEL_HTML_ONLY
+    assert '<script src="/static/graph.js"></script>' in PANEL_HTML_ONLY
+    assert '<script src="/static/panel.js"></script>' in PANEL_HTML_ONLY
+    assert '<style>' not in PANEL_HTML_ONLY
+    assert '<script>' not in PANEL_HTML_ONLY
+
+
+def test_panel_static_assets_are_served():
+    client = TestClient(app)
+    for path, expected in (
+        ('/static/panel.css', 'text/css'),
+        ('/static/panel.js', 'javascript'),
+        ('/static/graph.js', 'javascript'),
+    ):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert expected in response.headers['content-type']
+
+    html = client.get('/')
+    assert html.status_code == 200
+    assert '/static/panel.css' in html.text
+    assert '/static/graph.js' in html.text
+    assert '/static/panel.js' in html.text
 
 def test_panel_model_placeholder_is_not_hardcoded_to_gemini():
     assert '<span id="agent-model">gemini</span>' not in PANEL_HTML
     assert '<span id="agent-model">—</span>' in PANEL_HTML
+    assert 'placeholder="Describe what you want the agent to do…"' in PANEL_HTML
+    input_agent_html = PANEL_HTML_ONLY.split('<div class="input-agent">', 1)[1].split("</div>", 1)[0]
+    assert "browser-agent" not in input_agent_html
+    assert "agent-name" not in input_agent_html
+    input_controls_css = PANEL_HTML.split(".input-controls {", 1)[1].split("}", 1)[0]
+    input_agent_css = PANEL_HTML.split(".input-agent {", 1)[1].split("}", 1)[0]
+    textarea_css = PANEL_HTML.split("textarea {", 1)[1].split("}", 1)[0]
+    assert "justify-content: flex-end;" in input_controls_css
+    assert "margin-left: auto;" in input_agent_css
+    assert "width: 100%;" in textarea_css
 
 
 def test_panel_updates_model_name_from_session_ready_event():
@@ -37,6 +84,30 @@ def test_panel_graph_tab_shows_only_trajectory_graph():
     assert "function setupGraphModeToggle()" not in PANEL_HTML
     assert "function selectedGraphData()" in PANEL_HTML
     assert "return buildTrajectoryGraphData();" in PANEL_HTML
+
+
+def test_panel_graph_has_view_controls_and_horizontal_bottom_legend():
+    assert 'id="graph-controls" class="graph-controls"' in PANEL_HTML
+    assert 'id="graph-fit" class="icon-only" type="button" aria-label="Show all graph nodes"' in PANEL_HTML
+    assert 'id="graph-zoom-in" class="icon-only" type="button" aria-label="Zoom graph in"' in PANEL_HTML
+    assert 'id="graph-zoom-out" class="icon-only" type="button" aria-label="Zoom graph out"' in PANEL_HTML
+    assert "function fitToNodes()" in PANEL_HTML
+    assert "function zoomBy(factor)" in PANEL_HTML
+    assert "zoomBehavior.scaleBy" in PANEL_HTML
+    assert "zoomBehavior.transform" in PANEL_HTML
+
+    legend_css = PANEL_HTML.split(".graph-legend {", 1)[1].split(".graph-legend.hidden", 1)[0]
+    assert "bottom: 14px;" in legend_css
+    assert "right: 14px;" in legend_css
+    assert "display: flex;" in legend_css
+    assert "align-items: center;" in legend_css
+    assert "top: 14px;" not in legend_css
+
+    legend_bar_css = PANEL_HTML.split(".graph-legend .legend-bar {", 1)[1].split(
+        ".graph-legend .legend-labels", 1
+    )[0]
+    assert "height: 10px;" in legend_bar_css
+    assert "linear-gradient(90deg" in legend_bar_css
 
 
 def test_panel_uses_action_artifacts_for_hierarchical_graph():
@@ -190,9 +261,10 @@ def test_panel_links_replay_screenshots_from_action_artifacts():
     assert "[shot]" in action_case
 
 
-def test_panel_uses_material_design_theme_tokens():
-    assert "family=Roboto" in PANEL_HTML
-    # Material Design 3 system color tokens
+def test_panel_uses_apple_design_theme_tokens():
+    assert '"SF Pro Text"' in PANEL_HTML
+    assert '"SF Pro Display"' in PANEL_HTML
+    # Material Design system tokens remain the internal implementation surface.
     assert "--md-sys-color-primary:" in PANEL_HTML
     assert "--md-sys-color-on-primary:" in PANEL_HTML
     assert "--md-sys-color-surface-container:" in PANEL_HTML
@@ -206,6 +278,54 @@ def test_panel_uses_material_design_theme_tokens():
     assert "--shadow-2:" in PANEL_HTML
 
 
+def test_panel_uses_original_m3_light_palette():
+    assert "--md-sys-color-primary:                #0b57d0;" in PANEL_HTML
+    assert "--md-sys-color-background:             #f8fafd;" in PANEL_HTML
+    assert "--md-sys-color-on-surface:             #1a1c1e;" in PANEL_HTML
+    assert "--md-sys-color-outline:                #74777f;" in PANEL_HTML
+    assert "--app-bg-radial-1: rgba(11, 87, 208, 0.12);" in PANEL_HTML
+    assert "radial-gradient(circle at 12% 10%, var(--app-bg-radial-1), transparent 28rem)" in PANEL_HTML
+
+
+def test_panel_supports_original_m3_dark_theme_tokens():
+    assert 'html[data-theme="dark"]' in PANEL_HTML
+    assert "color-scheme: dark;" in PANEL_HTML
+    assert "--md-sys-color-primary:                #a8c7fa;" in PANEL_HTML
+    assert "--md-sys-color-background:             #111418;" in PANEL_HTML
+    assert "--md-sys-color-on-surface:             #e2e2e9;" in PANEL_HTML
+    assert "--app-bg-radial-1: rgba(168, 199, 250, 0.16);" in PANEL_HTML
+    assert "0 4px 8px 3px rgba(0,0,0,.15)," in PANEL_HTML
+    assert "no dark-mode override" not in PANEL_HTML
+
+
+def test_panel_uses_more_compact_corner_radius_scale():
+    assert "--md-sys-shape-corner-sm:    6px;" in PANEL_HTML
+    assert "--md-sys-shape-corner-md:    8px;" in PANEL_HTML
+    assert "--md-sys-shape-corner-lg:   12px;" in PANEL_HTML
+    assert "--md-sys-shape-corner-xl:   16px;" in PANEL_HTML
+    assert "--md-sys-shape-corner-xl:   28px;" not in PANEL_HTML
+
+
+def test_panel_has_accessible_theme_toggle():
+    assert 'id="theme-toggle" class="icon-only" type="button"' in PANEL_HTML
+    assert 'aria-label="Switch to dark theme"' in PANEL_HTML
+    assert 'aria-pressed="false"' in PANEL_HTML
+    assert 'title="Switch to dark theme"' in PANEL_HTML
+    assert 'id="theme-toggle-path"' in PANEL_HTML
+    assert "const themeToggle = document.getElementById('theme-toggle');" in PANEL_HTML
+    assert "themeToggle.setAttribute('aria-pressed', String(isDark));" in PANEL_HTML
+
+
+def test_panel_theme_uses_system_default_and_persists_user_choice():
+    assert 'const THEME_STORAGE_KEY = "bragent.theme";' in PANEL_HTML
+    assert 'localStorage.getItem(THEME_STORAGE_KEY)' in PANEL_HTML
+    assert 'localStorage.setItem(THEME_STORAGE_KEY, next)' in PANEL_HTML
+    assert 'window.matchMedia("(prefers-color-scheme: dark)")' in PANEL_HTML
+    assert "media.addEventListener('change', syncSystemTheme)" in PANEL_HTML
+    assert "document.documentElement.dataset.theme = theme;" in PANEL_HTML
+    assert "document.documentElement.style.colorScheme = theme;" in PANEL_HTML
+
+
 def test_panel_primary_run_button_uses_material_icon_button_style():
     assert "#btn {" in PANEL_HTML
     # M3 Filled Button uses sys color tokens directly
@@ -215,12 +335,27 @@ def test_panel_primary_run_button_uses_material_icon_button_style():
     assert 'title="Run task"' in PANEL_HTML
     assert '<button id="btn" class="icon-only" type="button" aria-label="Run task" title="Run task" disabled>' in PANEL_HTML
     assert "<svg class=\"btn-icon\" aria-hidden=\"true\" viewBox=\"0 0 24 24\" focusable=\"false\">" in PANEL_HTML
-    assert "<path d=\"M8 5v14l11-7z\"></path>" in PANEL_HTML
-    assert "width: 40px;" in PANEL_HTML
-    assert "min-width: 40px;" in PANEL_HTML
+    assert '<path id="btn-icon-path" d="M8 5v14l11-7z"></path>' in PANEL_HTML
+    button_css = PANEL_HTML.split("#btn {", 1)[1].split("#btn .btn-icon", 1)[0]
+    assert "width: 36px;" in button_css
+    assert "min-width: 36px;" in button_css
+    assert "height: 36px;" in button_css
     assert "padding: 0;" in PANEL_HTML
     assert "<button id=\"btn\" type=\"button\" disabled>run</button>" not in PANEL_HTML
 
+
+
+
+def test_panel_header_controls_use_shared_header_order():
+    header_html = PANEL_HTML.split("<header>", 1)[1].split("</header>", 1)[0]
+
+    live_idx = header_html.index('id="live-btn"')
+    sessions_idx = header_html.index('id="sessions-btn"')
+    theme_idx = header_html.index('id="theme-toggle"')
+
+    assert live_idx < sessions_idx < theme_idx
+    assert '"header  header  header"' in PANEL_HTML
+    assert 'class="sheet-header"' not in PANEL_HTML
 
 def test_panel_secondary_controls_use_svg_icons_with_accessible_labels():
     assert 'id="sessions-btn" class="icon-label" type="button" aria-label="Open history"' in PANEL_HTML
@@ -281,18 +416,50 @@ def test_panel_graph_pins_root_nodes_and_seeds_children_from_parent():
     assert "if (d.isRoot) {" in graph_renderer
 
 
-def test_panel_main_card_aligns_to_chat_input_width():
+def test_panel_graph_clears_stale_root_flag_when_reusing_nodes():
+    graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
+        "function updateGraph()", 1
+    )[0]
+
+    assert "function normalizeGraphNode(src)" in graph_renderer
+    assert "isRoot: false," in graph_renderer
+    assert "return Object.assign(prev || {}, normalizeGraphNode(src));" in graph_renderer
+    assert "return Object.assign(prev || {}, src);" not in graph_renderer
+
+
+def test_panel_cards_use_symmetric_compact_divider_gap():
     main_css = PANEL_HTML.split("main#main {", 2)[2].split("}", 1)[0]
+    sidebar_css = PANEL_HTML.split("aside#sidebar {", 1)[1].split("}", 1)[0]
     footer_css = PANEL_HTML.split("\n  footer {", 1)[1].split("}", 1)[0]
 
-    assert "margin: 16px 16px 12px;" in main_css
-    assert "padding: 4px 16px 16px;" in footer_css
+    assert "margin: 16px 8px 12px 16px;" in main_css
+    assert "margin: 16px 12px 16px 8px;" in sidebar_css
+    assert "padding: 4px 8px 16px 16px;" in footer_css
+
+
+def test_panel_resizer_uses_short_rounded_rect_handle():
+    resizer_css = PANEL_HTML.split("#resizer::before {", 1)[1].split("}", 1)[0]
+    resizer_hover_css = PANEL_HTML.split("body.resizing #resizer::before {", 1)[1].split("}", 1)[0]
+
+    assert "grid-template-columns: 1fr 8px var(--aside-w);" in PANEL_HTML
+    assert "left: 50%;" in resizer_css
+    assert "top: 50%;" in resizer_css
+    assert "width: 4px;" in resizer_css
+    assert "height: 44px;" in resizer_css
+    assert "transform: translate(-50%, -50%);" in resizer_css
+    assert "bottom: 14px;" not in resizer_css
+    assert "height: 56px;" in resizer_hover_css
+    assert "var(--primary)" not in resizer_hover_css
 
 
 def test_panel_chatbox_has_all_corners_rounded():
     input_shell_css = PANEL_HTML.split(".input-shell {", 1)[1].split("}", 1)[0]
 
     assert "border-radius: var(--md-sys-shape-corner-xl);" in input_shell_css
+    assert "background: var(--md-sys-color-surface-container-highest);" in input_shell_css
+    assert "linear-gradient(180deg" not in input_shell_css
+    assert "border-bottom" not in input_shell_css
+    assert ".input-shell:focus-within" not in PANEL_HTML
 
 
 def test_panel_sidebar_itself_is_viewport_constrained_and_scrollable():
@@ -302,12 +469,16 @@ def test_panel_sidebar_itself_is_viewport_constrained_and_scrollable():
     side_scroll_css = PANEL_HTML.split("details.side-scroll-section[open] {", 1)[1].split("}", 1)[0]
     task_section_css = PANEL_HTML.split("details.side-task-section[open] {", 1)[1].split("}", 1)[0]
 
-    # Sheet container fills viewport; rows lay out header / divider / scrollable body.
+    # The sidebar shares the top app bar, so only the body row scrolls under it.
     assert "display: grid;" in sidebar_css
-    assert "grid-template-rows: auto 1px 1fr;" in sidebar_css
-    assert "height: 100dvh;" in sidebar_css
-    assert "max-height: 100dvh;" in sidebar_css
+    assert "grid-template-rows: minmax(0, 1fr);" in sidebar_css
+    assert "height: 100dvh;" not in sidebar_css
+    assert "max-height: 100dvh;" not in sidebar_css
     assert "align-self: stretch;" in sidebar_css
+    assert "border-radius: var(--md-sys-shape-corner-xl);" in sidebar_css
+    assert "border-radius: var(--md-sys-shape-corner-lg) 0 0 var(--md-sys-shape-corner-lg);" not in sidebar_css
+    assert 'class="sheet-header"' not in PANEL_HTML
+    assert 'id="side-title"' not in PANEL_HTML
     # The scrollable region is the sheet-body, not the aside itself.
     assert "overflow-y: auto;" in sheet_body_css
     assert "overscroll-behavior: contain;" in sheet_body_css
@@ -392,6 +563,7 @@ def test_panel_removes_keybind_help_bar():
     assert "shift+enter</kbd> newline" not in PANEL_HTML
     assert "esc</kbd> interrupt" not in PANEL_HTML
     assert '"keybind resizer aside"' not in PANEL_HTML
+    assert '"header  header  header"' in PANEL_HTML
     assert 'grid-template-areas: "header" "main" "footer";' in PANEL_HTML
 
 
@@ -488,9 +660,16 @@ def test_panel_graph_base_nodes_hide_stroke_until_accented():
 def test_panel_graph_shows_work_color_legend():
     assert 'id="graph-legend"' in PANEL_HTML
     assert 'aria-label="Node color legend"' in PANEL_HTML
-    assert "work count" in PANEL_HTML
+    assert "work count" not in PANEL_HTML
+    assert "legend-title" not in PANEL_HTML
     assert "data-legend-max" in PANEL_HTML
+    legend_css = PANEL_HTML.split(".graph-legend {", 1)[1].split(".graph-legend.hidden", 1)[0]
+    assert "bottom: 14px;" in legend_css
+    assert "right: 14px;" in legend_css
+    assert "top: 14px;" not in legend_css
     assert "background: linear-gradient(90deg, #482878 0%, #3e4989 25%, #26828e 50%, #35b779 75%, #fde725 100%);" in PANEL_HTML
+    assert "flex-direction: row;" in PANEL_HTML
+    assert "flex-direction: column-reverse;" not in PANEL_HTML
     assert "const legendEl = document.getElementById('graph-legend');" in PANEL_HTML
     assert "function updateGraphLegend(maxWorkCount, hasNodes)" in PANEL_HTML
     assert "maxLabel.textContent = `max ${maxWorkCount}`;" in PANEL_HTML
