@@ -61,6 +61,14 @@ saved `logs/history/<timestamp>/` entry to replay it with pause, step, speed, an
 progress controls. Older sessions without `events.jsonl` are replayed from a
 synthetic stream built from `actions.jsonl` and `history/step-*.json`.
 
+### LLM inference inspector
+
+While running with `--ui`, each step emits an `llm_inference` event that
+captures the full model request context and raw response (binary screenshot data
+is omitted). Click any node in the trajectory graph and expand **View LLM raw
+context / response** to inspect what the model received and returned for that
+step.
+
 Each `actions.jsonl` entry:
 
 ```json
@@ -78,7 +86,7 @@ Each `actions.jsonl` entry:
 | `--log` | Save per-step history, GIF artifacts, and JSON action trajectory. | `False` |
 | `--video` | Save `.webm`/`.mp4` browser recordings. | `False` |
 | `--model` | Actor model name. | `models.actor.model` from `config.yaml` |
-| `--grounding` | Page grounding mode: `text`, `vision`, or `mixed`. | `text` |
+| `--grounding` | Page grounding mode: `text`, `vision`, or `mixed`. `vision`/`mixed` work with Gemini Computer Use **and** OpenAI-compatible providers that accept image inputs. | `text` |
 | `--planner` | Decompose the query into subgoals before execution. | `False` |
 
 ## Environment Variables
