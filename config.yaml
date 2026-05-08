@@ -4,10 +4,10 @@
 models:
   actor:
     provider: openrouter # openai
-    model: inclusionai/ling-2.6-1t:free # gpt-5.4-nano-2026-03-17
+    model: openai/gpt-oss-120b:free # gpt-5.4-nano-2026-03-17
   planner:
     provider: openrouter # openai
-    model: inclusionai/ling-2.6-1t:free # gpt-5.4-mini-2026-03-17
+    model: openai/gpt-oss-120b:free # gpt-5.4-mini-2026-03-17
   summary:
     provider: openai
     model: gpt-4o-mini
