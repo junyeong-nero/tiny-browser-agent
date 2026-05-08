@@ -405,6 +405,70 @@ function buildSequentialLinks(sequence, allowedIds, rootId = null, allowSelfLoop
   return Array.from(edges.values());
 }
 
+function edgeEndpointId(endpoint) {
+  return endpoint && typeof endpoint === 'object' ? endpoint.id : endpoint;
+}
+
+function detectCycleEdges(links) {
+  const adjacency = new Map();
+  for (const link of links || []) {
+    const source = edgeEndpointId(link.source);
+    const target = edgeEndpointId(link.target);
+    if (!source || !target) continue;
+    if (!adjacency.has(source)) adjacency.set(source, []);
+    if (!adjacency.has(target)) adjacency.set(target, []);
+    adjacency.get(source).push(target);
+  }
+
+  const indexById = new Map();
+  const lowlinkById = new Map();
+  const stack = [];
+  const onStack = new Set();
+  const cyclicNodes = new Set();
+  let index = 0;
+
+  function strongConnect(id) {
+    indexById.set(id, index);
+    lowlinkById.set(id, index);
+    index += 1;
+    stack.push(id);
+    onStack.add(id);
+
+    for (const target of adjacency.get(id) || []) {
+      if (!indexById.has(target)) {
+        strongConnect(target);
+        lowlinkById.set(id, Math.min(lowlinkById.get(id), lowlinkById.get(target)));
+      } else if (onStack.has(target)) {
+        lowlinkById.set(id, Math.min(lowlinkById.get(id), indexById.get(target)));
+      }
+    }
+
+    if (lowlinkById.get(id) !== indexById.get(id)) return;
+    const component = [];
+    let node = null;
+    do {
+      node = stack.pop();
+      onStack.delete(node);
+      component.push(node);
+    } while (node !== id);
+
+    if (component.length > 1) {
+      component.forEach(componentNode => cyclicNodes.add(componentNode));
+    }
+  }
+
+  Array.from(adjacency.keys()).forEach(id => {
+    if (!indexById.has(id)) strongConnect(id);
+  });
+
+  return (links || []).map(link => {
+    const source = edgeEndpointId(link.source);
+    const target = edgeEndpointId(link.target);
+    const isCycleEdge = !!source && !!target && (source === target || (cyclicNodes.has(source) && cyclicNodes.has(target)));
+    return { ...link, isCycleEdge };
+  });
+}
+
 function buildTrajectoryGraphData() {
   if (graphDrilldown.level === 'viewport' && graphDrilldown.urlId) {
     return buildViewportGraphData(graphDrilldown.urlId);
@@ -434,9 +498,9 @@ function buildUrlGraphData() {
     drillable: !!(src.viewportIds && src.viewportIds.size),
   }));
   const idSet = new Set(nodes.map(n => n.id));
-  const links = Array.from(trajectoryEdges.values())
+  const links = detectCycleEdges(Array.from(trajectoryEdges.values())
     .filter(e => idSet.has(e.source) && idSet.has(e.target))
-    .map(e => ({ source: e.source, target: e.target, count: e.count }));
+    .map(e => ({ source: e.source, target: e.target, count: e.count })));
   return { nodes, links, mode: 'url', breadcrumb: [] };
 }
 
@@ -482,7 +546,7 @@ function buildViewportGraphData(urlId) {
       drillable: !!vp.actionIds.size,
     }));
   const viewportIds = new Set(viewports.map(vp => vp.id));
-  const links = buildSequentialLinks(urlNode.viewportSequence, viewportIds, root.id);
+  const links = detectCycleEdges(buildSequentialLinks(urlNode.viewportSequence, viewportIds, root.id));
   return {
     nodes: [root, ...viewports],
     links,
@@ -520,7 +584,7 @@ function buildActionGraphData(viewportId) {
     .sort((a, b) => (a.firstStep - b.firstStep) || (a.order - b.order))
     .map(action => ({ ...action, argsText: formatArgs(action.args || {}), isCurrent: action.id === trajectoryCurrentActionId }));
   const actionIds = new Set(actions.map(action => action.id));
-  const links = buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true);
+  const links = detectCycleEdges(buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true));
   const crumbs = [{ label: 'URLs', level: 'url' }];
   if (urlNode) crumbs.push({ label: trajectoryLabelFor(urlNode), level: 'viewport', urlId: urlNode.id });
   return { nodes: [root, ...actions], links, mode: 'action', breadcrumb: crumbs };
@@ -897,7 +961,9 @@ const graph = (() => {
     );
     linkSel.exit().remove();
     linkSel = linkSel.enter().append('path').attr('class', 'graph-link').merge(linkSel);
-    linkSel.attr('stroke-width', d => Math.min(3, 1 + Math.log2(d.count + 1)));
+    linkSel
+      .classed('cycle', d => !!d.isCycleEdge)
+      .attr('stroke-width', d => d.isCycleEdge ? Math.min(4.5, 2 + Math.log2((d.count || 1) + 1)) : Math.min(3, 1 + Math.log2((d.count || 1) + 1)));
 
     nodeSel = nodeG.selectAll('g.graph-node').data(nodesData, d => d.id);
     nodeSel.exit().remove();

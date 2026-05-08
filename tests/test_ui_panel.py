@@ -189,6 +189,12 @@ def test_panel_action_graph_reuses_same_action_nodes_and_draws_cycles():
     assert "linkG.selectAll('path.graph-link')" in PANEL_HTML
     assert "function linkPath(d)" in PANEL_HTML
     assert "return `M ${sx} ${sy - 8} C" in PANEL_HTML
+    assert "function detectCycleEdges(links)" in PANEL_HTML
+    assert "const isCycleEdge = !!source && !!target && (source === target || (cyclicNodes.has(source) && cyclicNodes.has(target)));" in PANEL_HTML
+    assert "detectCycleEdges(buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true))" in PANEL_HTML
+    assert ".classed('cycle', d => !!d.isCycleEdge)" in PANEL_HTML
+    assert ".graph-link.cycle" in PANEL_HTML
+    assert 'id="graph-arrow-cycle"' in PANEL_HTML
 
 
 def test_panel_graph_action_artifacts_prioritize_replay_and_compare_controls():

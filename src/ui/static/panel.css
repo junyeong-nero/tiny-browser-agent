@@ -570,6 +570,11 @@
     fill: none;
     marker-end: url(#graph-arrow);
   }
+  .graph-link.cycle {
+    stroke: var(--md-sys-color-error);
+    marker-end: url(#graph-arrow-cycle);
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--md-sys-color-error) 55%, transparent));
+  }
   .graph-node circle {
     fill: var(--graph-node-fill, var(--surface-2));
     stroke: transparent;
