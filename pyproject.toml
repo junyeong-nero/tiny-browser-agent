@@ -1,7 +1,7 @@
 [project]
 name = "tiny-browser-agent"
 version = "0.1.0"
-description = "Google Computer Use Preview example agent"
+description = "Graph Visualization Tool for Browser-Agent"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
