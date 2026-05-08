@@ -27,6 +27,7 @@ from rich.table import Table
 
 import config as app_config
 from agents import model_turn
+from agents import model_trace
 from agents import subgoal_runner
 from agents.context_compaction import build_effective_contents
 from agents.review_events import build_review_metadata_event_payload
@@ -71,6 +72,7 @@ MAX_RECENT_CONTEXT_TURNS = 8
 COMPACT_CONTEXT_AFTER_TURNS = 16
 _UNSET_STEP_SUMMARIZER: object = object()
 COMPUTER_USE_PROVIDER_NAMES = {"gemini_api", "gemini_computer_use"}
+MULTIMODAL_CHAT_PROVIDER_NAMES = {"openai", "openrouter", "nvidia"}
 
 MODEL_REQUEST_MAX_ATTEMPTS = 4
 MODEL_REQUEST_BASE_DELAY_SECONDS = 1.0
@@ -179,6 +181,7 @@ class BrowserAgent:
             *(custom_functions or []),
         ]
         self._step_review_metadata: dict[int, dict[str, Any]] = {}
+        self._last_model_request_context: dict[str, Any] | None = None
         self._latest_url: str | None = None
         self._current_subgoal_id: int | None = None
         self._empty_model_turn_retries = 0
@@ -190,6 +193,7 @@ class BrowserAgent:
             custom_functions=self._custom_functions,
             grounding=grounding,
             navigation_scope=self._navigation_scope,
+            use_computer_use_tools=provider_name in COMPUTER_USE_PROVIDER_NAMES,
         )
         self._review_service = ActionReviewService(
             query=self._query,
@@ -290,11 +294,15 @@ class BrowserAgent:
                 "grounding='text' requires a standard text model provider, "
                 f"but llm_client uses '{provider_name}'. Use LLMClient.for_text()."
             )
-        if grounding in ("vision", "mixed") and provider_name not in COMPUTER_USE_PROVIDER_NAMES:
+        if (
+            grounding in ("vision", "mixed")
+            and provider_name not in COMPUTER_USE_PROVIDER_NAMES
+            and provider_name not in MULTIMODAL_CHAT_PROVIDER_NAMES
+        ):
             raise ValueError(
-                f"grounding='{grounding}' requires a computer-use model provider, "
-                f"but llm_client uses '{provider_name}'. Use LLMClient.for_computer_use() "
-                "or set models.actor.provider to 'gemini'."
+                f"grounding='{grounding}' requires either a computer-use provider "
+                "or an OpenAI-compatible provider that supports image inputs, "
+                f"but llm_client uses '{provider_name}'."
             )
 
     def _emit_event(self, event_type: str, **payload: Any) -> None:
@@ -363,6 +371,16 @@ class BrowserAgent:
             recent_turn_limit=MAX_RECENT_CONTEXT_TURNS,
             compact_after=COMPACT_CONTEXT_AFTER_TURNS,
         )
+        self._last_model_request_context = {
+            "model": self._model_name,
+            "system_instruction": model_trace.serialize_content(
+                self._generate_content_config.system_instruction
+            ),
+            "contents": [
+                model_trace.serialize_content(content)
+                for content in effective_contents
+            ],
+        }
         return self._llm_client.generate_content(
             model=self._model_name,
             contents=effective_contents,
@@ -415,7 +433,14 @@ class BrowserAgent:
         last_error: Optional[Exception] = None
         for attempt in range(1, MODEL_REQUEST_MAX_ATTEMPTS + 1):
             try:
-                return self.get_model_response()
+                response = self.get_model_response()
+                self._emit_event(
+                    "llm_inference",
+                    step_id=step_id,
+                    raw_context=self._last_model_request_context,
+                    raw_response=model_trace.serialize_model_response(response),
+                )
+                return response
             except Exception as e:
                 last_error = e
                 if not self._should_retry_model_request(e) or attempt == MODEL_REQUEST_MAX_ATTEMPTS:

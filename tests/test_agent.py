@@ -150,11 +150,11 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIn("list_tabs", text)
         self.assertIn("switch_to_tab or close_current_tab", text)
 
-    def test_vision_grounding_rejects_non_computer_use_provider(self):
+    def test_vision_grounding_rejects_non_multimodal_provider(self):
         llm_client = MagicMock(spec=LLMClient)
-        llm_client.provider_name = "openrouter"
+        llm_client.provider_name = "plain_text_provider"
 
-        with self.assertRaisesRegex(ValueError, "requires a computer-use model provider"):
+        with self.assertRaisesRegex(ValueError, "supports image inputs"):
             BrowserAgent(
                 browser_computer=self.mock_browser_computer,
                 query="test query",
@@ -163,6 +163,40 @@ class TestBrowserAgent(unittest.TestCase):
                 grounding="vision",
                 step_summarizer=None,
             )
+
+    def test_openrouter_mixed_grounding_uses_function_tools_for_vision_and_refs(self):
+        llm_client = MagicMock(spec=LLMClient)
+        llm_client.provider_name = "openrouter"
+        llm_client.build_function_declaration.side_effect = (
+            lambda callable_: types.FunctionDeclaration(
+                name=callable_.__name__,
+                description=callable_.__doc__,
+                parameters_json_schema={"type": "object", "properties": {}},
+            )
+        )
+
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="vision-capable-openrouter-model",
+            llm_client=llm_client,
+            grounding="mixed",
+            step_summarizer=None,
+        )
+
+        tools = agent._generate_content_config.tools
+        if tools is None:
+            self.fail("Expected generate content tools")
+        self.assertEqual(len(tools), 1)
+        declarations = tools[0].function_declarations
+        if declarations is None:
+            self.fail("Expected function declarations tool")
+        declaration_names = [declaration.name for declaration in declarations]
+        self.assertIn("click_at", declaration_names)
+        self.assertIn("type_text_at", declaration_names)
+        self.assertIn("click_by_ref", declaration_names)
+        self.assertIn("check_by_ref", declaration_names)
+        self.assertNotIn("search", declaration_names)
 
     @patch("agents.actor_agent.LLMClient.from_provider_name")
     def test_default_config_provider_is_compatible_with_text_grounding(
@@ -283,6 +317,38 @@ class TestBrowserAgent(unittest.TestCase):
             model="test_model",
             contents=self.agent._contents,
             config=self.agent._generate_content_config,
+        )
+        self.assertEqual(self.agent._last_model_request_context["model"], "test_model")
+        self.assertIn("system_instruction", self.agent._last_model_request_context)
+        self.assertEqual(
+            self.agent._last_model_request_context["contents"][0]["role"],
+            "user",
+        )
+
+    def test_model_request_emits_raw_context_and_response(self):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        self.mock_llm_client.generate_content.return_value = self.make_response(
+            [types.Part(text="hello")]
+        )
+
+        response = agent._request_model_response(7)
+
+        self.assertIs(response, self.mock_llm_client.generate_content.return_value)
+        self.assertEqual(events[0]["type"], "llm_inference")
+        self.assertEqual(events[0]["step_id"], 7)
+        self.assertEqual(events[0]["raw_context"]["model"], "test_model")
+        self.assertEqual(events[0]["raw_context"]["contents"][0]["role"], "user")
+        self.assertEqual(
+            events[0]["raw_response"]["candidates"][0]["content"]["parts"][0]["text"],
+            "hello",
         )
 
     def test_get_model_response_compacts_long_trajectory_for_llm_only(self):
@@ -440,6 +506,7 @@ class TestBrowserAgent(unittest.TestCase):
             [event["type"] for event in events],
             [
                 "step_started",
+                "llm_inference",
                 "model_response",
                 "reasoning_extracted",
                 "function_calls_extracted",
@@ -544,8 +611,8 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(function_response.response, {"url": "https://example.com"})
         self.assertEqual(inline_data.mime_type, "image/png")
         self.assertEqual(inline_data.data, b"screenshot")
-        self.assertEqual(events[4]["type"], "action_executed")
-        self.assertEqual(events[4]["artifacts"], self.mock_browser_computer.latest_artifact_metadata.return_value)
+        action_event = next(event for event in events if event["type"] == "action_executed")
+        self.assertEqual(action_event["artifacts"], self.mock_browser_computer.latest_artifact_metadata.return_value)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_dict_function_response(self, mock_get_model_response):
@@ -1117,6 +1184,7 @@ class TestBrowserAgent(unittest.TestCase):
             [event["type"] for event in events],
             [
                 "step_started",
+                "llm_inference",
                 "model_response",
                 "reasoning_extracted",
                 "function_calls_extracted",
@@ -1219,6 +1287,7 @@ class TestBrowserAgent(unittest.TestCase):
             [event["type"] for event in events],
             [
                 "step_started",
+                "llm_inference",
                 "model_response",
                 "reasoning_extracted",
                 "function_calls_extracted",

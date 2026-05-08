@@ -36,6 +36,7 @@ from tools.types import (
 )
 from tools.wait_5_seconds import handle_wait_5_seconds
 from tools.wait_for_ref import handle_wait_for_ref
+from tools.vision_mode_tools import VISION_MODE_TOOL_DESCRIPTORS
 
 
 MAX_ARIA_SNAPSHOT_CHARS = 120_000
@@ -70,9 +71,11 @@ class BrowserToolExecutor:
         custom_functions: list[CustomFunction] | None = None,
         grounding: GroundingMode = "vision",
         navigation_scope: NavigationScope | None = None,
+        use_computer_use_tools: bool = True,
     ) -> None:
         self._browser_computer = browser_computer
         self._grounding = grounding
+        self._use_computer_use_tools = use_computer_use_tools
         self._navigation_scope = navigation_scope
         self._custom_functions = {
             custom_function.__name__: custom_function
@@ -92,36 +95,75 @@ class BrowserToolExecutor:
             build_function_declaration(fn) for fn in self._custom_functions.values()
         ]
 
-        if self._grounding == "vision":
+        excluded_names = set(excluded_predefined_functions or [])
+
+        if self._grounding == "vision" and self._use_computer_use_tools:
             return [
                 types.Tool(
                     computer_use=types.ComputerUse(
                         environment=types.Environment.ENVIRONMENT_BROWSER,
-                        excluded_predefined_functions=excluded_predefined_functions or [],
+                        excluded_predefined_functions=list(excluded_names),
                     )
                 ),
                 types.Tool(function_declarations=custom_declarations),
             ]
 
+        if self._grounding == "vision":
+            vision_declarations = self._build_unique_declarations(
+                build_function_declaration,
+                VISION_MODE_TOOL_DESCRIPTORS,
+                excluded_names=excluded_names,
+            )
+            return [types.Tool(function_declarations=[*vision_declarations, *custom_declarations])]
+
         if self._grounding == "text":
-            text_declarations = [
-                build_function_declaration(fn) for fn in TEXT_MODE_TOOL_DESCRIPTORS
-            ]
+            text_declarations = self._build_unique_declarations(
+                build_function_declaration,
+                TEXT_MODE_TOOL_DESCRIPTORS,
+                excluded_names=excluded_names,
+            )
             return [types.Tool(function_declarations=[*text_declarations, *custom_declarations])]
 
         # mixed: ComputerUse predefined tools + semantic ref tools + custom
-        semantic_declarations = [
-            build_function_declaration(fn) for fn in TEXT_MODE_TOOL_DESCRIPTORS
-        ]
-        return [
-            types.Tool(
-                computer_use=types.ComputerUse(
-                    environment=types.Environment.ENVIRONMENT_BROWSER,
-                    excluded_predefined_functions=excluded_predefined_functions or [],
-                )
-            ),
-            types.Tool(function_declarations=[*semantic_declarations, *custom_declarations]),
-        ]
+        semantic_declarations = self._build_unique_declarations(
+            build_function_declaration,
+            TEXT_MODE_TOOL_DESCRIPTORS,
+            excluded_names=excluded_names,
+        )
+        if self._use_computer_use_tools:
+            return [
+                types.Tool(
+                    computer_use=types.ComputerUse(
+                        environment=types.Environment.ENVIRONMENT_BROWSER,
+                        excluded_predefined_functions=list(excluded_names),
+                    )
+                ),
+                types.Tool(function_declarations=[*semantic_declarations, *custom_declarations]),
+            ]
+
+        vision_declarations = self._build_unique_declarations(
+            build_function_declaration,
+            [*VISION_MODE_TOOL_DESCRIPTORS, *TEXT_MODE_TOOL_DESCRIPTORS],
+            excluded_names=excluded_names,
+        )
+        return [types.Tool(function_declarations=[*vision_declarations, *custom_declarations])]
+
+    @staticmethod
+    def _build_unique_declarations(
+        build_function_declaration: Callable[[Callable[..., object]], types.FunctionDeclaration],
+        descriptors: list[Callable[..., object]],
+        *,
+        excluded_names: set[str],
+    ) -> list[types.FunctionDeclaration]:
+        declarations: list[types.FunctionDeclaration] = []
+        seen = set()
+        for descriptor in descriptors:
+            name = descriptor.__name__
+            if name in excluded_names or name in seen:
+                continue
+            seen.add(name)
+            declarations.append(build_function_declaration(descriptor))
+        return declarations
 
     def execute_call(self, action: types.FunctionCall) -> ExecutedCall:
         captures_actions = hasattr(type(self._browser_computer), "begin_action_capture")
