@@ -232,6 +232,34 @@ function renderActionPreviewGallery(previews) {
     `<div class="artifact-gallery">${cards.join('')}</div>`;
 }
 
+function llmInferenceForStep(stepId) {
+  if (stepId == null || typeof window.getLlmInferenceForStep !== 'function') return null;
+  return window.getLlmInferenceForStep(stepId);
+}
+
+function formatRawJson(value) {
+  if (value == null) return 'null';
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (_) {
+    return String(value);
+  }
+}
+
+function renderLlmInferenceButton(inference) {
+  if (!inference) return '';
+  return `
+    <details class="llm-raw-details">
+      <summary class="llm-raw-button">View LLM raw context / response</summary>
+      <div class="llm-raw-block">
+        <div class="llm-raw-title">Raw context</div>
+        <pre>${escHtml(formatRawJson(inference.rawContext))}</pre>
+        <div class="llm-raw-title">Output response</div>
+        <pre>${escHtml(formatRawJson(inference.rawResponse))}</pre>
+      </div>
+    </details>`;
+}
+
 function actionLabel(actionName, args) {
   const values = args || {};
   const refLabel = values.ref_name || values.ref;
@@ -367,6 +395,7 @@ function recordActionExecution(ev) {
       beforeScreenshotPath: ev.artifacts && ev.artifacts.before_screenshot_path,
       afterScreenshotPath: ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path),
       videoPath: ev.artifacts && ev.artifacts.video_path,
+      llmInference: llmInferenceForStep(ev.step_id),
       visits: 0,
       firstStep: ev.step_id,
       lastStep: ev.step_id,
@@ -384,6 +413,7 @@ function recordActionExecution(ev) {
   actionNode.beforeScreenshotPath = (ev.artifacts && ev.artifacts.before_screenshot_path) || actionNode.beforeScreenshotPath;
   actionNode.afterScreenshotPath = (ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path)) || actionNode.afterScreenshotPath;
   actionNode.videoPath = (ev.artifacts && ev.artifacts.video_path) || actionNode.videoPath;
+  actionNode.llmInference = llmInferenceForStep(ev.step_id) || actionNode.llmInference;
   viewportNode.actionSequence.push(actionId);
   trajectoryCurrentActionId = actionId;
   updateGraph();
@@ -493,6 +523,7 @@ function buildUrlGraphData() {
     viewportCount: src.viewportIds ? src.viewportIds.size : 0,
     actionCount: src.actionIds ? src.actionIds.size : 0,
     actionPreviews: collectActionPreviewArtifacts(src.actionIds),
+    llmInference: llmInferenceForStep(src.lastStep),
     isRoot: trajectoryRoots.includes(src.id),
     isCurrent: src.id === trajectoryCurrentKey,
     drillable: !!(src.viewportIds && src.viewportIds.size),
@@ -542,6 +573,7 @@ function buildViewportGraphData(urlId) {
       lastStep: vp.lastStep,
       actionCount: vp.actionIds.size,
       actionPreviews: collectActionPreviewArtifacts(vp.actionIds),
+      llmInference: llmInferenceForStep(vp.lastStep),
       isCurrent: vp.id === trajectoryCurrentViewportId,
       drillable: !!vp.actionIds.size,
     }));
@@ -575,6 +607,7 @@ function buildActionGraphData(viewportId) {
     lastStep: viewportNode.lastStep,
     actionCount: viewportNode.actionIds.size,
     actionPreviews: collectActionPreviewArtifacts(viewportNode.actionIds),
+    llmInference: llmInferenceForStep(viewportNode.lastStep),
     isRoot: true,
     isCurrent: viewportNode.id === trajectoryCurrentViewportId,
   };
@@ -582,7 +615,12 @@ function buildActionGraphData(viewportId) {
     .map(id => trajectoryActions.get(id))
     .filter(Boolean)
     .sort((a, b) => (a.firstStep - b.firstStep) || (a.order - b.order))
-    .map(action => ({ ...action, argsText: formatArgs(action.args || {}), isCurrent: action.id === trajectoryCurrentActionId }));
+    .map(action => ({
+      ...action,
+      argsText: formatArgs(action.args || {}),
+      llmInference: action.llmInference || llmInferenceForStep(action.lastStep || action.step),
+      isCurrent: action.id === trajectoryCurrentActionId,
+    }));
   const actionIds = new Set(actions.map(action => action.id));
   const links = detectCycleEdges(buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true));
   const crumbs = [{ label: 'URLs', level: 'url' }];
@@ -684,7 +722,7 @@ function renderSelection(d) {
   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">first step</span> <span class="v">#${d.firstStep ?? d.step ?? '—'}</span></span></div>`);
   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">last step</span> <span class="v">#${d.lastStep ?? d.step ?? '—'}</span></span></div>`);
   if (d.drillable)   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">tip</span> <span class="v">double-click to drill in</span></span></div>`);
-  el.innerHTML = `<div class="side-sel-title" style="color: var(--md-sys-color-primary); font-weight:600; margin-bottom:6px; word-break:break-all;">${escHtml(title)}</div>` + rows.join('') + renderActionArtifacts(d.artifacts) + renderActionPreviewGallery(d.actionPreviews);
+  el.innerHTML = `<div class="side-sel-title" style="color: var(--md-sys-color-primary); font-weight:600; margin-bottom:6px; word-break:break-all;">${escHtml(title)}</div>` + rows.join('') + renderLlmInferenceButton(d.llmInference) + renderActionArtifacts(d.artifacts) + renderActionPreviewGallery(d.actionPreviews);
 }
 
 function setGraphDrilldown(next) {

@@ -218,6 +218,20 @@ def test_panel_graph_action_artifacts_do_not_render_flat_three_card_compare():
     assert "renderArtifactCard('after', afterShot)" not in artifact_renderer
 
 
+def test_panel_graph_selection_can_show_llm_raw_context_and_response():
+    assert "let llmInferencesByStep = new Map();" in PANEL_HTML
+    assert "case 'llm_inference':" in PANEL_HTML
+    assert "storeLlmInference(ev);" in PANEL_HTML
+    assert "window.getLlmInferenceForStep = getLlmInferenceForStep;" in PANEL_HTML
+    assert "function renderLlmInferenceButton(inference)" in PANEL_HTML
+    assert "View LLM raw context / response" in PANEL_HTML
+    assert "Raw context" in PANEL_HTML
+    assert "Output response" in PANEL_HTML
+    assert "llmInference: llmInferenceForStep(ev.step_id)" in PANEL_HTML
+    assert "renderLlmInferenceButton(d.llmInference)" in PANEL_HTML
+    assert ".llm-raw-details" in PANEL_HTML
+
+
 def test_panel_removes_browser_state_tree_rendering():
     assert "no BrowserState graph metadata yet." not in PANEL_HTML
     assert ".graph-node.group circle" not in PANEL_HTML

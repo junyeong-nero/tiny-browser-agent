@@ -49,6 +49,7 @@ let subgoals = [];
 let pendingReplanFailedSubgoalId = null;
 // activity[step_id] = { step, subgoalId, phaseId, what, why, outcome }
 let activity = [];
+let llmInferencesByStep = new Map();
 const MAX_ACTIVITY = 80;
 const THEME_STORAGE_KEY = "bragent.theme";
 const THEME_ICON_PATHS = {
@@ -271,6 +272,7 @@ function resetSidebar() {
   subgoals = [];
   pendingReplanFailedSubgoalId = null;
   activity = [];
+  llmInferencesByStep = new Map();
   currentTimelineStepId = null;
   currentTimelineStepGroup = null;
   highlightTimelineActionStep(null);
@@ -282,6 +284,22 @@ function resetSidebar() {
   metaStep.textContent = '—';
   metaUrl.textContent  = '—';
 }
+
+function storeLlmInference(ev) {
+  if (!ev || ev.step_id == null) return;
+  llmInferencesByStep.set(String(ev.step_id), {
+    stepId: ev.step_id,
+    rawContext: ev.raw_context || null,
+    rawResponse: ev.raw_response || null,
+  });
+}
+
+function getLlmInferenceForStep(stepId) {
+  if (stepId == null) return null;
+  return llmInferencesByStep.get(String(stepId)) || null;
+}
+
+window.getLlmInferenceForStep = getLlmInferenceForStep;
 
 function setSideTask(query) {
   sideTask.className = '';
@@ -529,6 +547,10 @@ function handleEvent(ev) {
       metaStep.textContent = `#${ev.step_id}`;
       beginActionStepGroup(ev.step_id);
       addSpeaker('browser-agent', `step ${ev.step_id}`);
+      break;
+
+    case 'llm_inference':
+      storeLlmInference(ev);
       break;
 
     case 'reasoning_extracted':
