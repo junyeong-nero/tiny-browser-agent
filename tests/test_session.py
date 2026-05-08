@@ -206,7 +206,42 @@ def test_run_task_emits_live_log_session_id_when_logging_enabled(mock_browser_ag
 
     session.run_task("test query")
 
-    task_started = next(call.args[0] for call in mock_emit.call_args_list if call.args[0]["type"] == "task_started")
+    task_started = next(
+        call.args[0]
+        for call in mock_emit.call_args_list
+        if call.args[0]["type"] == "task_started"
+    )
     assert task_started["query"] == "test query"
     assert task_started["session_id"]
     assert (tmp_path / task_started["session_id"] / "session.json").exists()
+
+
+@patch("session.register_event_sink")
+@patch("session.emit")
+@patch("session.BrowserAgent")
+def test_run_task_video_only_uses_video_logger_without_json_event_sink(
+    mock_browser_agent,
+    mock_emit,
+    mock_register_event_sink,
+    tmp_path,
+):
+    browser = MagicMock()
+    mock_browser_agent.return_value.final_reasoning = "done"
+    mock_browser_agent.return_value.latest_url = None
+    session = BrowserSession(
+        browser_computer=browser,
+        model_name="test_model",
+        logs_dir=tmp_path,
+        log_enabled=False,
+        video_enabled=True,
+    )
+
+    session.run_task("test query")
+
+    logger = mock_browser_agent.call_args.kwargs["artifact_logger"]
+    assert logger.history_dir() is None
+    assert logger.video_dir() is not None
+    mock_register_event_sink.assert_not_called()
+    task_started = next(call.args[0] for call in mock_emit.call_args_list if call.args[0]["type"] == "task_started")
+    assert task_started["session_id"]
+    assert not (tmp_path / task_started["session_id"] / "events.jsonl").exists()

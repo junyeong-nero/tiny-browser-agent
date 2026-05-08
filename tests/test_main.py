@@ -19,6 +19,7 @@ class TestMain(unittest.TestCase):
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.log = True
+        mock_args.video = False
         mock_args.ui = False
         mock_args.grounding = "vision"
         mock_args.planner = False
@@ -51,6 +52,9 @@ class TestMain(unittest.TestCase):
         )
         mock_browser_agent.assert_called_once()
         mock_browser_agent.return_value.agent_loop.assert_called_once()
+        artifact_logger = mock_playwright_browser.call_args.kwargs["artifact_logger"]
+        self.assertIsNotNone(artifact_logger.history_dir())
+        self.assertIsNone(artifact_logger.video_dir())
 
     @patch("main.argparse.ArgumentParser")
     @patch("main.PlaywrightBrowser")
@@ -73,6 +77,7 @@ class TestMain(unittest.TestCase):
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.log = False
+        mock_args.video = False
         mock_args.ui = False
         mock_args.grounding = "vision"
         mock_args.planner = True
@@ -118,6 +123,7 @@ class TestMain(unittest.TestCase):
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.log = False
+        mock_args.video = False
         mock_args.ui = False
         mock_args.grounding = "vision"
         mock_args.planner = True
@@ -156,6 +162,7 @@ class TestMain(unittest.TestCase):
         mock_args.query = 'test_query'
         mock_args.model = 'test_model'
         mock_args.log = False
+        mock_args.video = False
         mock_args.ui = False
         mock_args.grounding = "vision"
         mock_args.planner = False
@@ -186,6 +193,44 @@ class TestMain(unittest.TestCase):
             storage_state_path=None,
             stealth=False,
         )
+
+    @patch("main.argparse.ArgumentParser")
+    @patch("main.PlaywrightBrowser")
+    @patch("main.BrowserAgent")
+    def test_main_video_only_enables_video_artifacts_without_history_log(
+        self,
+        mock_browser_agent,
+        mock_playwright_browser,
+        mock_arg_parser,
+    ):
+        mock_args = MagicMock()
+        mock_args.env = 'playwright'
+        mock_args.initial_url = 'https://www.google.com'
+        mock_args.search_engine_url = 'https://duckduckgo.com'
+        mock_args.highlight_mouse = False
+        mock_args.headless = False
+        mock_args.screen_size = (1280, 720)
+        mock_args.query = 'test_query'
+        mock_args.model = 'test_model'
+        mock_args.log = False
+        mock_args.video = True
+        mock_args.ui = False
+        mock_args.grounding = "vision"
+        mock_args.planner = False
+        mock_args.stealth = False
+        mock_args.channel = None
+        mock_args.user_agent = None
+        mock_args.locale = None
+        mock_args.timezone_id = None
+        mock_args.proxy = None
+        mock_args.storage_state = None
+        mock_arg_parser.return_value.parse_args.return_value = mock_args
+
+        main.main()
+
+        artifact_logger = mock_playwright_browser.call_args.kwargs["artifact_logger"]
+        self.assertIsNone(artifact_logger.history_dir())
+        self.assertIsNotNone(artifact_logger.video_dir())
 
     @patch("main.detect_screen_size", return_value=(1440, 900))
     def test_resolve_screen_size_uses_detected_display_size(self, _mock_detect):

@@ -22,6 +22,7 @@ from google.genai import types
 
 from browser.artifact_logger import ArtifactLogger
 from browser.playwright import PlaywrightBrowser, playwright
+from browser.recording import BrowserRecordingHelper
 from agents.actor_agent import BrowserAgent
 
 
@@ -166,6 +167,67 @@ class TestPlaywrightLogging(unittest.TestCase):
         self.assertIn("--window-size=1440,900", launch_kwargs["args"])
         self.assertIn("--window-position=0,0", launch_kwargs["args"])
         browser.new_context.assert_called_once_with(no_viewport=True)
+
+    @patch("browser.playwright.PlaywrightBrowser._start_frame_stream", return_value=None)
+    @patch("browser.playwright.sync_playwright")
+    def test_enter_does_not_record_video_for_log_only_artifacts(
+        self,
+        mock_sync_playwright,
+        _mock_start_frame_stream,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            page = MagicMock()
+            context = MagicMock()
+            context.new_page.return_value = page
+            browser = MagicMock()
+            browser.new_context.return_value = context
+            playwright_instance = MagicMock()
+            playwright_instance.chromium.launch.return_value = browser
+            mock_sync_playwright.return_value.start.return_value = playwright_instance
+            computer = PlaywrightBrowser(
+                screen_size=(1440, 900),
+                artifact_logger=ArtifactLogger(log_dir=tmp_dir),
+            )
+
+            with computer:
+                pass
+
+            context_kwargs = browser.new_context.call_args.kwargs
+            self.assertNotIn("record_video_dir", context_kwargs)
+            self.assertFalse((Path(tmp_dir) / "video").exists())
+
+    @patch("browser.playwright.PlaywrightBrowser._start_frame_stream", return_value=None)
+    @patch("browser.playwright.sync_playwright")
+    def test_enter_records_video_when_video_artifacts_are_enabled(
+        self,
+        mock_sync_playwright,
+        _mock_start_frame_stream,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            page = MagicMock()
+            context = MagicMock()
+            context.new_page.return_value = page
+            browser = MagicMock()
+            browser.new_context.return_value = context
+            playwright_instance = MagicMock()
+            playwright_instance.chromium.launch.return_value = browser
+            mock_sync_playwright.return_value.start.return_value = playwright_instance
+            computer = PlaywrightBrowser(
+                screen_size=(1440, 900),
+                artifact_logger=ArtifactLogger(
+                    log_dir=tmp_dir,
+                    history_enabled=False,
+                    video_enabled=True,
+                ),
+            )
+
+            with computer:
+                pass
+
+            context_kwargs = browser.new_context.call_args.kwargs
+            self.assertEqual(context_kwargs["record_video_dir"], str(Path(tmp_dir) / "video"))
+            self.assertEqual(context_kwargs["record_video_size"], {"width": 1440, "height": 900})
+            self.assertTrue((Path(tmp_dir) / "video").is_dir())
 
     def test_handle_new_page_switches_active_page_without_closing_popup(self):
         computer = PlaywrightBrowser(screen_size=(1440, 900))
@@ -569,9 +631,16 @@ class TestPlaywrightLogging(unittest.TestCase):
 
     def test_action_clip_gif_updates_latest_metadata(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
-            computer = PlaywrightBrowser(
-                screen_size=(1440, 900),
-                artifact_logger=ArtifactLogger(log_dir=tmp_dir),
+            artifact_logger = ArtifactLogger(log_dir=tmp_dir)
+            fake_shutil = MagicMock()
+            fake_shutil.which.return_value = "/usr/bin/ffmpeg"
+            fake_subprocess = MagicMock()
+            fake_subprocess.PIPE = object()
+            fake_subprocess.DEVNULL = object()
+            recording = BrowserRecordingHelper(
+                artifact_logger=artifact_logger,
+                subprocess_module=fake_subprocess,
+                shutil_module=fake_shutil,
             )
             history_dir = Path(tmp_dir) / "history"
             history_dir.mkdir(parents=True)
@@ -580,7 +649,7 @@ class TestPlaywrightLogging(unittest.TestCase):
                 json.dumps({"step": 1, "metadata_path": "step-0001.json"}) + "\n",
                 encoding="utf-8",
             )
-            computer._artifact_logger._latest_artifact_metadata = {
+            artifact_logger._latest_artifact_metadata = {
                 "step": 1,
                 "metadata_path": "step-0001.json",
             }
@@ -605,11 +674,15 @@ class TestPlaywrightLogging(unittest.TestCase):
 
                 return FakeProc()
 
-            with patch("browser.playwright.shutil.which", return_value="/usr/bin/ffmpeg"), patch(
-                "browser.playwright.subprocess.Popen", side_effect=fake_popen
-            ):
-                updates = computer._write_action_clip_gif([(10.0, b"frame1"), (12.0, b"frame2")], {"step": 1})
-                computer._merge_latest_metadata({"action_clip_gif_path": updates, "action_capture_frame_count": 2})
+            fake_subprocess.Popen.side_effect = fake_popen
+
+            updates = recording.write_action_clip_gif(
+                [(10.0, b"frame1"), (12.0, b"frame2")],
+                {"step": 1},
+            )
+            recording.merge_latest_metadata(
+                {"action_clip_gif_path": updates, "action_capture_frame_count": 2}
+            )
 
             self.assertEqual(captured_cmd["cmd"][captured_cmd["cmd"].index("-framerate") + 1], "0.500")
             filter_complex = captured_cmd["cmd"][captured_cmd["cmd"].index("-filter_complex") + 1]
@@ -619,13 +692,15 @@ class TestPlaywrightLogging(unittest.TestCase):
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             self.assertEqual(metadata["action_clip_gif_path"], "step-0001-action.gif")
             self.assertEqual(metadata["action_capture_frame_count"], 2)
-            self.assertEqual(computer.latest_artifact_metadata()["action_clip_gif_path"], "step-0001-action.gif")
+            self.assertEqual(
+                artifact_logger.latest_artifact_metadata()["action_clip_gif_path"],
+                "step-0001-action.gif",
+            )
 
     def test_action_gif_samples_sixty_frames_across_full_capture(self):
-        computer = PlaywrightBrowser(screen_size=(1440, 900))
         frames = [(float(i), f"frame-{i}".encode()) for i in range(120)]
 
-        sampled = computer._sample_action_frames(frames, max_frames=60)
+        sampled = BrowserRecordingHelper.sample_action_frames(frames, max_frames=60)
 
         self.assertEqual(len(sampled), 60)
         self.assertEqual(sampled[0], frames[0])

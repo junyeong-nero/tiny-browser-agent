@@ -80,6 +80,7 @@ class WebVoyagerRunnerTest(unittest.TestCase):
             grounding=None,
             model=None,
             log_agent=False,
+            video_agent=False,
             metadata_initial_url=True,
             extra_arg=[],
         )
@@ -88,6 +89,23 @@ class WebVoyagerRunnerTest(unittest.TestCase):
         self.assertEqual(
             runner.build_command(args, task),
             ["uv", "run", "main.py", "--planner", "--headless", "True", "--initial_url", "https://naver.com", "태스크"],
+        )
+
+    def test_build_command_can_forward_video_flag(self):
+        args = argparse.Namespace(
+            headless="True",
+            grounding=None,
+            model=None,
+            log_agent=True,
+            video_agent=True,
+            metadata_initial_url=False,
+            extra_arg=[],
+        )
+        task = runner.TaskRow(index=1, task="태스크", metadata={})
+
+        self.assertEqual(
+            runner.build_command(args, task),
+            ["uv", "run", "main.py", "--planner", "--headless", "True", "--log", "--video", "태스크"],
         )
 
 

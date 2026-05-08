@@ -2,8 +2,10 @@ import argparse
 import sys
 import threading
 import webbrowser
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(SRC_DIR) not in sys.path:
@@ -11,7 +13,7 @@ if str(SRC_DIR) not in sys.path:
 
 from agents.actor_agent import BrowserAgent
 from agents.planner_agent import PlannerAgent
-from agents.types import GroundingMode
+from agents.types import GroundingMode, Subgoal
 from browser import ArtifactLogger, PlaywrightBrowser
 import config as app_config
 from ui.bridge import emit, register_event_sink, unregister_event_sink
@@ -28,7 +30,9 @@ def _parse_proxy(value: str | None) -> dict[str, str] | None:
 
     parsed = urlparse(value)
     if not parsed.scheme or not parsed.hostname:
-        raise argparse.ArgumentTypeError(f"--proxy must be scheme://[user:pass@]host[:port], got: {value}")
+        raise argparse.ArgumentTypeError(
+            f"--proxy must be scheme://[user:pass@]host[:port], got: {value}"
+        )
     server = f"{parsed.scheme}://{parsed.hostname}"
     if parsed.port:
         server += f":{parsed.port}"
@@ -101,7 +105,7 @@ def resolve_screen_size(screen_size: tuple[int, int] | None) -> tuple[int, int]:
     return PLAYWRIGHT_SCREEN_SIZE
 
 
-def main() -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the browser agent with a query.")
     parser.add_argument(
         "query",
@@ -160,7 +164,13 @@ def main() -> int:
         "--log",
         action="store_true",
         default=False,
-        help="Save Playwright video and per-step DOM/screenshot history under logs/history/.",
+        help="Save per-step DOM/screenshot/GIF history plus JSON action trajectory under logs/history/.",
+    )
+    parser.add_argument(
+        "--video",
+        action="store_true",
+        default=False,
+        help="Save Playwright .webm and session_60fps.mp4 video under logs/history/<timestamp>/video/.",
     )
     parser.add_argument(
         "--model",
@@ -222,21 +232,35 @@ def main() -> int:
         default=None,
         help="Path to a Playwright storage_state JSON. Loaded on start, saved on exit.",
     )
-    args = parser.parse_args()
+    return parser
 
+
+def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     if args.ui and args.query:
         parser.error("--ui and a positional query are mutually exclusive.")
     if not args.ui and not args.query:
         parser.error("A query is required when --ui is not used.")
 
-    artifact_logger = ArtifactLogger(
-        log_dir=str(LOGS_DIR / datetime.now().strftime("%Y%m%d-%H%M%S")) if args.log else None
+
+def _create_artifact_logger(*, log_enabled: bool, video_enabled: bool) -> ArtifactLogger:
+    log_dir = (
+        str(LOGS_DIR / datetime.now().strftime("%Y%m%d-%H%M%S"))
+        if log_enabled or video_enabled
+        else None
+    )
+    return ArtifactLogger(
+        log_dir=log_dir,
+        history_enabled=log_enabled,
+        video_enabled=video_enabled,
     )
 
-    screen_size = resolve_screen_size(args.screen_size)
 
-    env = PlaywrightBrowser(
-        screen_size=screen_size,
+def _create_playwright_browser(
+    args: argparse.Namespace,
+    artifact_logger: ArtifactLogger,
+) -> PlaywrightBrowser:
+    return PlaywrightBrowser(
+        screen_size=resolve_screen_size(args.screen_size),
         initial_url=args.initial_url,
         search_engine_url=args.search_engine_url,
         highlight_mouse=args.highlight_mouse,
@@ -252,73 +276,113 @@ def main() -> int:
         stealth=args.stealth,
     )
 
+
+def _session_metadata(
+    args: argparse.Namespace,
+    execution_constraints: Any,
+) -> dict[str, Any]:
+    return {
+        "query": args.query,
+        "model_name": args.model,
+        "grounding": args.grounding,
+        "started_at": datetime.now().isoformat(timespec="seconds"),
+        "use_planner": args.planner,
+        "video_enabled": args.video,
+        "constraints": execution_constraints.model_dump(),
+    }
+
+
+def _plan_subgoals(
+    args: argparse.Namespace,
+) -> tuple[
+    list[Subgoal] | None,
+    Callable[[Subgoal, str, list[Subgoal]], list[Subgoal]] | None,
+]:
+    if not args.planner:
+        return None, None
+
+    planner_kwargs: dict[str, Any] = {"query": args.query}
+    if args.log:
+        planner_kwargs["event_sink"] = emit
+    planner = PlannerAgent(**planner_kwargs)
+    subgoals = planner.plan()
+    if not subgoals:
+        emit({"type": "planner_fallback", "reason": "no valid subgoals returned"})
+        return None, None
+
+    print(f"Planner created {len(subgoals)} subgoal(s):")
+    for subgoal in subgoals:
+        print(f"  [{subgoal.id}] {subgoal.description}")
+    return subgoals, planner.replan
+
+
+def _run_cli_mode(
+    browser_computer: PlaywrightBrowser,
+    args: argparse.Namespace,
+    artifact_logger: ArtifactLogger,
+) -> None:
+    execution_constraints = app_config.execution_constraints()
+    if args.log:
+        artifact_logger.record_session_meta(_session_metadata(args, execution_constraints))
+        register_event_sink(artifact_logger.record_event)
+
+    emit({"type": "task_started", "query": args.query})
+    try:
+        subgoals, replan_callback = _plan_subgoals(args)
+        grounding: GroundingMode = args.grounding
+        agent = BrowserAgent(
+            browser_computer=browser_computer,
+            query=args.query,
+            model_name=args.model,
+            event_sink=emit if args.log else None,
+            artifact_logger=artifact_logger,
+            grounding=grounding,
+            subgoals=subgoals,
+            replan_callback=replan_callback,
+            max_steps_per_subgoal=execution_constraints.max_steps_per_subgoal,
+            max_total_steps=execution_constraints.max_total_steps,
+            max_subgoals=execution_constraints.max_subgoals,
+        )
+        agent.agent_loop()
+        emit({"type": "task_complete", "query": args.query})
+    except Exception as exc:
+        emit({"type": "task_failed", "query": args.query, "error_message": str(exc)})
+        raise
+    finally:
+        if args.log:
+            unregister_event_sink(artifact_logger.record_event)
+
+
+def main() -> int:
+    parser = _build_parser()
+    args = parser.parse_args()
+    _validate_args(args, parser)
+
+    artifact_logger = _create_artifact_logger(
+        log_enabled=args.log,
+        video_enabled=args.video,
+    )
+    env = _create_playwright_browser(args, artifact_logger)
+
     with env as browser_computer:
         if args.ui:
             _run_ui_mode(browser_computer, args)
         else:
-            subgoals = None
-            replan_callback = None
-            execution_constraints = app_config.execution_constraints()
-            if args.log:
-                artifact_logger.record_session_meta(
-                    {
-                        "query": args.query,
-                        "model_name": args.model,
-                        "grounding": args.grounding,
-                        "started_at": datetime.now().isoformat(timespec="seconds"),
-                        "use_planner": args.planner,
-                        "constraints": execution_constraints.model_dump(),
-                    }
-                )
-                register_event_sink(artifact_logger.record_event)
-            emit({"type": "task_started", "query": args.query})
-            try:
-                if args.planner:
-                    planner_kwargs = {"query": args.query}
-                    if args.log:
-                        planner_kwargs["event_sink"] = emit
-                    planner = PlannerAgent(**planner_kwargs)
-                    subgoals = planner.plan()
-                    if not subgoals:
-                        emit({"type": "planner_fallback", "reason": "no valid subgoals returned"})
-                        subgoals = None
-                    else:
-                        replan_callback = planner.replan
-                        print(f"Planner created {len(subgoals)} subgoal(s):")
-                        for sg in subgoals:
-                            print(f"  [{sg.id}] {sg.description}")
-
-                grounding: GroundingMode = args.grounding
-                agent = BrowserAgent(
-                    browser_computer=browser_computer,
-                    query=args.query,
-                    model_name=args.model,
-                    event_sink=emit if args.log else None,
-                    artifact_logger=artifact_logger,
-                    grounding=grounding,
-                    subgoals=subgoals,
-                    replan_callback=replan_callback,
-                    max_steps_per_subgoal=execution_constraints.max_steps_per_subgoal,
-                    max_total_steps=execution_constraints.max_total_steps,
-                    max_subgoals=execution_constraints.max_subgoals,
-                )
-                agent.agent_loop()
-                emit({"type": "task_complete", "query": args.query})
-            except Exception as exc:
-                emit({"type": "task_failed", "query": args.query, "error_message": str(exc)})
-                raise
-            finally:
-                if args.log:
-                    unregister_event_sink(artifact_logger.record_event)
+            _run_cli_mode(browser_computer, args, artifact_logger)
     return 0
 
 
-def _run_ui_mode(browser_computer: PlaywrightBrowser, args) -> None:
+def _run_ui_mode(browser_computer: PlaywrightBrowser, args: argparse.Namespace) -> None:
     from session import BrowserSession
     import ui.server as _ui_server
 
     ready = threading.Event()
-    server_thread = threading.Thread(target=_ui_server.start, kwargs={"on_ready": ready}, daemon=True, name="ui-server")
+    server_thread = threading.Thread(
+        target=_ui_server.start,
+        kwargs={"on_ready": ready},
+        daemon=True,
+        name="ui-server",
+    )
     server_thread.start()
 
     if not ready.wait(timeout=10):
@@ -333,10 +397,12 @@ def _run_ui_mode(browser_computer: PlaywrightBrowser, args) -> None:
         model_name=args.model,
         logs_dir=LOGS_DIR,
         log_enabled=args.log,
+        video_enabled=args.video,
         grounding=args.grounding,
         use_planner=args.planner,
     )
     session.run()
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

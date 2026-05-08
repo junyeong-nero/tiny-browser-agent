@@ -38,6 +38,48 @@ def test_session_id_returns_log_directory_name(tmp_path):
     assert ArtifactLogger().session_id() is None
 
 
+def test_log_dir_enables_history_but_not_video_by_default(tmp_path):
+    logger = ArtifactLogger(log_dir=str(tmp_path))
+
+    logger.prepare_log_dirs()
+
+    assert logger.history_dir() == tmp_path / "history"
+    assert logger.video_dir() is None
+    assert (tmp_path / "history").is_dir()
+    assert not (tmp_path / "video").exists()
+
+
+def test_video_dir_is_enabled_separately_from_history(tmp_path):
+    logger = ArtifactLogger(
+        log_dir=str(tmp_path),
+        history_enabled=False,
+        video_enabled=True,
+    )
+
+    logger.prepare_log_dirs()
+
+    assert logger.history_dir() is None
+    assert logger.video_dir() == tmp_path / "video"
+    assert not (tmp_path / "history").exists()
+    assert (tmp_path / "video").is_dir()
+
+
+def test_video_only_logger_does_not_write_json_trajectory(tmp_path):
+    logger = ArtifactLogger(
+        log_dir=str(tmp_path),
+        history_enabled=False,
+        video_enabled=True,
+    )
+
+    logger.record_event({"type": "task_started", "query": "hello"})
+    logger.record_action(tool="navigate", args={"url": "https://example.com"})
+    logger.record_session_meta({"query": "hello"})
+
+    assert not (tmp_path / "events.jsonl").exists()
+    assert not (tmp_path / "actions.jsonl").exists()
+    assert not (tmp_path / "session.json").exists()
+
+
 def test_write_snapshot_creates_action_gif_when_previous_screenshot_exists(tmp_path, monkeypatch):
     logger = ArtifactLogger(log_dir=str(tmp_path))
     monkeypatch.setattr("browser.artifact_logger.shutil.which", lambda name: "/usr/bin/ffmpeg")

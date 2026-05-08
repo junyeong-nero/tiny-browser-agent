@@ -38,20 +38,26 @@ class BrowserSession:
         log_enabled: bool,
         grounding: GroundingMode = "text",
         use_planner: bool = False,
+        video_enabled: bool = False,
     ) -> None:
         self._browser = browser_computer
         self._model_name = model_name
         self._logs_dir = logs_dir
         self._log_enabled = log_enabled
+        self._video_enabled = video_enabled
         self._grounding: GroundingMode = grounding
         self._use_planner = use_planner
         self._conversation_memory: list[TaskMemory] = []
 
     def _make_artifact_logger(self) -> ArtifactLogger:
-        if not self._log_enabled:
+        if not self._log_enabled and not self._video_enabled:
             return ArtifactLogger()
         log_dir = self._logs_dir / datetime.now().strftime("%Y%m%d-%H%M%S")
-        return ArtifactLogger(log_dir=str(log_dir))
+        return ArtifactLogger(
+            log_dir=str(log_dir),
+            history_enabled=self._log_enabled,
+            video_enabled=self._video_enabled,
+        )
 
     def _format_conversation_memory(self) -> str | None:
         if not self._conversation_memory:
@@ -110,6 +116,7 @@ class BrowserSession:
                     "grounding": self._grounding,
                     "started_at": datetime.now().isoformat(timespec="seconds"),
                     "use_planner": self._use_planner,
+                    "video_enabled": self._video_enabled,
                     "constraints": execution_constraints.model_dump(),
                 }
             )

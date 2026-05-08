@@ -119,7 +119,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--log-agent",
         action="store_true",
-        help="Forward --log to main.py so each browser-agent run records Playwright artifacts.",
+        help="Forward --log to main.py so each browser-agent run records trajectory and replay artifacts.",
+    )
+    parser.add_argument(
+        "--video-agent",
+        action="store_true",
+        help="Forward --video to main.py so each browser-agent run records .webm/.mp4 video artifacts.",
     )
     parser.add_argument(
         "--metadata-initial-url",
@@ -299,6 +304,8 @@ def build_command(args: argparse.Namespace, task: TaskRow) -> list[str]:
         command.extend(["--model", args.model])
     if args.log_agent:
         command.append("--log")
+    if getattr(args, "video_agent", False):
+        command.append("--video")
     if args.metadata_initial_url and task.initial_url:
         command.extend(["--initial_url", task.initial_url])
     command.extend(args.extra_arg)

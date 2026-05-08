@@ -8,21 +8,31 @@ from typing import Any
 
 
 class ArtifactLogger:
-    def __init__(self, log_dir: str | None = None):
+    def __init__(
+        self,
+        log_dir: str | None = None,
+        *,
+        history_enabled: bool | None = None,
+        video_enabled: bool = False,
+    ):
         self._log_dir = Path(log_dir) if log_dir else None
-        self._history_dir = self._log_dir / "history" if self._log_dir else None
-        self._video_dir = self._log_dir / "video" if self._log_dir else None
-        self._actions_file = self._log_dir / "actions.jsonl" if self._log_dir else None
-        self._events_file = self._log_dir / "events.jsonl" if self._log_dir else None
-        self._session_file = self._log_dir / "session.json" if self._log_dir else None
+        if history_enabled is None:
+            history_enabled = self._log_dir is not None
+        history_active = self._log_dir is not None and history_enabled
+        video_active = self._log_dir is not None and video_enabled
+        self._history_dir = self._log_dir / "history" if history_active else None
+        self._video_dir = self._log_dir / "video" if video_active else None
+        self._actions_file = self._log_dir / "actions.jsonl" if history_active else None
+        self._events_file = self._log_dir / "events.jsonl" if history_active else None
+        self._session_file = self._log_dir / "session.json" if history_active else None
         self._history_step = 0
         self._latest_artifact_metadata: dict[str, Any] | None = None
 
     def prepare_log_dirs(self) -> None:
-        if not self._history_dir or not self._video_dir:
-            return
-        self._history_dir.mkdir(parents=True, exist_ok=True)
-        self._video_dir.mkdir(parents=True, exist_ok=True)
+        if self._history_dir:
+            self._history_dir.mkdir(parents=True, exist_ok=True)
+        if self._video_dir:
+            self._video_dir.mkdir(parents=True, exist_ok=True)
 
     def history_dir(self) -> Path | None:
         return self._history_dir
