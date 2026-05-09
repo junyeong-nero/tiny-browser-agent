@@ -13,6 +13,74 @@ class WebVoyagerRunnerTest(unittest.TestCase):
         self.assertEqual(args.split, "train")
         self.assertEqual(args.task_field, "task")
 
+    def test_parse_args_accepts_level_filter(self):
+        args = runner.parse_args(["--level", "hard", "--level", "medium"])
+
+        self.assertEqual(args.level, ["hard", "medium"])
+
+    def test_fetch_tasks_filters_by_level_across_pages(self):
+        pages = [
+            {
+                "rows": [
+                    {"row_idx": 0, "row": {"id": "easy-0", "task": "easy task", "level": "easy"}},
+                    {"row_idx": 1, "row": {"id": "hard-1", "task": "hard task 1", "level": "hard"}},
+                ]
+            },
+            {
+                "rows": [
+                    {"row_idx": 2, "row": {"id": "medium-2", "task": "medium task", "level": "medium"}},
+                    {"row_idx": 3, "row": {"id": "hard-3", "task": "hard task 2", "level": "Hard"}},
+                ]
+            },
+        ]
+
+        def fake_request_rows(**kwargs):
+            return pages[0] if kwargs["offset"] == 0 else pages[1]
+
+        with mock.patch.object(runner, "MAX_PAGE_SIZE", 2), mock.patch.object(
+            runner, "_request_rows", side_effect=fake_request_rows
+        ) as request_rows:
+            tasks = runner.fetch_tasks(
+                dataset="junyeong-nero/korean-online-mind2web",
+                config="default",
+                split="train",
+                offset=0,
+                limit=2,
+                task_field="task",
+                levels=["hard"],
+            )
+
+        self.assertEqual([task.task_id for task in tasks], ["hard-1", "hard-3"])
+        self.assertEqual(request_rows.call_count, 2)
+
+    def test_fetch_tasks_filters_level_from_metadata(self):
+        payload = {
+            "rows": [
+                {
+                    "row_idx": 4,
+                    "row": {
+                        "id": "metadata-hard",
+                        "task": "metadata task",
+                        "metadata": '{"level": "hard", "website": "example.com"}',
+                    },
+                }
+            ]
+        }
+        with mock.patch.object(runner, "_request_rows", return_value=payload):
+            tasks = runner.fetch_tasks(
+                dataset="dataset",
+                config="default",
+                split="train",
+                offset=4,
+                limit=1,
+                task_field="task",
+                levels=["hard"],
+            )
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].task_id, "metadata-hard")
+        self.assertEqual(tasks[0].metadata["level"], "hard")
+
     def test_fetch_tasks_keeps_korean_id_and_initial_url(self):
         payload = {
             "rows": [

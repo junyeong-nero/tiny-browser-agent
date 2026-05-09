@@ -1,3 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
 uv run main.py --ui --highlight_mouse --planner --log \
 	--stealth \
 	--locale ko-KR \

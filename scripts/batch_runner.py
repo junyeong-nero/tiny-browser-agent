@@ -94,6 +94,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=10, help="Maximum number of tasks to run.")
     parser.add_argument("--workers", type=int, default=2, help="Number of parallel subprocesses.")
     parser.add_argument(
+        "--level",
+        choices=("easy", "medium", "hard"),
+        action="append",
+        default=[],
+        help=(
+            "Only run tasks whose dataset level column matches this value. "
+            "Repeat to include multiple levels."
+        ),
+    )
+    parser.add_argument(
         "--task-field",
         default=None,
         help=(
@@ -162,6 +172,7 @@ def fetch_tasks(
     offset: int,
     limit: int,
     task_field: str,
+    levels: Iterable[str] = (),
 ) -> list[TaskRow]:
     if offset < 0:
         raise ValueError("--offset must be >= 0")
@@ -170,10 +181,10 @@ def fetch_tasks(
 
     rows: list[TaskRow] = []
     next_offset = offset
-    remaining = limit
+    selected_levels = _normalize_levels(levels)
 
-    while remaining > 0:
-        page_size = min(MAX_PAGE_SIZE, remaining)
+    while len(rows) < limit:
+        page_size = min(MAX_PAGE_SIZE, limit - len(rows)) if not selected_levels else MAX_PAGE_SIZE
         payload = _request_rows(dataset=dataset, config=config, split=split, offset=next_offset, length=page_size)
         page_rows = payload.get("rows", [])
         if not page_rows:
@@ -184,6 +195,8 @@ def fetch_tasks(
             row = item.get("row", {})
             if not isinstance(row, dict):
                 raise ValueError(f"Row {row_index} is not an object: {row!r}")
+            if selected_levels and not _matches_level(row, selected_levels):
+                continue
             task, selected_task_field = _extract_task(row, task_field)
             if task is None:
                 raise ValueError(f"Row {row_index} does not contain a non-empty task field: {row!r}")
@@ -194,14 +207,27 @@ def fetch_tasks(
                     metadata=_extract_metadata(row, task_field=selected_task_field),
                 )
             )
+            if len(rows) >= limit:
+                break
 
         fetched = len(page_rows)
         if fetched < page_size:
             break
         next_offset += fetched
-        remaining -= fetched
 
     return rows
+
+
+def _normalize_levels(levels: Iterable[str]) -> set[str]:
+    return {level.strip().lower() for level in levels if level.strip()}
+
+
+def _matches_level(row: dict[str, Any], levels: set[str]) -> bool:
+    value = row.get("level")
+    if not isinstance(value, str):
+        metadata = _parse_metadata(row.get("metadata"))
+        value = metadata.get("level")
+    return isinstance(value, str) and value.strip().lower() in levels
 
 
 def _extract_task(row: dict[str, Any], task_field: str) -> tuple[str | None, str | None]:
@@ -432,6 +458,7 @@ def main(argv: list[str] | None = None) -> int:
         offset=args.offset,
         limit=args.limit,
         task_field=args.task_field,
+        levels=args.level,
     )
     if not tasks:
         print("No tasks found.", file=sys.stderr)
@@ -439,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         f"Running {len(tasks)} task(s) from {args.dataset}/{args.split} "
+        f"level={','.join(args.level) if args.level else 'all'} "
         f"with {args.workers} worker(s). Logs: {output_dir}",
         flush=True,
     )
