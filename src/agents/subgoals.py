@@ -37,12 +37,19 @@ def classify_subgoal_final_text(
 
 
 def build_subgoal_plan_summary(outcomes: list[SubgoalOutcome]) -> str:
+    succeeded = sum(1 for _, result, _ in outcomes if result == "done")
+    failed = sum(1 for _, result, _ in outcomes if result == "failed")
     header = (
         "All planner subgoals completed."
-        if all(result == "done" for _, result, _ in outcomes)
+        if failed == 0
         else "Planner subgoals completed with failures."
     )
-    lines = [header]
-    for subgoal, _result, reason in outcomes:
-        lines.append(f"[{subgoal.id}] {subgoal.description}: {reason}")
+    lines = [header, f"Subgoal outcomes: {succeeded} succeeded, {failed} failed."]
+    for subgoal, result, reason in outcomes:
+        lines.append(f"[{subgoal.id}] {subgoal.description}: {reason} (status: {result})")
+    if failed:
+        lines.append("Failure reasons:")
+        for subgoal, result, reason in outcomes:
+            if result == "failed":
+                lines.append(f"- [{subgoal.id}] {reason}")
     return "\n".join(lines)

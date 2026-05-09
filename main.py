@@ -327,6 +327,7 @@ def _run_cli_mode(
         register_event_sink(artifact_logger.record_event)
 
     emit({"type": "task_started", "query": args.query})
+    failure_emitted = False
     try:
         subgoals, replan_callback = _plan_subgoals(args)
         grounding: GroundingMode = args.grounding
@@ -343,10 +344,22 @@ def _run_cli_mode(
             max_total_steps=execution_constraints.max_total_steps,
             max_subgoals=execution_constraints.max_subgoals,
         )
-        agent.agent_loop()
-        emit({"type": "task_complete", "query": args.query})
+        result = agent.agent_loop()
+        if result.status != "complete":
+            emit({
+                "type": "task_failed",
+                "query": args.query,
+                "status": result.status,
+                "error_message": result.reason or result.summary or "Task did not complete successfully.",
+                "succeeded_subgoals": result.succeeded_subgoals,
+                "failed_subgoals": result.failed_subgoals,
+            })
+            failure_emitted = True
+            raise RuntimeError(result.reason or result.summary or f"Task ended with status {result.status}")
+        emit({"type": "task_complete", "query": args.query, "status": "complete"})
     except Exception as exc:
-        emit({"type": "task_failed", "query": args.query, "error_message": str(exc)})
+        if not failure_emitted:
+            emit({"type": "task_failed", "query": args.query, "status": "failed", "error_message": str(exc)})
         raise
     finally:
         if args.log:

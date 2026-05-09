@@ -45,7 +45,7 @@ from agents.safety import (
 )
 from agents import subgoals as subgoal_helpers
 from agents import tool_orchestration
-from agents.types import GroundingMode, Subgoal
+from agents.types import AgentRunResult, GroundingMode, Subgoal
 from browser import (
     ArtifactLogger,
     BrowserActionName,
@@ -132,7 +132,7 @@ class BrowserAgent:
         artifact_logger: Optional[ArtifactLogger] = None,
         grounding: GroundingMode = "vision",
         subgoals: list[Subgoal] | None = None,
-        replan_callback: Optional[Callable[[Subgoal, str, list[Subgoal]], list[Subgoal]]] = None,
+        replan_callback: Optional[Callable[..., list[Subgoal]]] = None,
         max_steps_per_subgoal: int = 15,
         conversation_context: str | None = None,
         custom_functions: list[CustomFunction] | None = None,
@@ -419,7 +419,7 @@ class BrowserAgent:
 
     def _request_model_response(
         self, step_id: int
-    ) -> Optional[types.GenerateContentResponse]:
+    ) -> types.GenerateContentResponse:
         if self._verbose:
             with console.status(
                 "Generating response from actor model..."
@@ -429,7 +429,7 @@ class BrowserAgent:
 
     def _request_model_response_once(
         self, step_id: int
-    ) -> Optional[types.GenerateContentResponse]:
+    ) -> types.GenerateContentResponse:
         last_error: Optional[Exception] = None
         for attempt in range(1, MODEL_REQUEST_MAX_ATTEMPTS + 1):
             try:
@@ -457,14 +457,23 @@ class BrowserAgent:
                     error_message=str(e),
                 )
                 print(f"Model request failed (attempt {attempt}/{MODEL_REQUEST_MAX_ATTEMPTS}): {e}. Retrying in {delay:.1f}s...")
-                time.sleep(delay)
+                self._sleep_with_interrupt(delay)
         self._emit_event(
             "step_error",
             step_id=step_id,
             error_message=str(last_error),
         )
         print(last_error)
-        return None
+        raise RuntimeError(f"Model request failed after retries: {last_error}") from last_error
+
+    def _sleep_with_interrupt(self, delay_seconds: float) -> None:
+        deadline = time.monotonic() + delay_seconds
+        while True:
+            self._raise_if_interrupted()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(0.2, remaining))
 
     @staticmethod
     def _should_retry_model_request(error: Exception) -> bool:
@@ -940,8 +949,6 @@ class BrowserAgent:
 
         response = self._request_model_response(step_id)
         self._raise_if_interrupted()
-        if response is None:
-            return "COMPLETE"
 
         candidate, reasoning, visible_text, function_calls = self._extract_candidate_turn(
             step_id,
@@ -1032,8 +1039,12 @@ class BrowserAgent:
         )
         raise RuntimeError(message)
 
-    def _run_subgoal_loop(self, subgoal: Subgoal) -> tuple[Literal["done", "failed"], str]:
-        return subgoal_runner.run_subgoal_loop(self, subgoal)
+    def _run_subgoal_loop(
+        self,
+        subgoal: Subgoal,
+        prior_outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]] | None = None,
+    ) -> tuple[Literal["done", "failed"], str]:
+        return subgoal_runner.run_subgoal_loop(self, subgoal, prior_outcomes or [])
 
     @staticmethod
     def _has_subgoal_marker(final_text: str) -> bool:
@@ -1048,13 +1059,19 @@ class BrowserAgent:
     def _finalize_subgoal_plan(
         self,
         outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]],
-    ) -> None:
+        *,
+        status: str | None = None,
+        reason: str | None = None,
+    ) -> AgentRunResult:
         if not outcomes:
-            return
+            return AgentRunResult(status="blocked", reason=reason or "Planner produced no subgoal outcomes.")
 
         self._step_id += 1
         step_id = self._step_id
         raw_summary = self._build_subgoal_plan_summary(outcomes)
+        succeeded = sum(1 for _, result, _ in outcomes if result == "done")
+        failed = sum(1 for _, result, _ in outcomes if result == "failed")
+        final_status = status or ("complete" if failed == 0 else "partial_failure")
         final_result_summary = self._review_service.build_final_result_summary(
             final_response=raw_summary,
             current_url=self._latest_url,
@@ -1069,11 +1086,21 @@ class BrowserAgent:
         self._emit_event(
             "step_complete",
             step_id=step_id,
-            status="complete",
+            status=final_status,
             final_reasoning=self.final_reasoning,
+            succeeded_subgoals=succeeded,
+            failed_subgoals=failed,
+            reason=reason,
+        )
+        return AgentRunResult(
+            status=final_status,
+            reason=reason,
+            summary=self.final_reasoning,
+            succeeded_subgoals=succeeded,
+            failed_subgoals=failed,
         )
 
-    def agent_loop(self):
+    def agent_loop(self) -> AgentRunResult:
         self._total_steps_used = 0
         if self._subgoals is None:
             status = "CONTINUE"
@@ -1082,6 +1109,6 @@ class BrowserAgent:
                 self._raise_if_total_step_budget_exceeded()
                 status = self.run_one_iteration()
                 self._total_steps_used += 1
-            return
+            return AgentRunResult(status="complete", summary=self.final_reasoning)
 
-        subgoal_runner.run_subgoal_plan(self)
+        return subgoal_runner.run_subgoal_plan(self)

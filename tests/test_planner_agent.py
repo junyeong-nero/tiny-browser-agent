@@ -221,6 +221,32 @@ class TestPlannerAgentReplan:
         replanned = next(event for event in events if event["type"] == "planner_replanned")
         assert replanned["failed_subgoal_id"] == 5
 
+
+    def test_replan_prompt_includes_outcomes_latest_url_and_remaining_context(self):
+        client = _mock_llm_client(
+            [{"id": 99, "description": "Fallback step", "success_criteria": "Done"}]
+        )
+        planner = PlannerAgent(query="original query", llm_client=client)
+        failed = Subgoal(id=2, description="Failed step", success_criteria="N/A")
+        done = Subgoal(id=1, description="Done step", success_criteria="Done")
+        remaining = [Subgoal(id=3, description="Remaining step", success_criteria="Remaining done")]
+
+        planner.replan(
+            current_subgoal=failed,
+            failure_reason="Timeout",
+            remaining=remaining,
+            outcomes=[(done, "done", "SUBGOAL_DONE: ok"), (failed, "failed", "Timeout")],
+            latest_url="https://example.com/current",
+        )
+
+        call_kwargs = client.generate_content.call_args
+        contents = call_kwargs.kwargs.get("contents") or call_kwargs.args[1]
+        user_text = "\n".join(part.text or "" for part in contents[0].parts or [])
+        assert "Original query:\noriginal query" in user_text
+        assert "Latest browser URL: https://example.com/current" in user_text
+        assert "SUBGOAL_DONE: ok" in user_text
+        assert "Remaining step (success criteria: Remaining done)" in user_text
+
     def test_replan_uses_replan_system_instruction(self):
         client = _mock_llm_client(
             [{"id": 99, "description": "Fallback step", "success_criteria": "Done"}]

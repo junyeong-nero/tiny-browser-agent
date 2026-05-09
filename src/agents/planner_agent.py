@@ -197,6 +197,9 @@ class PlannerAgent:
         current_subgoal: Subgoal,
         failure_reason: str,
         remaining: list[Subgoal],
+        *,
+        outcomes: list[tuple[Subgoal, str, str]] | None = None,
+        latest_url: str | None = None,
     ) -> list[Subgoal]:
         """Re-plan remaining subgoals after a failure."""
         self._emit_event(
@@ -205,14 +208,26 @@ class PlannerAgent:
             failure_reason=failure_reason,
         )
         remaining_text = "\n".join(
-            f"- [{sg.id}] {sg.description}" for sg in remaining
-        )
+            f"- [{sg.id}] {sg.description} (success criteria: {sg.success_criteria})"
+            for sg in remaining
+        ) or "None."
+        outcome_lines = []
+        for subgoal, status, reason in outcomes or []:
+            compact_reason = " ".join(str(reason).split())[:500]
+            outcome_lines.append(
+                f"- [{subgoal.id}] {status}: {subgoal.description} — {compact_reason}"
+            )
+        outcomes_text = "\n".join(outcome_lines) or "None yet."
         prompt = (
             f"Original query:\n{self._query}\n\n"
+            f"Latest browser URL: {latest_url or 'unknown'}\n\n"
+            "Prior successful/failed subgoal outcomes:\n"
+            f"{outcomes_text}\n\n"
             f"Failed subgoal [{current_subgoal.id}]: {current_subgoal.description}\n"
             f"Failure reason: {failure_reason}\n\n"
-            f"Remaining planned subgoals:\n{remaining_text}\n\n"
-            "Provide a revised list of subgoals to complete the original query."
+            f"Current remaining planned subgoals:\n{remaining_text}\n\n"
+            "Provide a revised list of subgoals to complete the original query. "
+            "If no in-scope path remains, return one final subgoal that reports the blocker."
         )
         start_id = current_subgoal.id + 1
         subgoals = self._call_planner(

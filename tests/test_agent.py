@@ -481,6 +481,33 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(events[-1]["type"], "step_error")
         self.assertIn("Exceeded max total steps", events[-1]["error_message"])
 
+
+    @patch("agents.actor_agent.time.sleep", return_value=None)
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_model_request_final_failure_raises_instead_of_completing(
+        self,
+        mock_get_model_response,
+        _mock_sleep,
+    ):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        mock_get_model_response.side_effect = RuntimeError("provider down")
+
+        with self.assertRaisesRegex(RuntimeError, "Model request failed after retries"):
+            agent.run_one_iteration()
+
+        event_types = [event["type"] for event in events]
+        self.assertIn("step_error", event_types)
+        self.assertNotIn("step_complete", event_types)
+        self.assertIsNone(agent.final_reasoning)
+
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_retries_on_malformed_function_call(self, mock_get_model_response):
         events = []
@@ -1333,6 +1360,64 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(events[-2]["phase_id"], "phase-complete")
         self.assertEqual(events[-1]["type"], "step_complete")
         self.assertEqual(events[-1]["final_reasoning"], agent.final_reasoning)
+
+
+    def test_subgoal_loop_preserves_original_task_and_prior_outcomes_in_prompt(self):
+        prior = [
+            (
+                Subgoal(id=1, description="Open example", success_criteria="Example loaded"),
+                "done",
+                "SUBGOAL_DONE: opened example.com",
+            )
+        ]
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="original user query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            step_summarizer=None,
+            max_steps_per_subgoal=2,
+        )
+        subgoal = Subgoal(id=2, description="Summarize", success_criteria="Summary ready")
+
+        def complete_once():
+            agent.final_reasoning = "SUBGOAL_DONE: summarized"
+            return "COMPLETE"
+
+        with patch.object(agent, "run_one_iteration", side_effect=complete_once):
+            result, reason = agent._run_subgoal_loop(subgoal, prior)
+
+        prompt = agent.get_recent_messages(limit=1)[0]["text"] or ""
+        self.assertEqual(result, "done")
+        self.assertIn("Original user task:\noriginal user query", prompt)
+        self.assertIn("Prior subgoal outcomes", prompt)
+        self.assertIn("SUBGOAL_DONE: opened example.com", prompt)
+        self.assertIn("Latest browser URL before this subgoal", prompt)
+        self.assertIn("SUBGOAL_DONE: summarized", reason)
+
+    def test_subgoal_empty_replan_returns_blocked_result(self):
+        events = []
+        subgoals = [
+            Subgoal(id=1, description="Try step", success_criteria="Done"),
+        ]
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+            subgoals=subgoals,
+            replan_callback=lambda *_args, **_kwargs: [],
+        )
+
+        with patch.object(agent, "_run_subgoal_loop", return_value=("failed", "blocked")):
+            result = agent.agent_loop()
+
+        self.assertEqual(result.status, "blocked")
+        self.assertEqual(result.failed_subgoals, 1)
+        self.assertIn("Replan returned no replacement subgoals", result.reason or "")
+        self.assertIn("replan_error", [event["type"] for event in events])
 
     def test_agent_loop_with_subgoals_enforces_subgoal_budget(self):
         events = []
