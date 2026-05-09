@@ -9,10 +9,11 @@ from agents.types import GroundingMode
 from browser import ArtifactLogger, PlaywrightBrowser
 import config as app_config
 from ui.bridge import (
-    clear_task_interrupt,
     emit,
+    finish_active_task,
     is_task_interrupted,
     register_event_sink,
+    start_next_task,
     task_queue,
     unregister_event_sink,
 )
@@ -105,6 +106,7 @@ class BrowserSession:
         return "TERMINATE"
 
     def run_task(self, query: str) -> None:
+        task_id = start_next_task()
         artifact_logger = self._make_artifact_logger()
         sink_registered = self._log_enabled
         execution_constraints = app_config.execution_constraints()
@@ -121,7 +123,7 @@ class BrowserSession:
                 }
             )
             register_event_sink(artifact_logger.record_event)
-        task_started_event = {"type": "task_started", "query": query}
+        task_started_event = {"type": "task_started", "query": query, "task_id": task_id}
         session_id = artifact_logger.session_id()
         if session_id is not None:
             task_started_event["session_id"] = session_id
@@ -136,7 +138,10 @@ class BrowserSession:
             planner = PlannerAgent(query=query, event_sink=emit)
             subgoals = planner.plan()
             if is_task_interrupted():
-                emit({"type": "task_interrupted", "query": query, "reason": "Task interrupted by user."})
+                emit({"type": "task_interrupted", "query": query, "task_id": task_id, "reason": "Task interrupted by user."})
+                finish_active_task(task_id)
+                if sink_registered:
+                    unregister_event_sink(artifact_logger.record_event)
                 return
             if not subgoals:
                 emit({"type": "planner_fallback", "reason": "no valid subgoals returned"})
@@ -162,24 +167,38 @@ class BrowserSession:
         )
         try:
             try:
-                agent.agent_loop()
+                result = agent.agent_loop()
             except AgentInterrupted as exc:
                 self._browser.reset_to_blank()
-                emit({"type": "task_interrupted", "query": query, "reason": str(exc)})
+                emit({"type": "task_interrupted", "query": query, "task_id": task_id, "reason": str(exc)})
                 return
             except Exception as exc:
                 emit({"type": "step_error", "step_id": -1, "error_message": str(exc)})
                 self._browser.reset_to_blank()
-                emit({"type": "task_failed", "query": query, "error_message": str(exc)})
+                emit({"type": "task_failed", "query": query, "task_id": task_id, "status": "failed", "error_message": str(exc)})
                 return
             if is_task_interrupted():
                 self._browser.reset_to_blank()
-                emit({"type": "task_interrupted", "query": query, "reason": "Task interrupted by user."})
+                emit({"type": "task_interrupted", "query": query, "task_id": task_id, "reason": "Task interrupted by user."})
+                return
+            result_status = getattr(result, "status", "complete")
+            if not isinstance(result_status, str):
+                result_status = "complete"
+            if result_status != "complete":
+                emit({
+                    "type": "task_failed",
+                    "query": query,
+                    "task_id": task_id,
+                    "status": result_status,
+                    "error_message": getattr(result, "reason", None) or getattr(result, "summary", None) or "Task did not complete successfully.",
+                    "succeeded_subgoals": getattr(result, "succeeded_subgoals", 0),
+                    "failed_subgoals": getattr(result, "failed_subgoals", 0),
+                })
                 return
             self._remember_completed_task(query, agent)
-            emit({"type": "task_complete", "query": query})
+            emit({"type": "task_complete", "query": query, "task_id": task_id, "status": "complete"})
         finally:
-            clear_task_interrupt()
+            finish_active_task(task_id)
             if sink_registered:
                 unregister_event_sink(artifact_logger.record_event)
 

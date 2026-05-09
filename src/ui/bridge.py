@@ -14,6 +14,13 @@ task_queue: queue.Queue[str | None] = queue.Queue()
 # poll it between model/tool steps and terminate the current task gracefully.
 _interrupt_event = threading.Event()
 
+# Task lifecycle state, guarded by _task_state_lock. A submitted task is first
+# reserved as pending, then becomes active when BrowserSession actually starts it.
+_task_state_lock = threading.Lock()
+_next_task_id = 0
+_pending_task_id: int | None = None
+_active_task_id: int | None = None
+
 # Active WebSocket connections, guarded by a lock.
 _websockets: set = set()
 _ws_lock = threading.Lock()
@@ -63,9 +70,66 @@ def unregister_event_sink(fn: Callable[[dict[str, Any]], None]) -> None:
             pass
 
 
-def request_task_interrupt() -> None:
-    """Ask the active task to stop at the next cooperative checkpoint."""
+def reserve_pending_task() -> int | None:
+    """Reserve one UI task slot. Return its id, or None if a task is already pending/running."""
+    global _next_task_id, _pending_task_id
+    with _task_state_lock:
+        if _active_task_id is not None or _pending_task_id is not None:
+            return None
+        _next_task_id += 1
+        _pending_task_id = _next_task_id
+        return _pending_task_id
+
+
+def start_next_task() -> int:
+    """Mark the pending task active, clearing stale interrupts only at actual start."""
+    global _active_task_id, _pending_task_id, _next_task_id
+    with _task_state_lock:
+        if _pending_task_id is None:
+            _next_task_id += 1
+            _active_task_id = _next_task_id
+        else:
+            _active_task_id = _pending_task_id
+            _pending_task_id = None
+        task_id = _active_task_id
+    _interrupt_event.clear()
+    return int(task_id)
+
+
+def finish_active_task(task_id: int | None = None) -> None:
+    """Clear active task state after the session finishes that task."""
+    global _active_task_id
+    with _task_state_lock:
+        if task_id is None or _active_task_id == task_id:
+            _active_task_id = None
+    _interrupt_event.clear()
+
+
+def has_active_or_pending_task() -> bool:
+    with _task_state_lock:
+        return _active_task_id is not None or _pending_task_id is not None
+
+
+def reset_task_state_for_tests() -> None:
+    global _active_task_id, _pending_task_id
+    with _task_state_lock:
+        _active_task_id = None
+        _pending_task_id = None
+    _interrupt_event.clear()
+
+
+def request_task_interrupt() -> bool:
+    """Ask the active task to stop at the next cooperative checkpoint.
+
+    For backward-compatible direct endpoint probes with no task present, the
+    flag may be set as a stale interrupt; it is cleared only when a real task
+    starts. Pending tasks are never interrupted before they become active.
+    """
+    with _task_state_lock:
+        if _active_task_id is None and _pending_task_id is not None:
+            return False
     _interrupt_event.set()
+    return True
 
 
 def clear_task_interrupt() -> None:
