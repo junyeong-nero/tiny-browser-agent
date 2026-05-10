@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -34,12 +35,23 @@ def test_panel_static_assets_are_served():
         response = client.get(path)
         assert response.status_code == 200
         assert expected in response.headers['content-type']
+        assert response.headers['cache-control'] == 'no-store'
 
     html = client.get('/')
     assert html.status_code == 200
+    assert html.headers['cache-control'] == 'no-store'
     assert '/static/panel.css' in html.text
     assert '/static/graph.js' in html.text
     assert '/static/panel.js' in html.text
+
+
+def test_panel_served_html_cache_busts_local_static_assets():
+    html = TestClient(app).get('/')
+
+    assert html.status_code == 200
+    for asset in ('panel.css', 'graph.js', 'panel.js'):
+        assert re.search(rf'/static/{re.escape(asset)}\?v=\d+', html.text)
+
 
 def test_panel_model_placeholder_is_not_hardcoded_to_gemini():
     assert '<span id="agent-model">gemini</span>' not in PANEL_HTML
@@ -266,6 +278,18 @@ def test_panel_run_button_toggles_to_stop_and_status_uses_loading_indicator():
     assert 'async function startReplay(sessionId)' in PANEL_HTML
 
 
+def test_panel_start_replay_renders_loaded_session_immediately_and_reports_failures():
+    start_replay = PANEL_HTML.split("async function startReplay(sessionId)", 1)[1].split(
+        "sessionsBtn.addEventListener", 1
+    )[0]
+
+    assert "function showReplayMessage(title, detail, cls = 'red')" in PANEL_HTML
+    assert "replayTo(replayEvents.length);" in start_replay
+    assert "showReplayMessage('No replay events.'" in start_replay
+    assert "showReplayMessage('Could not load replay session'" in start_replay
+    assert "if (!res.ok) throw new Error(`HTTP ${res.status}`);" in start_replay
+
+
 def test_panel_disables_live_input_and_ignores_ws_during_replay():
     assert "if (replayMode) return;" in PANEL_HTML
     assert "function setReplayUi(active)" in PANEL_HTML
@@ -278,7 +302,8 @@ def test_panel_links_replay_screenshots_from_action_artifacts():
         "case 'step_error':", 1
     )[0]
     assert "replayArtifactHref(ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path, 'history')" in action_case
-    assert "[shot]" in action_case
+    assert "storeActionShot(ev.step_id, href);" in action_case
+    assert "[shot]" in PANEL_HTML
 
 
 def test_panel_uses_apple_design_theme_tokens():
@@ -397,17 +422,18 @@ def test_panel_secondary_controls_use_svg_icons_with_accessible_labels():
     assert "`▶ ${escHtml(session.id)}" not in PANEL_HTML
 
 
-def test_panel_sidebar_task_plan_and_activity_use_scroll_panel_sections():
+def test_panel_sidebar_task_and_plan_use_scroll_panel_sections():
     assert 'class="side-section side-scroll-section side-task-section"' in PANEL_HTML
     assert 'class="side-section side-scroll-section side-plan-section"' in PANEL_HTML
-    assert 'class="side-section side-scroll-section side-activity-section"' in PANEL_HTML
+    assert 'class="side-section side-scroll-section side-activity-section"' not in PANEL_HTML
+    assert 'id="side-activity"' not in PANEL_HTML
     assert "details.side-scroll-section[open]" in PANEL_HTML
     assert "details.side-scroll-section > .side-body" not in PANEL_HTML
 
 
 def test_panel_plan_status_uses_icons_instead_of_text_markers():
     render_plan = PANEL_HTML.split("function renderPlan()", 1)[1].split(
-        "function addActivity", 1
+        "function upsertActionSummary", 1
     )[0]
 
     assert "const statusIcons = {" in render_plan
@@ -513,7 +539,7 @@ def test_panel_sidebar_long_content_uses_flow_safe_grid_items():
     side_section_css = PANEL_HTML.split("details.side-section {", 1)[1].split("}", 1)[0]
     side_body_css = PANEL_HTML.split(".side-body {", 1)[1].split("}", 1)[0]
     todo_css = PANEL_HTML.split(".todo {", 1)[1].split("}", 1)[0]
-    act_item_css = PANEL_HTML.split(".act-item {", 1)[1].split("}", 1)[0]
+    action_summary_css = PANEL_HTML.split(".action-summary-card > summary {", 1)[1].split("}", 1)[0]
 
     assert "position: relative;" in side_section_css
     assert "flex: 0 0 auto;" in side_section_css
@@ -522,10 +548,10 @@ def test_panel_sidebar_long_content_uses_flow_safe_grid_items():
     assert "max-width: 100%;" in side_body_css
     assert "word-break: break-word;" in side_body_css
     assert "grid-template-columns: 30px minmax(0, 1fr);" in todo_css
-    assert "grid-template-columns: auto minmax(0, 1fr);" in act_item_css
-    assert "align-items: start;" in act_item_css
+    assert "grid-template-columns: auto minmax(0, 1fr);" in action_summary_css
+    assert "align-items: start;" in action_summary_css
     assert ".todo .text  { color: var(--fg); min-width: 0; overflow-wrap: anywhere; }" in PANEL_HTML
-    assert ".act-item > span:last-child { min-width: 0; overflow-wrap: anywhere; }" in PANEL_HTML
+    assert ".action-summary-card .summary-copy { min-width: 0; overflow-wrap: anywhere; }" in PANEL_HTML
 
 
 def test_panel_sidebar_toggle_uses_material_arrow_drop_down_icon():
@@ -549,7 +575,7 @@ def test_panel_sidebar_sections_use_material_list_item_icons():
     assert '<summary data-icon="task_alt">Task</summary>' in PANEL_HTML
     assert '<summary data-icon="monitor_heart">Status</summary>' in PANEL_HTML
     assert '<summary data-icon="route">Plan</summary>' in PANEL_HTML
-    assert '<summary data-icon="history">Activity</summary>' in PANEL_HTML
+    assert '<summary data-icon="history">Activity</summary>' not in PANEL_HTML
 
 
 def test_panel_empty_state_uses_material_symbol_illustration():
@@ -564,17 +590,74 @@ def test_panel_step_summary_uses_plain_block_without_accent():
     step_complete_case = PANEL_HTML.split("case 'step_complete':", 1)[1].split(
         "case 'task_complete':", 1
     )[0]
-    activity_css = PANEL_HTML.split(".act-item {", 1)[1].split("}", 1)[0]
-    activity_hover_css = PANEL_HTML.split(".act-item:hover {", 1)[1].split("}", 1)[0]
+    summary_css = PANEL_HTML.split(".action-summary-card {", 1)[1].split("}", 1)[0]
+    summary_hover_css = PANEL_HTML.split(".action-summary-card > summary:hover {", 1)[1].split("}", 1)[0]
 
     assert "addBlock('plain'," in step_complete_case
     assert "addBlock('green'," not in step_complete_case
     assert ".block.plain::before { display: none; }" in PANEL_HTML
     assert ".block.plain {" in PANEL_HTML
-    assert "border-left" not in activity_css
-    assert "--phase-border" not in activity_css
-    assert "--phase-bg" not in activity_css
-    assert "--phase-bg" not in activity_hover_css
+    assert "border-left" not in summary_css
+    assert "--phase-border" not in summary_css
+    assert "--phase-bg" not in summary_css
+    assert "--phase-bg" not in summary_hover_css
+
+
+def test_panel_action_summaries_render_in_timeline_with_inline_details():
+    review_case = PANEL_HTML.split("case 'review_metadata_extracted':", 1)[1].split(
+        "case 'action_executed':", 1
+    )[0]
+
+    assert "function upsertActionSummary(item)" in PANEL_HTML
+    assert "function renderActionSummaryCard(card, item)" in PANEL_HTML
+    assert "currentTimelineStepGroup.appendChild(card);" in PANEL_HTML
+    assert "upsertActionSummary({" in review_case
+    assert "addActivity({" not in review_case
+    assert "<details class=\"action-summary-card\"" in PANEL_HTML
+    assert "<summary>" in PANEL_HTML
+    assert "Action summary details" in PANEL_HTML
+
+
+def test_panel_action_summary_details_include_reasoning_and_raw_response():
+    assert "let reasoningByStep = new Map();" in PANEL_HTML
+    assert "storeStepReasoning(ev.step_id, ev.reasoning);" in PANEL_HTML
+    assert "refreshActionSummaryForStep(stepId);" in PANEL_HTML
+    assert "Reasoning" in PANEL_HTML
+    assert "Raw response" in PANEL_HTML
+    assert "raw response unavailable." in PANEL_HTML
+
+
+def test_panel_agent_step_raw_events_are_hidden_behind_action_summary_details():
+    reasoning_case = PANEL_HTML.split("case 'reasoning_extracted':", 1)[1].split(
+        "case 'function_calls_extracted':", 1
+    )[0]
+    calls_case = PANEL_HTML.split("case 'function_calls_extracted':", 1)[1].split(
+        "case 'review_metadata_extracted':", 1
+    )[0]
+    action_case = PANEL_HTML.split("case 'action_executed':", 1)[1].split(
+        "case 'step_error':", 1
+    )[0]
+
+    assert "addRow('thinking'" not in reasoning_case
+    assert "storeFunctionCalls(ev.step_id, calls);" in calls_case
+    assert "addRow('', `<span style=\"color:var(--fg-dim)\">⚙" not in calls_case
+    assert "storeObservedUrl(ev.step_id, ev.env_state.url);" in action_case
+    assert "addRow('dim', `@ <span class=\"url\">" not in action_case
+    assert "Function calls" in PANEL_HTML
+    assert "Observed URL" in PANEL_HTML
+
+
+def test_panel_user_chat_messages_are_right_aligned():
+    task_started_case = PANEL_HTML.split("case 'task_started':", 1)[1].split(
+        "case 'planner_started':", 1
+    )[0]
+
+    assert "addSpeaker('user', null);" in task_started_case
+    assert "addRow('user-message', escHtml(ev.query));" in task_started_case
+    assert "el.className = `speaker ${name === 'user' ? 'user-speaker' : 'agent-speaker'}`;" in PANEL_HTML
+    assert ".row.user-message" in PANEL_HTML
+    assert "align-self: flex-end;" in PANEL_HTML
+    assert ".speaker.user-speaker" in PANEL_HTML
 
 
 def test_panel_removes_keybind_help_bar():

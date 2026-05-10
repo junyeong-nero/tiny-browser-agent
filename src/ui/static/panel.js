@@ -26,7 +26,6 @@ const replayProgress = document.getElementById('replay-progress');
 
 const sideTask       = document.getElementById('side-task');
 const sidePlan       = document.getElementById('side-plan');
-const sideActivity   = document.getElementById('side-activity');
 const metaStep       = document.getElementById('meta-step');
 const metaUrl        = document.getElementById('meta-url');
 const metaState      = document.getElementById('meta-state');
@@ -47,10 +46,13 @@ let liveSessionId = null;
 
 let subgoals = [];
 let pendingReplanFailedSubgoalId = null;
-// activity[step_id] = { step, subgoalId, phaseId, what, why, outcome }
-let activity = [];
+let actionSummariesByStep = new Map();
+let actionSummaryCardsByStep = new Map();
+let reasoningByStep = new Map();
+let functionCallsByStep = new Map();
+let observedUrlsByStep = new Map();
+let actionShotsByStep = new Map();
 let llmInferencesByStep = new Map();
-const MAX_ACTIVITY = 80;
 const THEME_STORAGE_KEY = "bragent.theme";
 const THEME_ICON_PATHS = {
   light: 'M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zM1 13h3v-2H1v2zm10-12h2v3h-2V1zm9.04 2.46-1.41-1.41-1.8 1.79 1.42 1.42 1.79-1.8zM17.24 19.16l1.8 1.79 1.41-1.41-1.79-1.8-1.42 1.42zM20 11v2h3v-2h-3zm-8 9h2v3h-2v-3zM4.96 20.95l1.8-1.79-1.42-1.42-1.79 1.8 1.41 1.41zM12 6a6 6 0 1 0 0 12A6 6 0 0 0 12 6z',
@@ -250,7 +252,7 @@ function addRow(cls, html) {
 function addSpeaker(name, model) {
   clearEmpty();
   const el = document.createElement('div');
-  el.className = 'speaker';
+  el.className = `speaker ${name === 'user' ? 'user-speaker' : 'agent-speaker'}`;
   el.innerHTML =
     `<span class="marker"></span>` +
     `<span class="name">${escHtml(name)}</span>` +
@@ -271,7 +273,12 @@ function addBlock(cls, html) {
 function resetSidebar() {
   subgoals = [];
   pendingReplanFailedSubgoalId = null;
-  activity = [];
+  actionSummariesByStep = new Map();
+  actionSummaryCardsByStep = new Map();
+  reasoningByStep = new Map();
+  functionCallsByStep = new Map();
+  observedUrlsByStep = new Map();
+  actionShotsByStep = new Map();
   llmInferencesByStep = new Map();
   currentTimelineStepId = null;
   currentTimelineStepGroup = null;
@@ -279,7 +286,6 @@ function resetSidebar() {
   sideTask.className = 'side-empty';
   sideTask.textContent = 'no active task.';
   renderPlan();
-  renderActivity();
   resetGraph();
   metaStep.textContent = '—';
   metaUrl.textContent  = '—';
@@ -292,6 +298,7 @@ function storeLlmInference(ev) {
     rawContext: ev.raw_context || null,
     rawResponse: ev.raw_response || null,
   });
+  refreshActionSummaryForStep(ev.step_id);
 }
 
 function getLlmInferenceForStep(stepId) {
@@ -319,7 +326,6 @@ function replaceSubgoalsAfterFailed(failedId, revisedList) {
   const failedIdx = subgoals.findIndex(s => String(s.id) === String(failedId));
   if (failedIdx === -1) {
     setSubgoals(revisedList);
-    renderActivity();
     return;
   }
   const revisedSubgoals = (revisedList || []).map(sg => ({
@@ -329,7 +335,6 @@ function replaceSubgoalsAfterFailed(failedId, revisedList) {
   }));
   subgoals = subgoals.slice(0, failedIdx + 1).concat(revisedSubgoals);
   renderPlan();
-  renderActivity();
 }
 
 function updateSubgoalStatus(id, status) {
@@ -356,82 +361,161 @@ function renderPlan() {
   `).join('');
 }
 
-function addActivity(item) {
-  // item: {step, subgoalId, phaseId, what, why, outcome}
-  // If a step already recorded, update in place (step can emit multiple review_metadata).
-  const existingIdx = activity.findIndex(a => a.step === item.step);
-  if (existingIdx !== -1) {
-    activity[existingIdx] = { ...activity[existingIdx], ...item };
-  } else {
-    activity.push(item);
-    if (activity.length > MAX_ACTIVITY) activity = activity.slice(-MAX_ACTIVITY);
-  }
-  renderActivity();
+function stepKey(stepId) {
+  return stepId != null ? String(stepId) : null;
 }
 
-function renderActivity() {
-  if (!activity.length) {
-    sideActivity.innerHTML = '<div class="side-empty">no activity yet.</div>';
-    return;
-  }
+function timelineGroupForStep(stepId) {
+  const key = stepKey(stepId);
+  if (key == null) return null;
+  return timeline.querySelector(`.action-step-group[data-step-id="${CSS.escape(key)}"]`);
+}
 
-  // Group activity by subgoalId, preserving plan order; unknowns go to an "unassigned" bucket.
-  const buckets = new Map();
-  const unassigned = [];
-  for (const it of activity) {
-    const key = it.subgoalId != null ? String(it.subgoalId) : null;
-    if (key === null) { unassigned.push(it); continue; }
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(it);
-  }
+function createActionSummaryCard(key) {
+  const template = document.createElement('template');
+  template.innerHTML = `<details class="action-summary-card" data-step-id="${escHtml(key)}"><summary></summary><div class="action-summary-detail" aria-label="Action summary details"></div></details>`;
+  return template.content.firstElementChild;
+}
 
-  const renderItem = (a) => {
-    const cls = a.phaseId ? `phase-${escHtml(String(a.phaseId).replace(/^phase-/, ''))}` : '';
-    const what    = a.what    ? `<div class="what">${escHtml(a.what)}</div>`       : '';
-    const why     = a.why     ? `<div class="why">${escHtml(a.why)}</div>`         : '';
-    const outcome = (a.outcome && a.outcome !== '—')
-      ? `<div class="outcome">${escHtml(a.outcome)}</div>` : '';
-    return `<div class="act-item ${cls}">
-      <span class="step-no">#${escHtml(a.step)}</span>
-      <span>${what}${why}${outcome}</span>
+function formatRawJsonForActionDetail(value) {
+  if (value == null) return 'raw response unavailable.';
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch (_) {
+    return String(value);
+  }
+}
+
+function detailTextOrEmpty(text, emptyLabel) {
+  return text
+    ? escHtml(text)
+    : `<span class="detail-empty">${escHtml(emptyLabel)}</span>`;
+}
+
+function renderFunctionCallsDetail(stepId) {
+  const calls = functionCallsByStep.get(stepKey(stepId)) || [];
+  if (!calls.length) return '';
+  const lines = calls.map(c => {
+    const args = c.args && Object.keys(c.args).length
+      ? ` <span class="args">[${escHtml(formatArgs(c.args))}]</span>`
+      : '';
+    return `<div class="detail-text"><span class="tool">⚙ ${escHtml(c.name)}</span>${args}</div>`;
+  }).join('');
+  return `<div class="detail-section"><div class="detail-title">Function calls</div>${lines}</div>`;
+}
+
+function renderObservedUrlDetail(stepId) {
+  const url = observedUrlsByStep.get(stepKey(stepId));
+  if (!url) return '';
+  return `<div class="detail-section"><div class="detail-title">Observed URL</div><div class="detail-text"><span class="url">${escHtml(url)}</span></div></div>`;
+}
+
+function renderActionShotDetail(stepId) {
+  const href = actionShotsByStep.get(stepKey(stepId));
+  if (!href) return '';
+  const safeHref = escHtml(href);
+  return `<div class="detail-section"><div class="detail-title">Screenshot</div><div class="detail-text"><a target="_blank" rel="noreferrer" href="${safeHref}">[shot]</a></div></div>`;
+}
+
+function renderActionSummaryCard(card, item) {
+  const key = stepKey(item.step);
+  const wasOpen = card.open;
+  const phaseName = item.phaseId ? String(item.phaseId).replace(/^phase-/, '').replace(/[^a-z0-9_-]/gi, '') : '';
+  const phaseCls = phaseName ? ` phase-${phaseName}` : '';
+  const what = item.what || item.actionSummary || `Step ${item.step}`;
+  const outcome = (item.outcome && item.outcome !== '—')
+    ? `<span class="outcome">${escHtml(item.outcome)}</span>`
+    : '';
+  const reasoning = (key && reasoningByStep.get(key)) || item.reason || item.why || '';
+  const why = item.why && item.why !== reasoning
+    ? `<div class="detail-section"><div class="detail-title">Review note</div><div class="detail-text">${escHtml(item.why)}</div></div>`
+    : '';
+  const inference = getLlmInferenceForStep(key);
+  const rawResponse = inference && inference.rawResponse != null
+    ? formatRawJsonForActionDetail(inference.rawResponse)
+    : 'raw response unavailable.';
+
+  card.className = `action-summary-card${phaseCls}`;
+  card.dataset.stepId = key || '';
+  card.innerHTML = `
+    <summary>
+      <span class="step-no">#${escHtml(item.step)}</span>
+      <span class="summary-copy">
+        <span class="what">${escHtml(what)}</span>
+        ${outcome}
+      </span>
+    </summary>
+    <div class="action-summary-detail" aria-label="Action summary details">
+      <div class="detail-section">
+        <div class="detail-title">Reasoning</div>
+        <div class="detail-text">${detailTextOrEmpty(reasoning, 'reasoning unavailable.')}</div>
+      </div>
+      ${why}
+      ${renderFunctionCallsDetail(key)}
+      ${renderObservedUrlDetail(key)}
+      ${renderActionShotDetail(key)}
+      <div class="detail-section">
+        <div class="detail-title">Raw response</div>
+        <pre>${escHtml(rawResponse)}</pre>
+      </div>
     </div>`;
-  };
+  card.open = wasOpen;
+}
 
-  const parts = [];
-  // Plan-ordered subgoal groups first
-  subgoals.forEach((sg, i) => {
-    const key = String(sg.id);
-    const items = buckets.get(key);
-    if (!items || !items.length) return;
-    parts.push(
-      `<div class="act-group">` +
-        `<div class="act-group-title">` +
-          `<span class="sg-num">${String(i + 1).padStart(2,'0')}</span>` +
-          `<span class="sg-desc">${escHtml(sg.description)}</span>` +
-        `</div>` +
-        items.map(renderItem).join('') +
-      `</div>`
-    );
-    buckets.delete(key);
-  });
-  // Any remaining buckets whose subgoal id is unknown to the plan
-  for (const [key, items] of buckets.entries()) {
-    parts.push(
-      `<div class="act-group">` +
-        `<div class="act-group-title"><span class="sg-num">sg ${escHtml(key)}</span></div>` +
-        items.map(renderItem).join('') +
-      `</div>`
-    );
+function refreshActionSummaryForStep(stepId) {
+  const key = stepKey(stepId);
+  if (key == null) return;
+  const item = actionSummariesByStep.get(key);
+  const card = actionSummaryCardsByStep.get(key);
+  if (item && card) renderActionSummaryCard(card, item);
+}
+
+function storeStepReasoning(stepId, reasoning) {
+  const key = stepKey(stepId);
+  if (key == null || !reasoning) return;
+  reasoningByStep.set(key, reasoning);
+  refreshActionSummaryForStep(stepId);
+}
+
+function storeFunctionCalls(stepId, calls) {
+  const key = stepKey(stepId);
+  if (key == null) return;
+  functionCallsByStep.set(key, Array.isArray(calls) ? calls : []);
+  refreshActionSummaryForStep(stepId);
+}
+
+function storeObservedUrl(stepId, url) {
+  const key = stepKey(stepId);
+  if (key == null || !url) return;
+  observedUrlsByStep.set(key, url);
+  refreshActionSummaryForStep(stepId);
+}
+
+function storeActionShot(stepId, href) {
+  const key = stepKey(stepId);
+  if (key == null || !href) return;
+  actionShotsByStep.set(key, href);
+  refreshActionSummaryForStep(stepId);
+}
+
+function upsertActionSummary(item) {
+  const key = stepKey(item.step);
+  if (key == null) return;
+  const next = { ...(actionSummariesByStep.get(key) || {}), ...item };
+  actionSummariesByStep.set(key, next);
+
+  let card = actionSummaryCardsByStep.get(key);
+  if (!card) {
+    card = createActionSummaryCard(key);
+    actionSummaryCardsByStep.set(key, card);
+    const group = timelineGroupForStep(key);
+    if (currentTimelineStepGroup && stepKey(currentTimelineStepId) === key) currentTimelineStepGroup.appendChild(card);
+    else if (group) group.appendChild(card);
+    else appendTimelineElement(card);
   }
-  if (unassigned.length) {
-    parts.push(
-      `<div class="act-group">` +
-        `<div class="act-group-title unassigned">unassigned</div>` +
-        unassigned.map(renderItem).join('') +
-      `</div>`
-    );
-  }
-  sideActivity.innerHTML = parts.join('');
+
+  renderActionSummaryCard(card, next);
+  timeline.scrollTop = timeline.scrollHeight;
 }
 
 // Tab switching (Timeline ↔ Graph)
@@ -478,7 +562,7 @@ function handleEvent(ev) {
       setStatus('running', 'running');
       setInputEnabled(false);
       addSpeaker('user', null);
-      addRow('', escHtml(ev.query));
+      addRow('user-message', escHtml(ev.query));
       resetSidebar();
       setSideTask(ev.query);
       break;
@@ -555,38 +639,28 @@ function handleEvent(ev) {
 
     case 'reasoning_extracted':
       if (ev.reasoning) {
-        addRow('thinking', escHtml(ev.reasoning));
+        storeStepReasoning(ev.step_id, ev.reasoning);
       }
       break;
 
     case 'function_calls_extracted': {
       const calls = (ev.function_calls || []);
       if (!calls.length) break;
-      const phaseCls = phaseForTool(calls[0].name);
-      calls.forEach(c => {
-        const args = c.args && Object.keys(c.args).length
-          ? ` <span class="args">[${escHtml(formatArgs(c.args))}]</span>`
-          : '';
-        const el = addRow('', `<span style="color:var(--fg-dim)">⚙</span> <span class="tool">${escHtml(c.name)}</span>${args}`);
-        if (phaseCls) {
-          el.classList.add(phaseCls);
-          el.style.paddingLeft = '8px';
-          el.style.borderLeft = '2px solid var(--phase-border)';
-          el.style.background = 'var(--phase-bg)';
-        }
-      });
+      storeFunctionCalls(ev.step_id, calls);
       break;
     }
 
     case 'review_metadata_extracted': {
       const what = ev.what || ev.action_summary;
       if (!what) break;
-      addActivity({
+      upsertActionSummary({
         step: ev.step_id,
         subgoalId: ev.subgoal_id != null ? ev.subgoal_id : null,
         phaseId: ev.phase_id || null,
         what,
         why: ev.why || ev.reason || '',
+        reason: ev.reason || '',
+        actionSummary: ev.action_summary || '',
         outcome: ev.outcome || '',
       });
       break;
@@ -595,12 +669,12 @@ function handleEvent(ev) {
     case 'action_executed':
       if (ev.env_state && ev.env_state.url) {
         metaUrl.textContent = ev.env_state.url;
-        addRow('dim', `@ <span class="url">${escHtml(ev.env_state.url)}</span>`);
+        storeObservedUrl(ev.step_id, ev.env_state.url);
         recordActionExecution(ev);
       }
       if (replayMode && replaySessionId && ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path)) {
         const href = replayArtifactHref(ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path, 'history');
-        addRow('dim', `<a target="_blank" rel="noreferrer" href="${href}">[shot]</a>`);
+        storeActionShot(ev.step_id, href);
       }
       break;
 
@@ -756,8 +830,15 @@ function replayTo(index) {
 
 async function loadSessions() {
   sessionsList.innerHTML = '<div class="session-item"><span class="meta">loading…</span></div>';
-  const res = await fetch('/sessions');
-  const data = await res.json();
+  let data = {};
+  try {
+    const res = await fetch('/sessions');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (_) {
+    sessionsList.innerHTML = '<div class="session-item"><span class="meta">could not load saved sessions</span></div>';
+    return;
+  }
   const sessions = data.sessions || [];
   if (!sessions.length) {
     sessionsList.innerHTML = '<div class="session-item"><span class="meta">no saved sessions</span></div>';
@@ -780,11 +861,20 @@ async function loadSessions() {
   });
 }
 
+function showReplayMessage(title, detail, cls = 'red') {
+  clearTimeout(replayTimer);
+  replayPaused = true;
+  resetTimeline();
+  resetSidebar();
+  setReplayUi(true);
+  updateReplayProgress();
+  addBlock(cls, `<div class="title">${escHtml(title)}</div><div class="meta">${escHtml(detail)}</div>`);
+}
+
 async function startReplay(sessionId) {
-  const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/events`);
-  const data = await res.json();
+  clearTimeout(replayTimer);
   replaySessionId = sessionId;
-  replayEvents = data.events || [];
+  replayEvents = [];
   replayIndex = 0;
   replayPaused = true;
   resetTimeline();
@@ -792,6 +882,24 @@ async function startReplay(sessionId) {
   setReplayUi(true);
   updateReplayProgress();
   sessionsPanel.classList.add('hidden');
+  try {
+    const res = await fetch(`/sessions/${encodeURIComponent(sessionId)}/events`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    replayEvents = Array.isArray(data.events) ? data.events : [];
+    replayIndex = 0;
+    replayPaused = true;
+    updateReplayProgress();
+    if (!replayEvents.length) {
+      showReplayMessage('No replay events.', `Session ${sessionId} has no replay events.`, 'plain');
+      return;
+    }
+    replayTo(replayEvents.length);
+  } catch (err) {
+    replayEvents = [];
+    replayIndex = 0;
+    showReplayMessage('Could not load replay session', err && err.message ? err.message : `Session ${sessionId} could not be loaded.`);
+  }
 }
 
 sessionsBtn.addEventListener('click', () => {
