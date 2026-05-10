@@ -62,7 +62,9 @@
       "Bash(PYTHONPATH=src USE_PATCHRIGHT=0 uv run python -)",
       "Bash(timeout 25 bash scripts/run.sh)",
       "Bash(xargs '-I{}' python3 -c ' *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(chmod +x /Users/junyeong-nero/workspace/tiny-browser-agent/scripts/clean_zero_step_logs.sh)",
+      "Bash(/Users/junyeong-nero/workspace/tiny-browser-agent/scripts/clean_zero_step_logs.sh --dry-run)"
     ]
   }
 }
