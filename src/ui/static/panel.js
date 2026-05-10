@@ -57,6 +57,7 @@ let observedUrlsByStep = new Map();
 let actionShotsByStep = new Map();
 let artifactsByStep = new Map();
 let llmInferencesByStep = new Map();
+let pendingAgentFinalMessage = null;
 const THEME_STORAGE_KEY = "bragent.theme";
 const THEME_ICON_PATHS = {
   light: 'M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zM1 13h3v-2H1v2zm10-12h2v3h-2V1zm9.04 2.46-1.41-1.41-1.8 1.79 1.42 1.42 1.79-1.8zM17.24 19.16l1.8 1.79 1.41-1.41-1.79-1.8-1.42 1.42zM20 11v2h3v-2h-3zm-8 9h2v3h-2v-3zM4.96 20.95l1.8-1.79-1.42-1.42-1.79 1.8 1.41 1.41zM12 6a6 6 0 1 0 0 12A6 6 0 0 0 12 6z',
@@ -367,6 +368,7 @@ function resetSidebar() {
   actionShotsByStep = new Map();
   artifactsByStep = new Map();
   llmInferencesByStep = new Map();
+  pendingAgentFinalMessage = null;
   currentTimelineStepId = null;
   currentTimelineStepGroup = null;
   highlightTimelineActionStep(null);
@@ -597,13 +599,13 @@ function handleEvent(ev) {
       setStatus('connected', 'ready');
       setInputEnabled(true);
       setAgentModel(ev.model_name);
-      addRow('dim', 'agent ready.');
       break;
 
     case 'task_started':
       isRunning = true;
       isSubmitting = false;
       isStopping = false;
+      pendingAgentFinalMessage = null;
       liveSessionId = ev.session_id || null;
       setStatus('running', 'running');
       setInputEnabled(false);
@@ -684,6 +686,7 @@ function handleEvent(ev) {
 
     case 'review_metadata_extracted': {
       const what = ev.what || ev.action_summary;
+      if (ev.final_result_summary) pendingAgentFinalMessage = ev.final_result_summary;
       if (!what) break;
       upsertActionSummary({
         step: ev.step_id,
@@ -723,10 +726,11 @@ function handleEvent(ev) {
       break;
 
     case 'step_complete':
+      if (!pendingAgentFinalMessage && ev.final_reasoning) pendingAgentFinalMessage = ev.final_reasoning;
       finishActionStepGroup(ev.step_id);
       break;
 
-    case 'task_complete':
+    case 'task_complete': {
       isRunning = false;
       isSubmitting = false;
       isStopping = false;
@@ -735,8 +739,12 @@ function handleEvent(ev) {
       setInputEnabled(true);
       subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'done'; });
       renderPlan();
+      const finalMessage = pendingAgentFinalMessage || ev.final_reasoning || ev.summary;
+      if (finalMessage) addRow('agent-message', escHtml(finalMessage));
+      pendingAgentFinalMessage = null;
       addBlock('green', `<div class="title">task complete</div>`);
       break;
+    }
 
     case 'task_failed':
       isRunning = false;
@@ -747,6 +755,7 @@ function handleEvent(ev) {
       setInputEnabled(true);
       subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'failed'; });
       renderPlan();
+      pendingAgentFinalMessage = null;
       addBlock('red',
         `<div class="title">task failed</div>` +
         `<div class="meta">${escHtml(ev.error_message || 'unknown error')}</div>`
@@ -762,6 +771,7 @@ function handleEvent(ev) {
       setInputEnabled(true);
       subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'failed'; });
       renderPlan();
+      pendingAgentFinalMessage = null;
       addBlock('orange', `<div class="title">task interrupted</div><div class="meta">${escHtml(ev.reason || 'stopped by user')}</div>`);
       break;
 

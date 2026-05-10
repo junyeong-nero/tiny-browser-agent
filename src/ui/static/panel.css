@@ -762,11 +762,20 @@
   .row.user-message {
     align-self: flex-end;
     max-width: min(76%, 720px);
-    text-align: right;
+    text-align: left;
     padding: 10px 14px;
     border-radius: var(--md-sys-shape-corner-lg) var(--md-sys-shape-corner-lg) 4px var(--md-sys-shape-corner-lg);
     background: var(--md-sys-color-primary-container);
     color: var(--md-sys-color-on-primary-container);
+  }
+  .row.agent-message {
+    align-self: flex-start;
+    max-width: min(76%, 720px);
+    text-align: left;
+    padding: 10px 14px;
+    border-radius: var(--md-sys-shape-corner-lg) var(--md-sys-shape-corner-lg) var(--md-sys-shape-corner-lg) 4px;
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
   }
 
   .row .tool { color: var(--primary); font-weight: 500; }
@@ -1071,16 +1080,7 @@
   .bullet .v   { color: var(--fg-dim); }
 
   .side-step-title {
-    color: var(--md-sys-color-primary);
-    font-weight: 600;
-    font-size: 13px;
-    padding: 10px 14px 6px;
-    word-break: break-all;
-  }
-  .side-step-title.side-empty {
-    color: var(--fg-mute);
-    font-weight: 400;
-    font-style: italic;
+    display: none;
   }
 
   .llm-raw-details {

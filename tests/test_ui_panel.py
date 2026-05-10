@@ -69,9 +69,14 @@ def test_panel_model_placeholder_is_not_hardcoded_to_gemini():
 
 
 def test_panel_updates_model_name_from_session_ready_event():
+    session_ready_case = PANEL_HTML.split("case 'session_ready':", 1)[1].split(
+        "case 'task_started':", 1
+    )[0]
+
     assert "const agentModel  = document.getElementById('agent-model');" in PANEL_HTML
     assert "function setAgentModel(modelName)" in PANEL_HTML
     assert "setAgentModel(ev.model_name);" in PANEL_HTML
+    assert "addRow('dim', 'agent ready.');" not in session_ready_case
 
 
 def test_panel_replan_preserves_existing_subgoals_before_failed_one():
@@ -619,6 +624,30 @@ def test_panel_step_complete_does_not_render_extra_timeline_summary():
     assert "--phase-bg" not in summary_hover_css
 
 
+def test_panel_task_complete_renders_browser_agent_speech_bubble():
+    review_case = PANEL_HTML.split("case 'review_metadata_extracted':", 1)[1].split(
+        "case 'action_executed':", 1
+    )[0]
+    step_complete_case = PANEL_HTML.split("case 'step_complete':", 1)[1].split(
+        "case 'task_complete':", 1
+    )[0]
+    task_complete_case = PANEL_HTML.split("case 'task_complete':", 1)[1].split(
+        "case 'task_failed':", 1
+    )[0]
+    agent_message_css = PANEL_HTML.split(".row.agent-message {", 1)[1].split("}", 1)[0]
+
+    assert "if (ev.final_result_summary) pendingAgentFinalMessage = ev.final_result_summary;" in review_case
+    assert "if (!pendingAgentFinalMessage && ev.final_reasoning) pendingAgentFinalMessage = ev.final_reasoning;" in step_complete_case
+    assert "const finalMessage = pendingAgentFinalMessage || ev.final_reasoning || ev.summary;" in task_complete_case
+    assert "if (finalMessage) addRow('agent-message', escHtml(finalMessage));" in task_complete_case
+    assert "pendingAgentFinalMessage = null;" in task_complete_case
+    assert "align-self: flex-start;" in agent_message_css
+    assert "text-align: left;" in agent_message_css
+    assert "background: var(--md-sys-color-secondary-container);" in agent_message_css
+    assert "color: var(--md-sys-color-on-secondary-container);" in agent_message_css
+    assert "surface-container" not in agent_message_css
+
+
 def test_panel_action_summaries_render_clickable_timeline_cards_without_inline_details():
     review_case = PANEL_HTML.split("case 'review_metadata_extracted':", 1)[1].split(
         "case 'action_executed':", 1
@@ -668,7 +697,7 @@ def test_panel_agent_step_raw_events_are_hidden_behind_action_summary_details():
     assert "Observed URL" in PANEL_HTML
 
 
-def test_panel_user_chat_messages_are_right_aligned():
+def test_panel_user_chat_message_bubble_keeps_right_edge_but_text_is_left_aligned():
     task_started_case = PANEL_HTML.split("case 'task_started':", 1)[1].split(
         "case 'planner_started':", 1
     )[0]
@@ -683,7 +712,10 @@ def test_panel_user_chat_messages_are_right_aligned():
     assert "addSpeaker('browser-agent'" not in step_started_case
     assert "el.className = `speaker ${name === 'user' ? 'user-speaker' : 'agent-speaker'}`;" in PANEL_HTML
     assert ".row.user-message" in PANEL_HTML
-    assert "align-self: flex-end;" in PANEL_HTML
+    user_message_css = PANEL_HTML.split(".row.user-message {", 1)[1].split("}", 1)[0]
+    assert "align-self: flex-end;" in user_message_css
+    assert "text-align: left;" in user_message_css
+    assert "text-align: right;" not in user_message_css
     assert ".speaker.user-speaker" in PANEL_HTML
 
 
