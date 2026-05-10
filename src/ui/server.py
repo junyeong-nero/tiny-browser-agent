@@ -3,17 +3,21 @@ import asyncio
 import socket
 import threading
 from pathlib import Path
+from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ui.bridge import register_ws, request_task_interrupt, reserve_pending_task, set_server_loop, task_queue, unregister_ws
 from ui.replay import router as replay_router
 
-_PANEL_HTML = (Path(__file__).parent / "panel.html").read_text(encoding="utf-8")
+_UI_DIR = Path(__file__).parent
+_STATIC_DIR = _UI_DIR / "static"
+_PANEL_HTML = (_UI_DIR / "panel.html").read_text(encoding="utf-8")
+_STATIC_ASSET_NAMES = ("panel.css", "graph.js", "panel.js")
 
 HOST = "127.0.0.1"
 _DEFAULT_PORT = 8765
@@ -32,8 +36,31 @@ def _find_free_port(start: int, count: int) -> int:
     raise OSError(f"No free port found in range {start}–{start + count - 1}")
 
 
+class NoStoreStaticFiles(StaticFiles):
+    """Serve UI assets without browser caching stale panel code."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
+def _asset_version(name: str) -> str:
+    try:
+        return str((_STATIC_DIR / name).stat().st_mtime_ns)
+    except OSError:
+        return "0"
+
+
+def _versioned_panel_html() -> str:
+    html = _PANEL_HTML
+    for name in _STATIC_ASSET_NAMES:
+        html = html.replace(f'"/static/{name}"', f'"/static/{name}?v={_asset_version(name)}"')
+    return html
+
+
 app = FastAPI()
-app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+app.mount("/static", NoStoreStaticFiles(directory=_STATIC_DIR), name="static")
 app.include_router(replay_router)
 
 
@@ -48,7 +75,7 @@ async def _on_startup() -> None:
 
 @app.get("/")
 async def get_panel() -> HTMLResponse:
-    return HTMLResponse(_PANEL_HTML)
+    return HTMLResponse(_versioned_panel_html(), headers={"Cache-Control": "no-store"})
 
 
 @app.post("/task")
