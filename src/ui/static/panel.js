@@ -26,6 +26,9 @@ const replayProgress = document.getElementById('replay-progress');
 
 const sideTask       = document.getElementById('side-task');
 const sidePlan       = document.getElementById('side-plan');
+const sideSelection  = document.getElementById('side-selection');
+const sideReplay     = document.getElementById('side-replay');
+const sideStepTitle  = document.getElementById('side-step-title');
 const metaStep       = document.getElementById('meta-step');
 const metaUrl        = document.getElementById('meta-url');
 const metaState      = document.getElementById('meta-state');
@@ -52,6 +55,7 @@ let reasoningByStep = new Map();
 let functionCallsByStep = new Map();
 let observedUrlsByStep = new Map();
 let actionShotsByStep = new Map();
+let artifactsByStep = new Map();
 let llmInferencesByStep = new Map();
 const THEME_STORAGE_KEY = "bragent.theme";
 const THEME_ICON_PATHS = {
@@ -201,6 +205,9 @@ function beginActionStepGroup(stepId) {
   currentTimelineStepGroup = document.createElement('div');
   currentTimelineStepGroup.className = 'action-step-group';
   currentTimelineStepGroup.dataset.stepId = String(stepId);
+  currentTimelineStepGroup.addEventListener('click', () => {
+    selectTimelineActionStep(stepId);
+  });
   timeline.appendChild(currentTimelineStepGroup);
   timeline.scrollTop = timeline.scrollHeight;
   updateTimelineHighlight();
@@ -230,14 +237,93 @@ function updateTimelineHighlight() {
     el.classList.remove('timeline-highlight');
   });
   const group = highlightedTimelineGroup();
-  if (!group) return;
-  group.classList.add('timeline-highlight');
+  if (group) group.classList.add('timeline-highlight');
+  actionSummaryCardsByStep.forEach((card, key) => {
+    card.classList.toggle('selected', selectedTimelineStepId === key);
+  });
 }
 
 function highlightTimelineActionStep(stepId) {
   selectedTimelineStepId = stepId != null ? String(stepId) : null;
   updateTimelineHighlight();
   scrollHighlightedTimelineStep();
+}
+
+function renderEmptyAdditionalInfo(message = 'no action step selected.') {
+  const empty = `<div class="side-empty">${escHtml(message)}</div>`;
+  if (sideStepTitle) {
+    sideStepTitle.className = 'side-step-title side-empty';
+    sideStepTitle.textContent = message;
+  }
+  if (sideReplay) sideReplay.innerHTML = empty;
+  if (sideSelection) sideSelection.innerHTML = empty;
+}
+
+function renderTimelineActionStepInfo(stepId) {
+  const key = stepKey(stepId);
+  if (key == null) {
+    renderEmptyAdditionalInfo();
+    return;
+  }
+  const item = actionSummariesByStep.get(key) || { step: key, what: `Step ${key}` };
+  const what = item.what || item.actionSummary || `Step ${key}`;
+  const reasoning = reasoningByStep.get(key) || item.reason || item.why || '';
+  const calls = functionCallsByStep.get(key) || [];
+  const url = observedUrlsByStep.get(key);
+  const artifacts = artifactsByStep.get(key) || null;
+  const inference = getLlmInferenceForStep(key);
+
+  const rows = [];
+  rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">summary</span> <span class="v">${escHtml(what)}</span></span></div>`);
+  if (item.outcome && item.outcome !== '—') {
+    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">outcome</span> <span class="v">${escHtml(item.outcome)}</span></span></div>`);
+  }
+  if (reasoning) {
+    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">Reasoning</span> <span class="v">${escHtml(reasoning)}</span></span></div>`);
+  }
+  if (calls.length) {
+    const callsTxt = calls.map(c => {
+      const a = c.args && Object.keys(c.args).length ? ` ${formatArgs(c.args)}` : '';
+      return `${c.name}${a}`;
+    }).join(', ');
+    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">Function calls</span> <span class="v">${escHtml(callsTxt)}</span></span></div>`);
+  }
+  if (url) {
+    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">Observed URL</span> <span class="v">${escHtml(url)}</span></span></div>`);
+  }
+
+  const replayBody = artifacts ? renderActionArtifacts(artifacts) : '';
+
+  if (sideStepTitle) {
+    sideStepTitle.className = 'side-step-title';
+    sideStepTitle.textContent = `Step #${key}`;
+  }
+  if (sideReplay) {
+    sideReplay.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
+  }
+  if (sideSelection) {
+    sideSelection.innerHTML = (rows.length ? rows.join('') : '<div class="side-empty">no info.</div>') + renderLlmInferenceButton(inference);
+  }
+}
+
+function refreshAdditionalInfoForStep(stepId) {
+  const key = stepKey(stepId);
+  if (key == null || selectedTimelineStepId !== key) return;
+  renderTimelineActionStepInfo(selectedTimelineStepId);
+}
+
+function selectTimelineActionStep(stepId) {
+  const key = stepKey(stepId);
+  if (key == null) return;
+  if (selectedTimelineStepId === key) {
+    if (typeof clearGraphSelection === 'function') clearGraphSelection();
+    highlightTimelineActionStep(null);
+    renderTimelineActionStepInfo(selectedTimelineStepId);
+    return;
+  }
+  if (typeof clearGraphSelection === 'function') clearGraphSelection();
+  highlightTimelineActionStep(key);
+  renderTimelineActionStepInfo(selectedTimelineStepId);
 }
 
 function addRow(cls, html) {
@@ -279,10 +365,12 @@ function resetSidebar() {
   functionCallsByStep = new Map();
   observedUrlsByStep = new Map();
   actionShotsByStep = new Map();
+  artifactsByStep = new Map();
   llmInferencesByStep = new Map();
   currentTimelineStepId = null;
   currentTimelineStepGroup = null;
   highlightTimelineActionStep(null);
+  renderEmptyAdditionalInfo();
   sideTask.className = 'side-empty';
   sideTask.textContent = 'no active task.';
   renderPlan();
@@ -373,93 +461,41 @@ function timelineGroupForStep(stepId) {
 
 function createActionSummaryCard(key) {
   const template = document.createElement('template');
-  template.innerHTML = `<details class="action-summary-card" data-step-id="${escHtml(key)}"><summary></summary><div class="action-summary-detail" aria-label="Action summary details"></div></details>`;
-  return template.content.firstElementChild;
-}
-
-function formatRawJsonForActionDetail(value) {
-  if (value == null) return 'raw response unavailable.';
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch (_) {
-    return String(value);
-  }
-}
-
-function detailTextOrEmpty(text, emptyLabel) {
-  return text
-    ? escHtml(text)
-    : `<span class="detail-empty">${escHtml(emptyLabel)}</span>`;
-}
-
-function renderFunctionCallsDetail(stepId) {
-  const calls = functionCallsByStep.get(stepKey(stepId)) || [];
-  if (!calls.length) return '';
-  const lines = calls.map(c => {
-    const args = c.args && Object.keys(c.args).length
-      ? ` <span class="args">[${escHtml(formatArgs(c.args))}]</span>`
-      : '';
-    return `<div class="detail-text"><span class="tool">⚙ ${escHtml(c.name)}</span>${args}</div>`;
-  }).join('');
-  return `<div class="detail-section"><div class="detail-title">Function calls</div>${lines}</div>`;
-}
-
-function renderObservedUrlDetail(stepId) {
-  const url = observedUrlsByStep.get(stepKey(stepId));
-  if (!url) return '';
-  return `<div class="detail-section"><div class="detail-title">Observed URL</div><div class="detail-text"><span class="url">${escHtml(url)}</span></div></div>`;
-}
-
-function renderActionShotDetail(stepId) {
-  const href = actionShotsByStep.get(stepKey(stepId));
-  if (!href) return '';
-  const safeHref = escHtml(href);
-  return `<div class="detail-section"><div class="detail-title">Screenshot</div><div class="detail-text"><a target="_blank" rel="noreferrer" href="${safeHref}">[shot]</a></div></div>`;
+  template.innerHTML = `<div role="button" tabindex="0" class="action-summary-card" data-step-id="${escHtml(key)}"></div>`;
+  const card = template.content.firstElementChild;
+  card.addEventListener('click', (event) => {
+    event.stopPropagation();
+    selectTimelineActionStep(key);
+  });
+  card.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      selectTimelineActionStep(key);
+    }
+  });
+  return card;
 }
 
 function renderActionSummaryCard(card, item) {
   const key = stepKey(item.step);
-  const wasOpen = card.open;
   const phaseName = item.phaseId ? String(item.phaseId).replace(/^phase-/, '').replace(/[^a-z0-9_-]/gi, '') : '';
   const phaseCls = phaseName ? ` phase-${phaseName}` : '';
   const what = item.what || item.actionSummary || `Step ${item.step}`;
   const outcome = (item.outcome && item.outcome !== '—')
     ? `<span class="outcome">${escHtml(item.outcome)}</span>`
     : '';
-  const reasoning = (key && reasoningByStep.get(key)) || item.reason || item.why || '';
-  const why = item.why && item.why !== reasoning
-    ? `<div class="detail-section"><div class="detail-title">Review note</div><div class="detail-text">${escHtml(item.why)}</div></div>`
-    : '';
-  const inference = getLlmInferenceForStep(key);
-  const rawResponse = inference && inference.rawResponse != null
-    ? formatRawJsonForActionDetail(inference.rawResponse)
-    : 'raw response unavailable.';
 
   card.className = `action-summary-card${phaseCls}`;
+  card.classList.toggle('selected', selectedTimelineStepId === key);
   card.dataset.stepId = key || '';
   card.innerHTML = `
-    <summary>
+    <span class="summary-head">
       <span class="step-no">#${escHtml(item.step)}</span>
       <span class="summary-copy">
         <span class="what">${escHtml(what)}</span>
         ${outcome}
       </span>
-    </summary>
-    <div class="action-summary-detail" aria-label="Action summary details">
-      <div class="detail-section">
-        <div class="detail-title">Reasoning</div>
-        <div class="detail-text">${detailTextOrEmpty(reasoning, 'reasoning unavailable.')}</div>
-      </div>
-      ${why}
-      ${renderFunctionCallsDetail(key)}
-      ${renderObservedUrlDetail(key)}
-      ${renderActionShotDetail(key)}
-      <div class="detail-section">
-        <div class="detail-title">Raw response</div>
-        <pre>${escHtml(rawResponse)}</pre>
-      </div>
-    </div>`;
-  card.open = wasOpen;
+    </span>`;
 }
 
 function refreshActionSummaryForStep(stepId) {
@@ -468,6 +504,7 @@ function refreshActionSummaryForStep(stepId) {
   const item = actionSummariesByStep.get(key);
   const card = actionSummaryCardsByStep.get(key);
   if (item && card) renderActionSummaryCard(card, item);
+  refreshAdditionalInfoForStep(stepId);
 }
 
 function storeStepReasoning(stepId, reasoning) {
@@ -498,6 +535,14 @@ function storeActionShot(stepId, href) {
   refreshActionSummaryForStep(stepId);
 }
 
+function storeArtifactsForStep(stepId, artifacts) {
+  const key = stepKey(stepId);
+  if (key == null || !artifacts) return;
+  const prev = artifactsByStep.get(key) || {};
+  artifactsByStep.set(key, { ...prev, ...artifacts });
+  refreshAdditionalInfoForStep(stepId);
+}
+
 function upsertActionSummary(item) {
   const key = stepKey(item.step);
   if (key == null) return;
@@ -515,6 +560,7 @@ function upsertActionSummary(item) {
   }
 
   renderActionSummaryCard(card, next);
+  refreshAdditionalInfoForStep(key);
   timeline.scrollTop = timeline.scrollHeight;
 }
 
@@ -561,50 +607,37 @@ function handleEvent(ev) {
       liveSessionId = ev.session_id || null;
       setStatus('running', 'running');
       setInputEnabled(false);
-      addSpeaker('user', null);
-      addRow('user-message', escHtml(ev.query));
       resetSidebar();
       setSideTask(ev.query);
+      addSpeaker('user', null);
+      addRow('user-message', escHtml(ev.query));
+      addSpeaker('browser-agent', null);
       break;
 
     case 'planner_started':
-      addRow('dim', 'planner: decomposing task…');
+      setStatus('running', 'planning');
       break;
 
     case 'planner_completed': {
       const items = ev.subgoals || [];
-      if (!items.length) {
-        addRow('dim', 'planner: no subgoals.');
-      } else {
-        const lines = items.map((sg, i) =>
-          `<div><span style="color:var(--fg-mute)">${String(i + 1).padStart(2, '0')}</span>  ${escHtml(sg.description)}</div>`
-        ).join('');
-        addBlock('orange',
-          `<div class="title">plan <span class="pill">${items.length}</span></div>${lines}`
-        );
-      }
       setSubgoals(items);
+      setStatus('running', 'running');
       break;
     }
 
     case 'planner_replanning':
       pendingReplanFailedSubgoalId = ev.failed_subgoal_id;
-      addRow('warn', `replanning · subgoal ${escHtml(ev.failed_subgoal_id)} failed`);
+      setStatus('running', 'planning');
       break;
 
     case 'planner_replanned': {
       const items = ev.subgoals || [];
-      const lines = items.map((sg, i) =>
-        `<div><span style="color:var(--fg-mute)">${String(i + 1).padStart(2, '0')}</span>  ${escHtml(sg.description)}</div>`
-      ).join('');
-      addBlock('orange',
-        `<div class="title">replan <span class="pill">${items.length}</span></div>${lines}`
-      );
       replaceSubgoalsAfterFailed(
         ev.failed_subgoal_id != null ? ev.failed_subgoal_id : pendingReplanFailedSubgoalId,
         items
       );
       pendingReplanFailedSubgoalId = null;
+      setStatus('running', 'running');
       break;
     }
 
@@ -630,7 +663,6 @@ function handleEvent(ev) {
     case 'step_started':
       metaStep.textContent = `#${ev.step_id}`;
       beginActionStepGroup(ev.step_id);
-      addSpeaker('browser-agent', `step ${ev.step_id}`);
       break;
 
     case 'llm_inference':
@@ -672,6 +704,9 @@ function handleEvent(ev) {
         storeObservedUrl(ev.step_id, ev.env_state.url);
         recordActionExecution(ev);
       }
+      if (ev.artifacts) {
+        storeArtifactsForStep(ev.step_id, ev.artifacts);
+      }
       if (replayMode && replaySessionId && ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path)) {
         const href = replayArtifactHref(ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path, 'history');
         storeActionShot(ev.step_id, href);
@@ -688,12 +723,6 @@ function handleEvent(ev) {
       break;
 
     case 'step_complete':
-      if (ev.final_reasoning) {
-        addBlock('plain',
-          `<div class="title">step complete</div>` +
-          `<div class="meta">${escHtml(ev.final_reasoning)}</div>`
-        );
-      }
       finishActionStepGroup(ev.step_id);
       break;
 
@@ -997,42 +1026,60 @@ setupTheme();
 connect();
 
 // ── Sidebar resize ─────────────────────────────────────
-(function setupResizer() {
-  const resizer = document.getElementById('resizer');
+function setupPanelResizer({ id, storageKey, legacyStorageKey, cssVar, defaultWidth, widthFromPointer }) {
+  const resizer = document.getElementById(id);
   if (!resizer) return;
   const MIN = 220, MAX = 720;
-  const KEY = 'bragent.asideW';
 
-  const saved = parseInt(localStorage.getItem(KEY) || '', 10);
+  const saved = parseInt(localStorage.getItem(storageKey) || localStorage.getItem(legacyStorageKey || '') || '', 10);
   if (saved && saved >= MIN && saved <= MAX) {
-    document.body.style.setProperty('--aside-w', saved + 'px');
+    document.body.style.setProperty(cssVar, saved + 'px');
   }
 
   let dragging = false;
   resizer.addEventListener('pointerdown', (e) => {
     dragging = true;
+    resizer.classList.add('active');
     resizer.setPointerCapture(e.pointerId);
     document.body.classList.add('resizing');
     e.preventDefault();
   });
   resizer.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const w = Math.min(MAX, Math.max(MIN, window.innerWidth - e.clientX));
-    document.body.style.setProperty('--aside-w', w + 'px');
+    const w = Math.min(MAX, Math.max(MIN, widthFromPointer(e)));
+    document.body.style.setProperty(cssVar, w + 'px');
   });
   const stop = (e) => {
     if (!dragging) return;
     dragging = false;
+    resizer.classList.remove('active');
     document.body.classList.remove('resizing');
     try { resizer.releasePointerCapture(e.pointerId); } catch (_) {}
-    const cur = getComputedStyle(document.body).getPropertyValue('--aside-w').trim();
+    const cur = getComputedStyle(document.body).getPropertyValue(cssVar).trim();
     const px = parseInt(cur, 10);
-    if (px) localStorage.setItem(KEY, String(px));
+    if (px) localStorage.setItem(storageKey, String(px));
   };
   resizer.addEventListener('pointerup', stop);
   resizer.addEventListener('pointercancel', stop);
   resizer.addEventListener('dblclick', () => {
-    document.body.style.setProperty('--aside-w', '340px');
-    localStorage.setItem(KEY, '340');
+    document.body.style.setProperty(cssVar, defaultWidth + 'px');
+    localStorage.setItem(storageKey, String(defaultWidth));
   });
-})();
+}
+
+setupPanelResizer({
+  id: 'left-resizer',
+  storageKey: 'bragent.leftAsideW',
+  cssVar: '--left-aside-w',
+  defaultWidth: 320,
+  widthFromPointer: (e) => e.clientX,
+});
+
+setupPanelResizer({
+  id: 'right-resizer',
+  storageKey: 'bragent.rightAsideW',
+  legacyStorageKey: 'bragent.asideW',
+  cssVar: '--right-aside-w',
+  defaultWidth: 360,
+  widthFromPointer: (e) => window.innerWidth - e.clientX,
+});

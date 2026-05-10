@@ -143,16 +143,14 @@
   </div>
 </main>
 
-<div id="resizer" title="drag to resize"></div>
-
-<aside id="sidebar" aria-label="Session details">
+<aside id="left-sidebar" class="side-panel" aria-label="Session details">
   <div class="sheet-body">
-    <details class="side-section side-scroll-section side-task-section" data-side-view="timeline" open>
+    <details class="side-section side-scroll-section side-task-section" open>
       <summary data-icon="task_alt">Task</summary>
       <div class="side-body"><div id="side-task" class="side-empty">no active task.</div></div>
     </details>
 
-    <details class="side-section" data-side-view="timeline" open>
+    <details class="side-section" open>
       <summary data-icon="monitor_heart">Status</summary>
       <div class="side-body">
         <div class="bullet"><span class="dot">•</span><span><span class="k">step</span> <span class="v" id="meta-step">—</span></span></div>
@@ -161,24 +159,26 @@
       </div>
     </details>
 
-    <details class="side-section side-scroll-section side-plan-section" data-side-view="timeline" open>
+    <details class="side-section side-scroll-section side-plan-section" open>
       <summary data-icon="route">Plan</summary>
       <div class="side-body" id="side-plan"><div class="side-empty">no plan yet.</div></div>
     </details>
+  </div>
+</aside>
 
-    <details class="side-section side-scroll-section side-selection-section" data-side-view="graph" open>
-      <summary data-icon="ads_click">Selection</summary>
-      <div class="side-body" id="side-selection"><div class="side-empty">no node selected.</div></div>
+<div id="left-resizer" class="resizer" title="drag to resize left panel"></div>
+<div id="right-resizer" class="resizer" title="drag to resize right panel"></div>
+
+<aside id="right-sidebar" class="side-panel" aria-label="Additional action information">
+  <div class="sheet-body">
+    <div id="side-step-title" class="side-step-title side-empty">no action step selected.</div>
+    <details class="side-section side-scroll-section side-replay-section" open>
+      <summary data-icon="play_circle">Replay</summary>
+      <div class="side-body" id="side-replay"><div class="side-empty">no action step selected.</div></div>
     </details>
-
-    <details class="side-section" data-side-view="graph" open>
-      <summary data-icon="account_tree">Graph Overview</summary>
-      <div class="side-body">
-        <div class="bullet"><span class="dot">•</span><span><span class="k">level</span> <span class="v" id="graph-level">URLs</span></span></div>
-        <div class="bullet"><span class="dot">•</span><span><span class="k">nodes</span> <span class="v" id="graph-node-count">0</span></span></div>
-        <div class="bullet"><span class="dot">•</span><span><span class="k">edges</span> <span class="v" id="graph-edge-count">0</span></span></div>
-        <div class="bullet"><span class="dot">•</span><span><span class="k">tip</span> <span class="v">click to select · double-click to drill</span></span></div>
-      </div>
+    <details class="side-section side-scroll-section side-selection-section" open>
+      <summary data-icon="ads_click">Additional Info</summary>
+      <div class="side-body" id="side-selection"><div class="side-empty">no action step selected.</div></div>
     </details>
   </div>
 </aside>

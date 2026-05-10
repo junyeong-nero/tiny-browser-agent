@@ -274,28 +274,30 @@
   }
 
   body {
-    --aside-w: 360px;
+    --left-aside-w: 320px;
+    --right-aside-w: 360px;
     display: grid;
     grid-template-rows: auto 1fr auto;
-    grid-template-columns: 1fr 8px var(--aside-w);
+    grid-template-columns: var(--left-aside-w) 8px minmax(0, 1fr) 8px var(--right-aside-w);
     grid-template-areas:
-      "header  header  header"
-      "main    resizer aside"
-      "footer  resizer aside";
+      "header       header       header  header        header"
+      "left-aside   left-resizer main    right-resizer right-aside"
+      "left-aside   left-resizer footer  right-resizer right-aside";
     background: transparent;
   }
   body.resizing { cursor: col-resize; user-select: none; }
   body.resizing * { user-select: none !important; }
 
-  #resizer {
-    grid-area: resizer;
+  .resizer {
     background: transparent;
     cursor: col-resize;
     position: relative;
     z-index: 10;
     transition: background 0.18s ease;
   }
-  #resizer::before {
+  #left-resizer { grid-area: left-resizer; }
+  #right-resizer { grid-area: right-resizer; }
+  .resizer::before {
     content: "";
     position: absolute;
     left: 50%;
@@ -307,8 +309,8 @@
     transform: translate(-50%, -50%);
     transition: background 0.18s ease, box-shadow 0.18s ease, height 0.18s ease;
   }
-  #resizer:hover::before,
-  body.resizing #resizer::before {
+  .resizer:hover::before,
+  body.resizing .resizer.active::before {
     height: 56px;
     background: color-mix(in srgb, var(--md-sys-color-on-surface) 34%, transparent);
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent);
@@ -320,7 +322,7 @@
       grid-template-columns: 1fr;
       grid-template-areas: "header" "main" "footer";
     }
-    aside#sidebar, #resizer { display: none; }
+    aside.side-panel, .resizer { display: none; }
     main#main {
       margin: 8px 12px;
       border-radius: var(--md-sys-shape-corner-xl);
@@ -462,7 +464,7 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    margin: 16px 8px 12px 16px;
+    margin: 16px 8px 12px;
     background:
       linear-gradient(180deg,
         color-mix(in srgb, var(--md-sys-color-primary) 4%, transparent),
@@ -521,10 +523,6 @@
     min-height: 0;
   }
   .view-pane.active { display: flex; flex-direction: column; }
-
-  /* Side-panel context: only sections matching the active main view are shown. */
-  body.view-timeline .side-section[data-side-view="graph"]   { display: none !important; }
-  body.view-graph    .side-section[data-side-view="timeline"] { display: none !important; }
 
   #timeline-wrap { flex: 1; overflow: hidden; }
   #timeline {
@@ -739,13 +737,13 @@
   .graph-tooltip .tt-row .v { color: var(--fg); }
 
   #timeline::-webkit-scrollbar,
-  aside#sidebar::-webkit-scrollbar,
+  aside.side-panel::-webkit-scrollbar,
   .side-body::-webkit-scrollbar { width: 10px; }
   #timeline::-webkit-scrollbar-thumb,
-  aside#sidebar::-webkit-scrollbar-thumb,
+  aside.side-panel::-webkit-scrollbar-thumb,
   .side-body::-webkit-scrollbar-thumb { background: var(--surface-3); border: 3px solid transparent; border-radius: 999px; background-clip: content-box; }
   #timeline::-webkit-scrollbar-track,
-  aside#sidebar::-webkit-scrollbar-track,
+  aside.side-panel::-webkit-scrollbar-track,
   .side-body::-webkit-scrollbar-track { background: transparent; }
 
   /* Plain text line, no box */
@@ -754,6 +752,7 @@
     white-space: pre-wrap;
     word-break: break-word;
     color: var(--fg);
+    flex-shrink: 0;
   }
   .row.dim       { color: var(--fg-dim); }
   .row.thinking  { color: var(--fg-dim); font-style: italic; }
@@ -777,9 +776,10 @@
   .action-step-group {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 0 10px 10px;
-    margin: 4px -10px 2px;
+    flex-shrink: 0;
+    gap: 4px;
+    padding: 4px;
+    margin: 0 -10px;
     border-radius: var(--md-sys-shape-corner-lg);
     border: 1px solid transparent;
     transition:
@@ -888,8 +888,7 @@
 
   /* ── Standard Side Sheet (M3) ──
      Shares the same inset card treatment as the main content region. */
-  aside#sidebar {
-    grid-area: aside;
+  aside.side-panel {
     align-self: stretch;
     background:
       linear-gradient(180deg,
@@ -900,12 +899,19 @@
     border-radius: var(--md-sys-shape-corner-xl);
     box-shadow: var(--md-sys-elevation-2);
     overflow: hidden;
-    margin: 16px 12px 16px 8px;
     padding: 0;
     display: grid;
     grid-template-rows: minmax(0, 1fr);
     font-size: 14px;
     min-height: 0;
+  }
+  aside#left-sidebar {
+    grid-area: left-aside;
+    margin: 16px 8px 16px 12px;
+  }
+  aside#right-sidebar {
+    grid-area: right-aside;
+    margin: 16px 12px 16px 8px;
   }
 
   .sheet-body {
@@ -1045,6 +1051,12 @@
     word-break: break-word;
   }
   .side-empty { color: var(--fg-mute); font-style: italic; }
+  .side-sel-title {
+    color: var(--md-sys-color-primary);
+    font-weight: 600;
+    margin-bottom: 6px;
+    word-break: break-all;
+  }
 
   .bullet {
     display: grid;
@@ -1057,6 +1069,19 @@
   .bullet .dot { color: var(--primary); }
   .bullet .k   { color: var(--fg); font-weight: 500; }
   .bullet .v   { color: var(--fg-dim); }
+
+  .side-step-title {
+    color: var(--md-sys-color-primary);
+    font-weight: 600;
+    font-size: 13px;
+    padding: 10px 14px 6px;
+    word-break: break-all;
+  }
+  .side-step-title.side-empty {
+    color: var(--fg-mute);
+    font-weight: 400;
+    font-style: italic;
+  }
 
   .llm-raw-details {
     margin-top: 8px;
@@ -1272,31 +1297,50 @@
     border: 1px solid var(--md-sys-color-outline-variant);
     border-radius: var(--md-sys-shape-corner-md);
     background: var(--md-sys-color-surface-container-high);
+    color: inherit;
+    cursor: pointer;
+    display: block;
+    font: inherit;
+    text-align: left;
+    width: 100%;
     transition:
       background-color 150ms var(--md-sys-motion-easing-standard),
       box-shadow 150ms var(--md-sys-motion-easing-standard);
     min-width: 0;
     overflow: hidden;
   }
-  .action-summary-card[open] {
+  .action-summary-card:hover {
+    background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-high));
+  }
+  .action-summary-card:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary);
+    outline-offset: 2px;
+  }
+  .action-summary-card.selected {
+    border-color: color-mix(in srgb, var(--md-sys-color-primary) 64%, var(--md-sys-color-outline-variant));
     box-shadow: var(--md-sys-elevation-1);
   }
-  .action-summary-card > summary {
-    list-style: none;
+  .action-summary-card .summary-head {
     cursor: pointer;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: start;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
     gap: 10px;
     padding: 12px 14px;
     min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
   }
-  .action-summary-card > summary::-webkit-details-marker { display: none; }
-  .action-summary-card > summary:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, var(--md-sys-color-surface-container-high)); }
-  .action-summary-card .step-no { color: var(--fg-mute); font-size: 11px; padding-top: 1px; white-space: nowrap; font-family: var(--mono); }
-  .action-summary-card .summary-copy { min-width: 0; overflow-wrap: anywhere; }
-  .action-summary-card .what { color: var(--fg); font-weight: 500; line-height: 1.35; }
-  .action-summary-card .outcome { display: block; color: var(--fg-dim); font-size: 12px; line-height: 1.35; margin-top: 2px; font-style: italic; }
+  .action-summary-card .step-no { color: var(--fg-mute); font-size: 11px; padding-top: 1px; white-space: nowrap; font-family: var(--mono); flex: 0 0 auto; }
+  .action-summary-card .summary-copy {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .action-summary-card .what { display: block; color: var(--fg); font-weight: 500; line-height: 1.35; white-space: normal; }
+  .action-summary-card .outcome { display: block; color: var(--fg-dim); font-size: 12px; line-height: 1.35; margin-top: 2px; font-style: italic; white-space: normal; }
   .action-summary-card .outcome::before { content: "→ "; color: var(--fg-mute); font-style: normal; }
   .action-summary-detail {
     display: grid;
@@ -1348,7 +1392,7 @@
   /* ── Bottom input (M3 Filled Text Field + FAB) ── */
   footer {
     grid-area: footer;
-    padding: 4px 8px 16px 16px;
+    padding: 4px 8px 16px;
   }
   .input-shell {
     position: relative;

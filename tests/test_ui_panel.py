@@ -301,9 +301,11 @@ def test_panel_links_replay_screenshots_from_action_artifacts():
     action_case = PANEL_HTML.split("case 'action_executed':", 1)[1].split(
         "case 'step_error':", 1
     )[0]
-    assert "replayArtifactHref(ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path, 'history')" in action_case
-    assert "storeActionShot(ev.step_id, href);" in action_case
-    assert "[shot]" in PANEL_HTML
+    assert "storeArtifactsForStep(ev.step_id, ev.artifacts);" in action_case
+    timeline_render = PANEL_HTML.split("function renderTimelineActionStepInfo(stepId)", 1)[1].split(
+        "function refreshAdditionalInfoForStep", 1
+    )[0]
+    assert "renderActionArtifacts(artifacts)" in timeline_render
 
 
 def test_panel_uses_apple_design_theme_tokens():
@@ -399,7 +401,7 @@ def test_panel_header_controls_use_shared_header_order():
     theme_idx = header_html.index('id="theme-toggle"')
 
     assert live_idx < sessions_idx < theme_idx
-    assert '"header  header  header"' in PANEL_HTML
+    assert '"header       header       header  header        header"' in PANEL_HTML
     assert 'class="sheet-header"' not in PANEL_HTML
 
 def test_panel_secondary_controls_use_svg_icons_with_accessible_labels():
@@ -422,9 +424,19 @@ def test_panel_secondary_controls_use_svg_icons_with_accessible_labels():
     assert "`▶ ${escHtml(session.id)}" not in PANEL_HTML
 
 
-def test_panel_sidebar_task_and_plan_use_scroll_panel_sections():
+def test_panel_left_sidebar_always_shows_task_status_and_plan():
+    left_html = PANEL_HTML_ONLY.split('<aside id="left-sidebar"', 1)[1].split("</aside>", 1)[0]
+    right_html = PANEL_HTML_ONLY.split('<aside id="right-sidebar"', 1)[1].split("</aside>", 1)[0]
+
+    assert '<aside id="left-sidebar" class="side-panel" aria-label="Session details">' in PANEL_HTML_ONLY
+    assert '<aside id="right-sidebar" class="side-panel" aria-label="Additional action information">' in PANEL_HTML_ONLY
     assert 'class="side-section side-scroll-section side-task-section"' in PANEL_HTML
     assert 'class="side-section side-scroll-section side-plan-section"' in PANEL_HTML
+    assert '<summary data-icon="task_alt">Task</summary>' in left_html
+    assert '<summary data-icon="monitor_heart">Status</summary>' in left_html
+    assert '<summary data-icon="route">Plan</summary>' in left_html
+    assert '<summary data-icon="ads_click">Additional Info</summary>' in right_html
+    assert "data-side-view" not in PANEL_HTML_ONLY
     assert 'class="side-section side-scroll-section side-activity-section"' not in PANEL_HTML
     assert 'id="side-activity"' not in PANEL_HTML
     assert "details.side-scroll-section[open]" in PANEL_HTML
@@ -475,19 +487,23 @@ def test_panel_graph_clears_stale_root_flag_when_reusing_nodes():
 
 def test_panel_cards_use_symmetric_compact_divider_gap():
     main_css = PANEL_HTML.split("main#main {", 2)[2].split("}", 1)[0]
-    sidebar_css = PANEL_HTML.split("aside#sidebar {", 1)[1].split("}", 1)[0]
+    left_sidebar_css = PANEL_HTML.split("aside#left-sidebar {", 1)[1].split("}", 1)[0]
+    right_sidebar_css = PANEL_HTML.split("aside#right-sidebar {", 1)[1].split("}", 1)[0]
     footer_css = PANEL_HTML.split("\n  footer {", 1)[1].split("}", 1)[0]
 
-    assert "margin: 16px 8px 12px 16px;" in main_css
-    assert "margin: 16px 12px 16px 8px;" in sidebar_css
-    assert "padding: 4px 8px 16px 16px;" in footer_css
+    assert "margin: 16px 8px 12px;" in main_css
+    assert "margin: 16px 8px 16px 12px;" in left_sidebar_css
+    assert "margin: 16px 12px 16px 8px;" in right_sidebar_css
+    assert "padding: 4px 8px 16px;" in footer_css
 
 
-def test_panel_resizer_uses_short_rounded_rect_handle():
-    resizer_css = PANEL_HTML.split("#resizer::before {", 1)[1].split("}", 1)[0]
-    resizer_hover_css = PANEL_HTML.split("body.resizing #resizer::before {", 1)[1].split("}", 1)[0]
+def test_panel_resizers_use_short_rounded_rect_handles():
+    resizer_css = PANEL_HTML.split(".resizer::before {", 1)[1].split("}", 1)[0]
+    resizer_hover_css = PANEL_HTML.split("body.resizing .resizer.active::before {", 1)[1].split("}", 1)[0]
 
-    assert "grid-template-columns: 1fr 8px var(--aside-w);" in PANEL_HTML
+    assert "grid-template-columns: var(--left-aside-w) 8px minmax(0, 1fr) 8px var(--right-aside-w);" in PANEL_HTML
+    assert 'id="left-resizer" class="resizer"' in PANEL_HTML
+    assert 'id="right-resizer" class="resizer"' in PANEL_HTML
     assert "left: 50%;" in resizer_css
     assert "top: 50%;" in resizer_css
     assert "width: 4px;" in resizer_css
@@ -509,7 +525,7 @@ def test_panel_chatbox_has_all_corners_rounded():
 
 
 def test_panel_sidebar_itself_is_viewport_constrained_and_scrollable():
-    sidebar_css = PANEL_HTML.split("aside#sidebar {", 1)[1].split("}", 1)[0]
+    sidebar_css = PANEL_HTML.split("aside.side-panel {", 1)[1].split("}", 1)[0]
     sheet_body_css = PANEL_HTML.split(".sheet-body {", 1)[1].split("}", 1)[0]
     side_section_css = PANEL_HTML.split("details.side-section {", 1)[1].split("}", 1)[0]
     side_scroll_css = PANEL_HTML.split("details.side-scroll-section[open] {", 1)[1].split("}", 1)[0]
@@ -539,7 +555,7 @@ def test_panel_sidebar_long_content_uses_flow_safe_grid_items():
     side_section_css = PANEL_HTML.split("details.side-section {", 1)[1].split("}", 1)[0]
     side_body_css = PANEL_HTML.split(".side-body {", 1)[1].split("}", 1)[0]
     todo_css = PANEL_HTML.split(".todo {", 1)[1].split("}", 1)[0]
-    action_summary_css = PANEL_HTML.split(".action-summary-card > summary {", 1)[1].split("}", 1)[0]
+    action_summary_css = PANEL_HTML.split(".action-summary-card .summary-head {", 1)[1].split("}", 1)[0]
 
     assert "position: relative;" in side_section_css
     assert "flex: 0 0 auto;" in side_section_css
@@ -548,10 +564,11 @@ def test_panel_sidebar_long_content_uses_flow_safe_grid_items():
     assert "max-width: 100%;" in side_body_css
     assert "word-break: break-word;" in side_body_css
     assert "grid-template-columns: 30px minmax(0, 1fr);" in todo_css
-    assert "grid-template-columns: auto minmax(0, 1fr);" in action_summary_css
-    assert "align-items: start;" in action_summary_css
+    assert "display: flex;" in action_summary_css
+    assert "align-items: flex-start;" in action_summary_css
     assert ".todo .text  { color: var(--fg); min-width: 0; overflow-wrap: anywhere; }" in PANEL_HTML
-    assert ".action-summary-card .summary-copy { min-width: 0; overflow-wrap: anywhere; }" in PANEL_HTML
+    assert "min-width: 0;" in PANEL_HTML.split(".action-summary-card .summary-copy {", 1)[1].split("}", 1)[0]
+    assert "overflow-wrap: anywhere;" in PANEL_HTML.split(".action-summary-card .summary-copy {", 1)[1].split("}", 1)[0]
 
 
 def test_panel_sidebar_toggle_uses_material_arrow_drop_down_icon():
@@ -586,24 +603,23 @@ def test_panel_empty_state_uses_material_symbol_illustration():
     assert "border-radius: var(--md-sys-shape-corner-xl);" in empty_icon_css
 
 
-def test_panel_step_summary_uses_plain_block_without_accent():
+def test_panel_step_complete_does_not_render_extra_timeline_summary():
     step_complete_case = PANEL_HTML.split("case 'step_complete':", 1)[1].split(
         "case 'task_complete':", 1
     )[0]
     summary_css = PANEL_HTML.split(".action-summary-card {", 1)[1].split("}", 1)[0]
-    summary_hover_css = PANEL_HTML.split(".action-summary-card > summary:hover {", 1)[1].split("}", 1)[0]
+    summary_hover_css = PANEL_HTML.split(".action-summary-card:hover {", 1)[1].split("}", 1)[0]
 
-    assert "addBlock('plain'," in step_complete_case
+    assert "addBlock('plain'," not in step_complete_case
+    assert "step complete" not in step_complete_case
     assert "addBlock('green'," not in step_complete_case
-    assert ".block.plain::before { display: none; }" in PANEL_HTML
-    assert ".block.plain {" in PANEL_HTML
     assert "border-left" not in summary_css
     assert "--phase-border" not in summary_css
     assert "--phase-bg" not in summary_css
     assert "--phase-bg" not in summary_hover_css
 
 
-def test_panel_action_summaries_render_in_timeline_with_inline_details():
+def test_panel_action_summaries_render_clickable_timeline_cards_without_inline_details():
     review_case = PANEL_HTML.split("case 'review_metadata_extracted':", 1)[1].split(
         "case 'action_executed':", 1
     )[0]
@@ -613,18 +629,23 @@ def test_panel_action_summaries_render_in_timeline_with_inline_details():
     assert "currentTimelineStepGroup.appendChild(card);" in PANEL_HTML
     assert "upsertActionSummary({" in review_case
     assert "addActivity({" not in review_case
-    assert "<details class=\"action-summary-card\"" in PANEL_HTML
-    assert "<summary>" in PANEL_HTML
-    assert "Action summary details" in PANEL_HTML
+    assert '<div role="button" tabindex="0" class="action-summary-card"' in PANEL_HTML
+    assert "selectTimelineActionStep(key);" in PANEL_HTML
+    assert "Action summary details" not in PANEL_HTML
 
 
-def test_panel_action_summary_details_include_reasoning_and_raw_response():
+def test_panel_right_additional_info_includes_reasoning_artifacts_and_llm_button():
     assert "let reasoningByStep = new Map();" in PANEL_HTML
     assert "storeStepReasoning(ev.step_id, ev.reasoning);" in PANEL_HTML
-    assert "refreshActionSummaryForStep(stepId);" in PANEL_HTML
+    assert "refreshAdditionalInfoForStep(stepId);" in PANEL_HTML
     assert "Reasoning" in PANEL_HTML
-    assert "Raw response" in PANEL_HTML
-    assert "raw response unavailable." in PANEL_HTML
+    timeline_render = PANEL_HTML.split("function renderTimelineActionStepInfo(stepId)", 1)[1].split(
+        "function refreshAdditionalInfoForStep", 1
+    )[0]
+    assert "renderActionArtifacts(artifacts)" in timeline_render
+    assert "renderLlmInferenceButton(inference)" in timeline_render
+    assert "let artifactsByStep = new Map();" in PANEL_HTML
+    assert "storeArtifactsForStep(ev.step_id, ev.artifacts);" in PANEL_HTML
 
 
 def test_panel_agent_step_raw_events_are_hidden_behind_action_summary_details():
@@ -651,9 +672,15 @@ def test_panel_user_chat_messages_are_right_aligned():
     task_started_case = PANEL_HTML.split("case 'task_started':", 1)[1].split(
         "case 'planner_started':", 1
     )[0]
+    step_started_case = PANEL_HTML.split("case 'step_started':", 1)[1].split(
+        "case 'llm_inference':", 1
+    )[0]
 
     assert "addSpeaker('user', null);" in task_started_case
     assert "addRow('user-message', escHtml(ev.query));" in task_started_case
+    assert "addSpeaker('browser-agent', null);" in task_started_case
+    assert "addSpeaker('browser-agent', `step ${ev.step_id}`);" not in step_started_case
+    assert "addSpeaker('browser-agent'" not in step_started_case
     assert "el.className = `speaker ${name === 'user' ? 'user-speaker' : 'agent-speaker'}`;" in PANEL_HTML
     assert ".row.user-message" in PANEL_HTML
     assert "align-self: flex-end;" in PANEL_HTML
@@ -666,7 +693,7 @@ def test_panel_removes_keybind_help_bar():
     assert "shift+enter</kbd> newline" not in PANEL_HTML
     assert "esc</kbd> interrupt" not in PANEL_HTML
     assert '"keybind resizer aside"' not in PANEL_HTML
-    assert '"header  header  header"' in PANEL_HTML
+    assert '"header       header       header  header        header"' in PANEL_HTML
     assert 'grid-template-areas: "header" "main" "footer";' in PANEL_HTML
 
 
@@ -683,10 +710,13 @@ def test_panel_graph_selection_renders_action_before_after_artifacts():
     assert "renderActionArtifacts(d.artifacts)" in PANEL_HTML
 
 
-def test_panel_graph_selection_highlights_timeline_action_step_group():
+def test_panel_graph_and_timeline_selection_share_action_step_highlight_and_info():
     assert ".action-step-group.timeline-highlight" in PANEL_HTML
     assert "function beginActionStepGroup(stepId)" in PANEL_HTML
     assert "currentTimelineStepGroup.dataset.stepId = String(stepId);" in PANEL_HTML
+    assert "currentTimelineStepGroup.addEventListener('click'" in PANEL_HTML
+    assert "function selectTimelineActionStep(stepId)" in PANEL_HTML
+    assert "renderTimelineActionStepInfo(selectedTimelineStepId);" in PANEL_HTML
     assert "function highlightTimelineActionStep(stepId)" in PANEL_HTML
     assert "function timelineStepForGraphNode(d)" in PANEL_HTML
     assert "highlightTimelineActionStep(timelineStepForGraphNode(selectedNodeData));" in PANEL_HTML
