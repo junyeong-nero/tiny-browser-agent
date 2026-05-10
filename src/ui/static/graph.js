@@ -697,14 +697,21 @@ function updateGraphRunningClass() {
 }
 
 function renderSelection(d) {
-  const el = document.getElementById('side-selection');
-  if (!el) return;
+  const titleEl = document.getElementById('side-step-title');
+  const replayEl = document.getElementById('side-replay');
+  const infoEl = document.getElementById('side-selection');
   if (!d) {
-    el.innerHTML = '<div class="side-empty">no node selected.</div>';
+    if (titleEl) {
+      titleEl.className = 'side-step-title side-empty';
+      titleEl.textContent = 'no action step selected.';
+    }
+    if (replayEl) replayEl.innerHTML = '<div class="side-empty">no action step selected.</div>';
+    if (infoEl) infoEl.innerHTML = '<div class="side-empty">no action step selected.</div>';
     return;
   }
   const rows = [];
-  const title = d.fullUrl || d.label || d.id;
+  const stepNum = d.step ?? d.firstStep ?? d.lastStep;
+  const title = stepNum != null ? `Step #${stepNum}` : (d.label || d.fullUrl || d.id);
   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">level</span> <span class="v">${escHtml(d.type || '—')}</span></span></div>`);
   if (d.host)        rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">host</span> <span class="v">${escHtml(d.host)}</span></span></div>`);
   if (d.path)        rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">path</span> <span class="v">${escHtml(d.path || '/')}</span></span></div>`);
@@ -712,17 +719,20 @@ function renderSelection(d) {
   if (d.scroll)      rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">scroll</span> <span class="v">${escHtml(d.scroll)}</span></span></div>`);
   if (d.actionName)  rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">action</span> <span class="v">${escHtml(d.actionName)}</span></span></div>`);
   if (d.argsText)    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">args</span> <span class="v">${escHtml(d.argsText)}</span></span></div>`);
-  if (d.actionGifPath)       rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">action gif</span> <span class="v">${escHtml(d.actionGifPath)}</span></span></div>`);
-  if (d.beforeScreenshotPath) rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">before shot</span> <span class="v">${escHtml(d.beforeScreenshotPath)}</span></span></div>`);
-  if (d.afterScreenshotPath)  rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">after shot</span> <span class="v">${escHtml(d.afterScreenshotPath)}</span></span></div>`);
-  if (d.videoPath)           rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">video</span> <span class="v">${escHtml(d.videoPath)}</span></span></div>`);
   if (d.visits != null)        rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">visits</span> <span class="v">${d.visits}</span></span></div>`);
   if (d.viewportCount != null) rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">viewports</span> <span class="v">${d.viewportCount}</span></span></div>`);
   if (d.actionCount != null)   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">actions</span> <span class="v">${d.actionCount}</span></span></div>`);
   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">first step</span> <span class="v">#${d.firstStep ?? d.step ?? '—'}</span></span></div>`);
   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">last step</span> <span class="v">#${d.lastStep ?? d.step ?? '—'}</span></span></div>`);
   if (d.drillable)   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">tip</span> <span class="v">double-click to drill in</span></span></div>`);
-  el.innerHTML = `<div class="side-sel-title" style="color: var(--md-sys-color-primary); font-weight:600; margin-bottom:6px; word-break:break-all;">${escHtml(title)}</div>` + rows.join('') + renderLlmInferenceButton(d.llmInference) + renderActionArtifacts(d.artifacts) + renderActionPreviewGallery(d.actionPreviews);
+
+  if (titleEl) {
+    titleEl.className = 'side-step-title';
+    titleEl.textContent = title;
+  }
+  const replayBody = renderActionArtifacts(d.artifacts) + renderActionPreviewGallery(d.actionPreviews);
+  if (replayEl) replayEl.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
+  if (infoEl) infoEl.innerHTML = (rows.length ? rows.join('') : '<div class="side-empty">no info.</div>') + renderLlmInferenceButton(d.llmInference);
 }
 
 function setGraphDrilldown(next) {
@@ -1071,6 +1081,7 @@ function resizeGraph() { graph.resize(); }
 window.updateGraph = updateGraph;
 window.resetGraph = resetGraph;
 window.resizeGraph = resizeGraph;
+window.clearGraphSelection = clearGraphSelection;
 window.recordActionExecution = recordActionExecution;
 window.setGraphRunningStep = setGraphRunningStep;
 window.clearGraphRunningStep = clearGraphRunningStep;
