@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from agents.actor_agent import AgentInterrupted
+from agents.types import AgentRunResult
 import config as app_config
 from session import MAX_CONVERSATION_MEMORY_ITEMS, BrowserSession, TaskMemory
 
@@ -214,6 +215,35 @@ def test_run_task_emits_live_log_session_id_when_logging_enabled(mock_browser_ag
     assert task_started["query"] == "test query"
     assert task_started["session_id"]
     assert (tmp_path / task_started["session_id"] / "session.json").exists()
+
+
+@patch("session.emit")
+@patch("session.BrowserAgent")
+def test_run_task_emits_task_complete_with_agent_final_reasoning(mock_browser_agent, mock_emit):
+    browser = MagicMock()
+    mock_browser_agent.return_value.final_reasoning = "Found one stop business-class ticket."
+    mock_browser_agent.return_value.latest_url = "https://www.google.com/travel/flights"
+    mock_browser_agent.return_value.agent_loop.return_value = AgentRunResult(
+        status="complete",
+        summary="Found one stop business-class ticket.",
+    )
+    session = BrowserSession(
+        browser_computer=browser,
+        model_name="test_model",
+        logs_dir=Path("logs/history"),
+        log_enabled=False,
+    )
+
+    session.run_task("find flight")
+
+    task_complete = next(
+        call.args[0]
+        for call in mock_emit.call_args_list
+        if call.args[0]["type"] == "task_complete"
+    )
+    assert task_complete["query"] == "find flight"
+    assert task_complete["status"] == "complete"
+    assert task_complete["final_reasoning"] == "Found one stop business-class ticket."
 
 
 @patch("session.register_event_sink")

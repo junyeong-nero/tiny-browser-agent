@@ -345,18 +345,28 @@ def _run_cli_mode(
             max_subgoals=execution_constraints.max_subgoals,
         )
         result = agent.agent_loop()
-        if result.status != "complete":
+        result_status = getattr(result, "status", "complete")
+        if not isinstance(result_status, str):
+            result_status = "complete"
+        if result_status != "complete":
             emit({
                 "type": "task_failed",
                 "query": args.query,
-                "status": result.status,
+                "status": result_status,
                 "error_message": result.reason or result.summary or "Task did not complete successfully.",
                 "succeeded_subgoals": result.succeeded_subgoals,
                 "failed_subgoals": result.failed_subgoals,
             })
             failure_emitted = True
-            raise RuntimeError(result.reason or result.summary or f"Task ended with status {result.status}")
-        emit({"type": "task_complete", "query": args.query, "status": "complete"})
+            raise RuntimeError(result.reason or result.summary or f"Task ended with status {result_status}")
+        final_reasoning = getattr(agent, "final_reasoning", None)
+        if not isinstance(final_reasoning, str) or not final_reasoning.strip():
+            result_summary = getattr(result, "summary", None)
+            final_reasoning = result_summary if isinstance(result_summary, str) else None
+        task_complete_event = {"type": "task_complete", "query": args.query, "status": "complete"}
+        if isinstance(final_reasoning, str) and final_reasoning.strip():
+            task_complete_event["final_reasoning"] = final_reasoning
+        emit(task_complete_event)
     except Exception as exc:
         if not failure_emitted:
             emit({"type": "task_failed", "query": args.query, "status": "failed", "error_message": str(exc)})

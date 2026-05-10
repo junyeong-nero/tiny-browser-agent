@@ -196,7 +196,19 @@ class BrowserSession:
                 })
                 return
             self._remember_completed_task(query, agent)
-            emit({"type": "task_complete", "query": query, "task_id": task_id, "status": "complete"})
+            final_reasoning = agent.final_reasoning
+            if not isinstance(final_reasoning, str) or not final_reasoning.strip():
+                result_summary = getattr(result, "summary", None)
+                final_reasoning = result_summary if isinstance(result_summary, str) else None
+            task_complete_event = {
+                "type": "task_complete",
+                "query": query,
+                "task_id": task_id,
+                "status": "complete",
+            }
+            if isinstance(final_reasoning, str) and final_reasoning.strip():
+                task_complete_event["final_reasoning"] = final_reasoning
+            emit(task_complete_event)
         finally:
             finish_active_task(task_id)
             if sink_registered:
