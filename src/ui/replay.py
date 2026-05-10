@@ -82,6 +82,10 @@ def _step_count(session_dir: Path) -> int:
     return len(list(history_dir.glob("step-*.json")))
 
 
+def _has_meaningful_events(session_dir: Path) -> bool:
+    return bool(_read_jsonl(session_dir / "events.jsonl"))
+
+
 def _video_name(session_dir: Path) -> str | None:
     video_dir = session_dir / "video"
     if not video_dir.is_dir():
@@ -124,14 +128,18 @@ def list_sessions() -> list[dict[str, Any]]:
         if not path.is_dir() or not SESSION_ID_RE.fullmatch(path.name):
             continue
         meta = _read_json(path / "session.json")
+        step_count = _step_count(path)
+        has_events = _has_meaningful_events(path)
+        if step_count == 0 and not has_events:
+            continue
         sessions.append(
             {
                 "id": path.name,
                 "started_at": meta.get("started_at") or path.name,
                 "query": meta.get("query") or "unknown task",
                 "model": meta.get("model_name") or meta.get("model"),
-                "step_count": _step_count(path),
-                "has_events": (path / "events.jsonl").exists(),
+                "step_count": step_count,
+                "has_events": has_events,
                 "video": _video_name(path),
             }
         )
@@ -142,10 +150,16 @@ def load_events(session_id: str) -> list[dict[str, Any]]:
     session_dir = _session_dir(session_id)
     events_path = session_dir / "events.jsonl"
     if events_path.exists():
-        return _enrich_events_with_session_artifacts(_read_jsonl(events_path), session_dir)
+        events = _read_jsonl(events_path)
+        if events:
+            return _enrich_events_with_session_artifacts(events, session_dir)
     synthetic_path = session_dir / "events.jsonl.synthetic"
     if synthetic_path.exists():
-        return _read_jsonl(synthetic_path)
+        events = _read_jsonl(synthetic_path)
+        if events:
+            return events
+    if _step_count(session_dir) == 0:
+        return []
     events = synthesize_events(session_dir)
     if events:
         synthetic_path.write_text(
