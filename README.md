@@ -1,129 +1,275 @@
 # tiny-browser-agent
 
-Browser agent CLI built with Playwright and configurable LLM providers.
+**A diagnosis and debugging workbench for browser agents.**
+
+`tiny-browser-agent` is not positioned as a SOTA browser-agent benchmark entry or
+as a universal autonomous web operator. Its purpose is narrower and more useful
+for agent builders: run browser-agent tasks, capture every step, and inspect why
+the agent succeeded, failed, retried, drifted out of scope, or chose a specific
+tool call.
+
+Use it to debug browser-agent behavior with replayable evidence: model context,
+raw model responses, tool calls, ARIA snapshots, screenshots, before/after
+artifacts, action GIFs, videos, and a URL → viewport → action trajectory graph.
+
+## What this project is for
+
+- Diagnose browser-agent failures and regressions.
+- Compare grounding modes (`text`, `vision`, `mixed`) and model/provider behavior.
+- Inspect the exact model input/output for each action step.
+- Replay saved sessions without rerunning the task.
+- Collect reproducible traces for prompt, tool, planner, and UI debugging.
+- Run benchmark-like batches for trace collection, not leaderboard claims.
+
+## What this project is not
+
+- Not a claim of SOTA web-agent performance.
+- Not a production RPA platform.
+- Not a headless-only benchmark harness optimized for maximum task success.
+- Not a replacement for site-specific automation when deterministic automation is
+  required.
+
+## Key capabilities
+
+### Browser-agent runtime
+
+- Local Chromium control through Playwright.
+- CLI task execution or long-lived web UI session.
+- Configurable model providers through a common LLM boundary:
+  OpenRouter, OpenAI, Gemini, and NVIDIA-compatible chat completion APIs.
+- Grounding modes:
+  - `text`: ARIA snapshot + stable integer refs.
+  - `vision`: screenshot/coordinate actions.
+  - `mixed`: ARIA refs plus screenshot input.
+- Optional planner mode that decomposes a task into verifiable subgoals and can
+  re-plan after subgoal failure.
+- Task-scope guards for site-specific requests so the agent reports blockers
+  instead of silently escaping to generic search.
+- Cooperative UI interruption for stopping an active task safely.
+
+### Diagnosis artifacts
+
+With `--log`, every run can persist:
+
+```text
+logs/history/<timestamp>/
+├── session.json          # task, model, grounding, planner, constraints
+├── events.jsonl          # replayable UI/model/tool event stream
+├── actions.jsonl         # compact action trajectory
+└── history/
+    ├── step-0001.png     # viewport screenshot
+    ├── step-0001.html    # DOM snapshot
+    ├── step-0001.a11y.yaml
+    ├── step-0001.json    # metadata, state graph, review metadata
+    ├── step-0001.gif     # before/after GIF when ffmpeg is available
+    └── step-0001-action.gif
+```
+
+With `--video`, the run can also persist:
+
+```text
+logs/history/<timestamp>/video/
+├── <playwright-recording>.webm
+└── session_60fps.mp4     # when ffmpeg is available
+```
+
+### Web control panel
+
+`--ui` starts a local FastAPI/uvicorn panel for live diagnosis:
+
+- Submit tasks and stop the active task from a single Run/Stop control.
+- See planner/subgoal progress.
+- Inspect the action timeline.
+- Drill into a hierarchical trajectory graph:
+  URL → viewport state → action step.
+- Compare before/after screenshots and action GIFs.
+- Open raw LLM context and raw response for each step.
+- Replay previous sessions from `logs/history/<timestamp>/`.
 
 ## Requirements
 
 - Python `>=3.12,<3.13`
-- `uv`
-- API keys for the configured providers
+- [`uv`](https://docs.astral.sh/uv/)
+- Chromium browser binary installed through Playwright
+- API key for the configured model provider
+- Optional: `ffmpeg` for GIF/MP4 artifact generation
 
-## Quick Start
+## Setup
 
 ```bash
 uv sync --dev
 uv run playwright install chromium
-export OPENROUTER_API_KEY="YOUR_OPENROUTER_API_KEY"
-export GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-uv run main.py "Summarize this page"
 ```
 
-If Playwright needs system packages:
+If your machine needs Playwright system packages:
 
 ```bash
 uv run playwright install-deps chromium
 ```
 
-## Usage
+Configure provider credentials as needed. The checked-in `config.yaml` controls
+the default actor, planner, summary providers, and execution budgets.
+
+```bash
+export OPENROUTER_API_KEY="..."
+export OPENAI_API_KEY="..."      # used when the summary provider is OpenAI
+export GEMINI_API_KEY="..."      # needed only when using Gemini configs
+export NVIDIA_API_KEY="..."      # needed only when using NVIDIA configs
+```
+
+## Quick start
+
+Run a one-off task:
 
 ```bash
 uv run main.py "Open Example Domain and summarize the page"
+```
+
+Start from a specific URL:
+
+```bash
 uv run main.py "Summarize this page" --initial_url "https://example.com"
-uv run main.py "Summarize this page" --headless True
-uv run main.py "Click the first link" --highlight_mouse
-uv run main.py "오늘 서울 날씨 알려줘" --log
-uv run main.py "오늘 서울 날씨 알려줘" --log --video
 ```
 
-### Session logging
+Run with diagnostic artifacts:
 
-`--log` writes trajectory and replay artifacts under `logs/history/<timestamp>/`:
-
-```text
-session.json         # task/model metadata for replay listings
-events.jsonl         # faithful UI event stream for replay
-actions.jsonl        # action history (one JSON record per step)
-history/step-*.png   # screenshot per step
-history/step-*.html  # DOM snapshot
-history/step-*.json  # step metadata
-history/step-*.gif   # before/after and action GIFs when ffmpeg is available
+```bash
+uv run main.py "Search for Playwright docs and summarize the result" --log
 ```
 
-`--video` is separate and writes browser recordings under
-`logs/history/<timestamp>/video/` (`.webm` from Playwright and
-`session_60fps.mp4` when ffmpeg is available). Use `--log --video` when a
-session needs both replay JSON/GIF artifacts and video.
+Run with the browser control/debugging panel:
 
-New logged sessions include `events.jsonl`, which lets the web UI replay the same
-timeline, plan, activity, and navigation graph that appeared during the live run.
-Start `uv run main.py --ui --log`, click **Sessions** in the header, and select a
-saved `logs/history/<timestamp>/` entry to replay it with pause, step, speed, and
-progress controls. Older sessions without `events.jsonl` are replayed from a
-synthetic stream built from `actions.jsonl` and `history/step-*.json`.
-
-### LLM inference inspector
-
-While running with `--ui`, each step emits an `llm_inference` event that
-captures the full model request context and raw response (binary screenshot data
-is omitted). Click any node in the trajectory graph and expand **View LLM raw
-context / response** to inspect what the model received and returned for that
-step.
-
-Each `actions.jsonl` entry:
-
-```json
-{"timestamp": 1234567890.0, "tool": "click_at", "args": {"x": 500, "y": 300}, "result_summary": "https://example.com"}
+```bash
+uv run main.py --ui --planner --log --highlight_mouse
 ```
 
-## CLI Reference
+Or use the bundled local UI script:
+
+```bash
+scripts/run.sh
+```
+
+## CLI reference
+
+`query` is positional and is omitted only when using `--ui`.
 
 | Argument | Description | Default |
-| - | - | - |
-| `query` | Agent instruction (positional). | required |
-| `--initial_url` | Starting page. | `https://www.duckduckgo.com` |
-| `--highlight_mouse` | Highlight cursor in screenshots. | `False` |
+| --- | --- | --- |
+| `query` | Browser-agent instruction. | Required unless `--ui` |
+| `--ui` | Start the local web control panel. | `False` |
+| `--env` | Browser backend. Currently only `playwright`. | `playwright` |
+| `--initial_url` | Initial page loaded in the browser. | `https://www.duckduckgo.com` |
+| `--search_engine_url` | URL used by the `search` tool. | `https://www.duckduckgo.com` |
+| `--highlight_mouse` | Draw pointer/click highlights in screenshots. | `False` |
 | `--headless` | Launch Playwright headless (`True`/`False`). | `False` |
-| `--log` | Save per-step history, GIF artifacts, and JSON action trajectory. | `False` |
-| `--video` | Save `.webm`/`.mp4` browser recordings. | `False` |
-| `--model` | Actor model name. | `models.actor.model` from `config.yaml` |
-| `--grounding` | Page grounding mode: `text`, `vision`, or `mixed`. `vision`/`mixed` work with Gemini Computer Use **and** OpenAI-compatible providers that accept image inputs. | `text` |
-| `--planner` | Decompose the query into subgoals before execution. | `False` |
+| `--screen-size` | Browser size as `WIDTHxHEIGHT`, or `auto`. | `auto`, fallback `1600x900` |
+| `--log` | Save per-step screenshots, DOM, ARIA, events, GIFs, and action JSONL. | `False` |
+| `--video` | Save Playwright video and optional MP4 stream. | `False` |
+| `--model` | Override the actor model from `config.yaml`. | `models.actor.model` |
+| `--grounding` | `text`, `vision`, or `mixed`. | `text` |
+| `--planner` | Use `PlannerAgent` subgoal decomposition/replanning. | `False` |
+| `--stealth` | Inject anti-automation browser patches. | `False` |
+| `--channel` | Playwright browser channel such as `chrome` or `msedge`. | Playwright default Chromium |
+| `--locale` | Browser locale, for example `ko-KR`. | unset |
+| `--timezone` | IANA timezone id, for example `Asia/Seoul`. | unset |
+| `--user-agent` | Override browser User-Agent. | unset |
+| `--proxy` | Proxy URL: `scheme://[user:pass@]host:port`. | unset |
+| `--storage-state` | Playwright storage state JSON, loaded on start and saved on exit. | unset |
 
-## Environment Variables
+## Configuration
 
-| Variable | Description |
-| - | - |
-| `OPENROUTER_API_KEY` / `OPENROUTER_BASE_URL` | OpenRouter key and optional base URL for the default actor. |
-| `NVIDIA_API_KEY` / `NVIDIA_BASE_URL` | NVIDIA NIM-compatible OpenAI chat completions key and optional base URL. |
-| `NVIDIA_THINKING` / `NVIDIA_REASONING_EFFORT` | NVIDIA chat template thinking controls (defaults: `true` / `high`). |
-| `GEMINI_API_KEY` | Gemini Developer API key for the planner when `--planner` is enabled. |
-| `ACTION_SUMMARY_PROVIDER` | `openai`, `openrouter`, or `nvidia`. Inferred from the matching API key if omitted. |
-| `ACTION_SUMMARY_MODEL` | Summarizer model (default `gpt-4o-mini`). |
-| `ACTION_SUMMARY_TIMEOUT_SECONDS` | Summarizer timeout (default `15`). |
-| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | OpenAI key and optional base URL. |
-| `COMPUTER_USE_FFMPEG_COMMAND` | Path to ffmpeg binary for GIF/video encoding. |
+Runtime defaults live in `config.yaml`.
 
-## Configuration Notes
+```yaml
+models:
+  actor:
+    provider: openrouter
+    model: ...
+  planner:
+    provider: openrouter
+    model: ...
+  summary:
+    provider: openai
+    model: gpt-4o-mini
 
-Runtime model defaults live in `config.yaml`, not in fixed tests. This keeps the
-project flexible while comparing OpenRouter, Gemini, OpenAI, or NVIDIA models.
-In UI mode, model safety-confirmation requests are not routed through terminal
-stdin; until the panel has an explicit confirmation control, those requests stop
-the pending browser action instead of blocking the session thread.
+constraints:
+  max_steps_per_subgoal: 30
+  max_total_steps: 500
+  max_subgoals: 20
+```
 
-## Project Layout
+Supported actor/planner providers:
 
-- `main.py` — CLI entry point
-- `src/agents/` — `BrowserAgent`, `agent_loop()`, post-step summarizer
-- `src/browser/` — `PlaywrightBrowser`, `ArtifactLogger`
-- `src/llm/` — LLM client, provider bootstrap, retry
-- `src/tools/` — custom browser action functions
-- `src/tool_executor.py` — tool dispatch and serialization
-- `tests/` — pytest suite
+- `openrouter`
+- `openai`
+- `gemini`
+- `nvidia`
 
-## BrowserState model
+Supported summary providers:
 
-Browser actions now return a hierarchical `BrowserState` shape:
+- `openai`
+- `openrouter`
+- `nvidia`
+
+## Environment variables
+
+| Variable | Used for |
+| --- | --- |
+| `OPENROUTER_API_KEY`, `OPENROUTER_BASE_URL` | OpenRouter actor/planner/summary configs. |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL` | OpenAI actor/planner/summary configs. |
+| `GEMINI_API_KEY` | Gemini actor/planner configs. |
+| `NVIDIA_API_KEY`, `NVIDIA_BASE_URL` | NVIDIA-compatible chat completion configs. |
+| `NVIDIA_THINKING`, `NVIDIA_REASONING_EFFORT` | NVIDIA reasoning controls. |
+| `ACTION_SUMMARY_PROVIDER` | Override action summary provider. |
+| `ACTION_SUMMARY_MODEL` | Override action summary model. |
+| `ACTION_SUMMARY_TIMEOUT_SECONDS` | Timeout for action summary generation. |
+| `COMPUTER_USE_FFMPEG_COMMAND` | Explicit ffmpeg binary path for GIF/video encoding. |
+| `USE_PATCHRIGHT=1` | Try Patchright before falling back to Playwright import. |
+
+## Architecture
+
+```mermaid
+flowchart TD
+    CLI[main.py CLI/UI entry] --> Browser[PlaywrightBrowser]
+    CLI --> Session[BrowserSession for UI mode]
+    Session --> Agent[BrowserAgent]
+    CLI --> Agent
+    Agent --> Planner[PlannerAgent optional]
+    Agent --> LLM[LLMClient provider adapter]
+    Agent --> Tools[BrowserToolExecutor]
+    Tools --> Browser
+    Browser --> Artifacts[ArtifactLogger]
+    Agent --> Events[UI event stream]
+    Events --> Panel[FastAPI panel + replay APIs]
+    Artifacts --> Replay[Saved session replay]
+```
+
+Important modules:
+
+- `main.py` — CLI parser, browser setup, CLI/UI mode selection.
+- `src/agents/actor_agent.py` — main browser-agent loop and event emission.
+- `src/agents/planner_agent.py` — JSON subgoal planner and replanner.
+- `src/agents/subgoal_runner.py` — planner subgoal execution glue.
+- `src/llm/client.py` — provider selection, declarations, retries.
+- `src/llm/provider/` — Gemini, OpenAI, OpenRouter, NVIDIA adapters.
+- `src/browser/playwright.py` — Playwright browser control, ARIA snapshots,
+  tabs, upload guards, state capture, recording hooks.
+- `src/browser/artifact_logger.py` — session, event, action, screenshot, DOM,
+  GIF, and metadata persistence.
+- `src/browser/state.py` — hierarchical `BrowserState` model.
+- `src/browser/state_graph.py` — state graph metadata used by the UI.
+- `src/tool_executor.py` — browser tool declaration/execution boundary.
+- `src/tools/` — individual browser action handlers and descriptors.
+- `src/ui/server.py` — FastAPI panel server and task/interrupt endpoints.
+- `src/ui/bridge.py` — thread-safe event/task bridge.
+- `src/ui/replay.py` — saved session listing, replay event loading, artifacts.
+- `src/ui/static/` and `src/ui/panel.html` — browser debugging UI.
+- `scripts/batch_runner.py` — Hugging Face dataset task runner for trace
+  collection.
+
+## Browser state model
+
+Browser actions return a hierarchical `BrowserState`:
 
 ```text
 BrowserState
@@ -132,38 +278,59 @@ BrowserState
 └── InteractionState(focused_element, available_refs, last_action)
 ```
 
-`EnvState` remains available as a compatibility subclass, so existing imports and
-`state.url` / `state.screenshot` access continue to work during migration.
-Remove this shim only after all callers have migrated to `BrowserState.page.url`
-and `BrowserState.viewport.screenshot`, and after the public tool/agent response
-contract no longer accepts flat `EnvState(screenshot=..., url=...)` construction.
+`EnvState` remains as a compatibility subclass for existing tool/agent contracts.
 
-## Agent Pipeline
+## Batch trace collection
 
-```mermaid
-flowchart TD
-    A[main.py] --> D[PlaywrightBrowser]
-    D --> F[BrowserAgent]
-    F --> G[agent_loop]
-    G --> H[run_one_iteration]
-    H --> I[Call actor model]
-    I --> J{Function calls?}
-    J -->|No| K[done]
-    J -->|Yes| L[execute action]
-    L --> M[record_action → actions.jsonl]
-    M --> N[Append FunctionResponse, trim old screenshots]
-    N --> G
+The batch runner can load web-agent tasks from Hugging Face datasets-server and
+run each task through the local agent:
+
+```bash
+uv run python scripts/batch_runner.py \
+  --dataset convergence-ai/WebVoyager2025Valid \
+  --limit 10 \
+  --workers 2 \
+  --log-agent
 ```
+
+The repository also includes `scripts/run_batch.sh`, configured for Korean
+online Mind2Web-style task traces. Treat these scripts as debugging-data
+collection tools: they are useful for gathering failures and comparing traces,
+not for making SOTA claims.
 
 ## Development
 
+Run the test suite:
+
 ```bash
 uv run pytest
+```
+
+Inspect CLI flags:
+
+```bash
 uv run main.py --help
 ```
 
-## Security Notes
+Install/update dependencies:
 
-- Use env vars for secrets; do not hardcode.
-- `--log` writes screenshots, DOM snapshots, GIFs, metadata, and action history under `logs/history/`; `--video` writes browser recordings there too. These artifacts may capture sensitive content and URLs.
-- The Playwright backend keeps the browser sandbox enabled.
+```bash
+uv sync --dev
+```
+
+## Security and privacy notes
+
+- Do not hardcode API keys; use environment variables.
+- `--log` and `--video` can capture sensitive page content, URLs, DOM,
+  accessibility trees, model prompts, tool results, screenshots, and videos.
+- Review `logs/history/<timestamp>/` before sharing artifacts.
+- The local Playwright backend intentionally keeps the browser sandbox enabled.
+- File upload is guarded to paths under the current working directory or system
+  temp directory unless `allowed_upload_roots` is changed in code.
+
+## Project status
+
+This project is intentionally small and instrumentation-heavy. Its value is in
+making browser-agent behavior observable and reproducible, so future work should
+prioritize clearer traces, better failure classification, replay fidelity, and
+debugging UX over benchmark-specific optimizations.
