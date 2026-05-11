@@ -777,6 +777,19 @@
     background: var(--md-sys-color-secondary-container);
     color: var(--md-sys-color-on-secondary-container);
   }
+  .row.agent-message.failed-message {
+    background: var(--md-sys-color-error-container);
+    color: var(--md-sys-color-on-error-container);
+  }
+  .row.agent-message .message-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .row.agent-message .message-meta {
+    color: inherit;
+    font-size: 13px;
+    opacity: .88;
+  }
 
   .row .tool { color: var(--primary); font-weight: 500; }
   .row .args { color: var(--fg-dim); font-family: var(--mono); }

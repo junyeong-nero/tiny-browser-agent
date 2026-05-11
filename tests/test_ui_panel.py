@@ -645,11 +645,30 @@ def test_panel_task_complete_renders_browser_agent_speech_bubble():
     assert "const finalMessage = pendingAgentFinalMessage || ev.final_reasoning || ev.summary;" in task_complete_case
     assert "if (finalMessage) addRow('agent-message', escHtml(finalMessage));" in task_complete_case
     assert "pendingAgentFinalMessage = null;" in task_complete_case
+    assert "addBlock('green'," not in task_complete_case
+    assert "task complete" not in task_complete_case
     assert "align-self: flex-start;" in agent_message_css
     assert "text-align: left;" in agent_message_css
     assert "background: var(--md-sys-color-secondary-container);" in agent_message_css
     assert "color: var(--md-sys-color-on-secondary-container);" in agent_message_css
     assert "surface-container" not in agent_message_css
+
+
+def test_panel_task_failed_renders_browser_agent_error_speech_bubble():
+    task_failed_case = PANEL_HTML.split("case 'task_failed':", 1)[1].split(
+        "case 'task_interrupted':", 1
+    )[0]
+    failed_message_css = PANEL_HTML.split(".row.agent-message.failed-message {", 1)[1].split("}", 1)[0]
+    message_meta_css = PANEL_HTML.split(".row.agent-message .message-meta {", 1)[1].split("}", 1)[0]
+
+    assert "const errorMessage = ev.error_message || 'unknown error';" in task_failed_case
+    assert "addRow('agent-message failed-message'," in task_failed_case
+    assert '<div class="message-title">task failed</div>' in task_failed_case
+    assert '<div class="message-meta">${escHtml(errorMessage)}</div>' in task_failed_case
+    assert "addBlock('red'," not in task_failed_case
+    assert "background: var(--md-sys-color-error-container);" in failed_message_css
+    assert "color: var(--md-sys-color-on-error-container);" in failed_message_css
+    assert "color: inherit;" in message_meta_css
 
 
 def test_panel_action_summaries_render_clickable_timeline_cards_without_inline_details():

@@ -832,7 +832,6 @@ function handleEvent(ev) {
       const finalMessage = pendingAgentFinalMessage || ev.final_reasoning || ev.summary;
       if (finalMessage) addRow('agent-message', escHtml(finalMessage));
       pendingAgentFinalMessage = null;
-      addBlock('green', `<div class="title">task complete</div>`);
       break;
     }
 
@@ -846,9 +845,10 @@ function handleEvent(ev) {
       subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'failed'; });
       renderPlan();
       pendingAgentFinalMessage = null;
-      addBlock('red',
-        `<div class="title">task failed</div>` +
-        `<div class="meta">${escHtml(ev.error_message || 'unknown error')}</div>`
+      const errorMessage = ev.error_message || 'unknown error';
+      addRow('agent-message failed-message',
+        `<div class="message-title">task failed</div>` +
+        `<div class="message-meta">${escHtml(errorMessage)}</div>`
       );
       break;
 
