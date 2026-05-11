@@ -12,7 +12,6 @@ const sessionsBtn = document.getElementById('sessions-btn');
 const sessionsPanel = document.getElementById('sessions-panel');
 const sessionsClose = document.getElementById('sessions-close');
 const sessionsList = document.getElementById('sessions-list');
-const replayBadge = document.getElementById('replay-badge');
 const liveBtn = document.getElementById('live-btn');
 const themeToggle = document.getElementById('theme-toggle');
 const themeTogglePath = document.getElementById('theme-toggle-path');
@@ -892,11 +891,10 @@ function escHtml(str) {
 // ── Replay mode ───────────────────────────────────────
 function setReplayUi(active) {
   replayMode = active;
-  replayBadge.classList.toggle('hidden', !active);
   liveBtn.hidden = !active;
   replayControls.classList.toggle('active', active);
   setInputEnabled(!active && !isRunning && ws && ws.readyState === WebSocket.OPEN);
-  if (active) setStatus('connected', 'replay');
+  if (active) setStatus('connected', 'ready');
 }
 
 function replayDelay(prev, next) {

@@ -1612,21 +1612,7 @@
 
 
   /* ── M3 Replay controls + sessions menu ── */
-  /* M3 Filter Chip — selected state */
-  .mode-badge {
-    display: inline-flex;
-    align-items: center;
-    height: 24px;
-    background: color-mix(in srgb, var(--md-sys-color-warning) 22%, transparent);
-    color: var(--md-sys-color-warning);
-    border-radius: var(--md-sys-shape-corner-sm);
-    padding: 0 10px;
-    font-size: 11px;            /* M3 label-small */
-    font-weight: 500;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .mode-badge.hidden, #sessions-panel.hidden { display: none; }
+  #sessions-panel.hidden { display: none; }
   #sessions-btn, #live-btn { height: 40px; padding: 0 16px; font-size: 14px; }
   #theme-toggle {
     color: var(--md-sys-color-on-surface-variant);
