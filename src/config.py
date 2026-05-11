@@ -110,22 +110,6 @@ def actor_provider() -> LLMProviderName:
     return actor_config().provider
 
 
-def planner_model() -> str:
-    return planner_config().model
-
-
-def planner_provider() -> LLMProviderName:
-    return planner_config().provider
-
-
-def summary_model() -> str:
-    return summary_config().model
-
-
-def summary_provider() -> SummaryProviderName:
-    return summary_config().provider
-
-
 def max_steps_per_subgoal() -> int:
     return execution_constraints().max_steps_per_subgoal
 

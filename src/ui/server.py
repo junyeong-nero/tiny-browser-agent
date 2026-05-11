@@ -2,8 +2,9 @@
 import asyncio
 import socket
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -59,18 +60,19 @@ def _versioned_panel_html() -> str:
     return html
 
 
-app = FastAPI()
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    set_server_loop(asyncio.get_running_loop())
+    yield
+
+
+app = FastAPI(lifespan=_lifespan)
 app.mount("/static", NoStoreStaticFiles(directory=_STATIC_DIR), name="static")
 app.include_router(replay_router)
 
 
 class TaskRequest(BaseModel):
     query: str
-
-
-@app.on_event("startup")
-async def _on_startup() -> None:
-    set_server_loop(asyncio.get_running_loop())
 
 
 @app.get("/")

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import time
-from pathlib import Path
 from typing import Callable, Literal, Optional, Any
 from google.genai import types
 from google.genai.types import (
@@ -34,7 +33,6 @@ from agents.review_events import build_review_metadata_event_payload
 from agents.post_summary_agent import (
     ActionMetadataWriter,
     ActionReviewService,
-    AmbiguityCandidate,
     ActionStepSummarizer,
 )
 from agents.task_scope import NavigationScope
@@ -61,7 +59,6 @@ from tools.types import (
     CustomFunction,
     ExecutedCall,
     ToolBatchResult,
-    ToolResult,
     extract_tool_argument_error,
     is_env_state_result,
 )
@@ -113,11 +110,6 @@ If a planner subgoal is active, finish with SUBGOAL_DONE: when its success crite
 
 
 console = Console()
-
-# Built-in Computer Use tools will return "EnvState".
-# Custom provided functions will return "dict".
-FunctionResponseT = ToolResult
-
 
 class BrowserAgent:
     def __init__(
@@ -358,10 +350,6 @@ class BrowserAgent:
         if limit <= 0:
             return []
         return messages[-limit:]
-
-    def handle_action(self, action: types.FunctionCall) -> FunctionResponseT:
-        """Handles the action and returns the environment state."""
-        return self._tool_executor.execute(action)
 
     def get_model_response(self) -> types.GenerateContentResponse:
         effective_contents = build_effective_contents(
@@ -700,30 +688,6 @@ class BrowserAgent:
             console.print(table)
             print()
 
-    def _resolve_metadata_file_path(
-        self,
-        artifacts: Optional[dict[str, Any]],
-    ) -> Optional[Path]:
-        return self._metadata_writer.resolve_metadata_file_path(artifacts)
-
-    def _enrich_persisted_action_metadata(
-        self,
-        step_id: int,
-        function_call_index: int,
-        function_call: types.FunctionCall,
-        reasoning: Optional[str],
-        artifacts: Optional[dict[str, Any]],
-        ambiguity_candidate: AmbiguityCandidate | None,
-    ) -> None:
-        self._metadata_writer.enrich_persisted_action_metadata(
-            step_id=step_id,
-            function_call_index=function_call_index,
-            function_call=function_call,
-            reasoning=reasoning,
-            artifacts=artifacts,
-            ambiguity_candidate=ambiguity_candidate,
-        )
-
     def _build_review_metadata_for_action(
         self,
         step_id: int,
@@ -751,13 +715,6 @@ class BrowserAgent:
             existing_metadata=existing_metadata,
             review_metadata=review_metadata,
         )
-
-    @staticmethod
-    def _build_tool_execution_error_message(
-        function_call: types.FunctionCall,
-        exc: Exception,
-    ) -> str:
-        return tool_orchestration.build_tool_execution_error_message(function_call, exc)
 
     def _build_tool_execution_error_call(
         self,
@@ -808,7 +765,7 @@ class BrowserAgent:
                 else:
                     executed_call = self._tool_executor.execute_call(function_call)
             except Exception as exc:  # noqa: BLE001
-                error_message = self._build_tool_execution_error_message(function_call, exc)
+                error_message = tool_orchestration.build_tool_execution_error_message(function_call, exc)
                 self._emit_event(
                     "step_error",
                     step_id=step_id,
@@ -828,7 +785,7 @@ class BrowserAgent:
             subgoal_id=self._current_subgoal_id,
         )
         self._record_step_review_metadata(step_id=step_id, review_metadata=review_metadata)
-        self._enrich_persisted_action_metadata(
+        self._metadata_writer.enrich_persisted_action_metadata(
             step_id=step_id,
             function_call_index=function_call_index,
             function_call=executed_call.function_call,
@@ -1046,16 +1003,6 @@ class BrowserAgent:
     ) -> tuple[Literal["done", "failed"], str]:
         return subgoal_runner.run_subgoal_loop(self, subgoal, prior_outcomes or [])
 
-    @staticmethod
-    def _has_subgoal_marker(final_text: str) -> bool:
-        return subgoal_helpers.has_subgoal_marker(final_text)
-
-    def _build_subgoal_plan_summary(
-        self,
-        outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]],
-    ) -> str:
-        return subgoal_helpers.build_subgoal_plan_summary(outcomes)
-
     def _finalize_subgoal_plan(
         self,
         outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]],
@@ -1068,7 +1015,7 @@ class BrowserAgent:
 
         self._step_id += 1
         step_id = self._step_id
-        raw_summary = self._build_subgoal_plan_summary(outcomes)
+        raw_summary = subgoal_helpers.build_subgoal_plan_summary(outcomes)
         succeeded = sum(1 for _, result, _ in outcomes if result == "done")
         failed = sum(1 for _, result, _ in outcomes if result == "failed")
         final_status = status or ("complete" if failed == 0 else "partial_failure")

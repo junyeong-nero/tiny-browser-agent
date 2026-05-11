@@ -17,7 +17,7 @@ class TestOpenRouterProvider(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "OPENROUTER_API_KEY"):
                 OpenRouterProvider.from_env()
 
-    @patch("llm.provider.openrouter.request.urlopen")
+    @patch("llm.provider.chat_completion_http.request.urlopen")
     def test_generate_text_builds_chat_completion_request(self, mock_urlopen):
         response_payload = {
             "choices": [
@@ -53,7 +53,7 @@ class TestOpenRouterProvider(unittest.TestCase):
         self.assertEqual(request_body["messages"][1], {"role": "user", "content": "prompt"})
         self.assertEqual(request_body["response_format"], {"type": "json_object"})
 
-    @patch("llm.provider.openrouter.request.urlopen")
+    @patch("llm.provider.chat_completion_http.request.urlopen")
     def test_generate_content_uses_chat_completion_tool_protocol(self, mock_urlopen):
         response_payload = {
             "choices": [
@@ -142,7 +142,7 @@ class TestOpenAIProvider(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "OPENAI_API_KEY"):
                 OpenAIProvider.from_env()
 
-    @patch("llm.provider.openai.request.urlopen")
+    @patch("llm.provider.chat_completion_http.request.urlopen")
     def test_generate_text_builds_chat_completion_request(self, mock_urlopen):
         response_payload = {
             "choices": [
@@ -181,7 +181,7 @@ class TestOpenAIProvider(unittest.TestCase):
             {"type": "json_schema", "json_schema": {"name": "summary", "schema": {}}},
         )
 
-    @patch("llm.provider.openai.request.urlopen")
+    @patch("llm.provider.chat_completion_http.request.urlopen")
     def test_generate_content_uses_chat_completion_tool_protocol(self, mock_urlopen):
         response_payload = {
             "choices": [

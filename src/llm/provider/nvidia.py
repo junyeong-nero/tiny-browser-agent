@@ -1,6 +1,3 @@
-import os
-from urllib import request  # re-exported for provider tests that patch urlopen
-
 from .chat_completion_http import ChatCompletionsProvider
 from .env_config import optional_env, parse_timeout_seconds, require_env
 

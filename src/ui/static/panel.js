@@ -874,15 +874,6 @@ function handleEvent(ev) {
   }
 }
 
-function phaseForTool(name) {
-  if (!name) return null;
-  if (['navigate','search','go_back','go_forward','open_web_browser'].includes(name)) return 'phase-navigation';
-  if (['click_at','click_by_ref','hover_at'].includes(name)) return 'phase-interaction';
-  if (['type_text_at','type_by_ref','key_combination','drag_and_drop'].includes(name)) return 'phase-input';
-  if (['scroll_at','scroll_document','wait_5_seconds'].includes(name)) return 'phase-observation';
-  return 'phase-observation';
-}
-
 function formatArgs(obj) {
   return Object.entries(obj)
     .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)

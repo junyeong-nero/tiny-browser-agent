@@ -105,11 +105,6 @@ def finish_active_task(task_id: int | None = None) -> None:
     _interrupt_event.clear()
 
 
-def has_active_or_pending_task() -> bool:
-    with _task_state_lock:
-        return _active_task_id is not None or _pending_task_id is not None
-
-
 def reset_task_state_for_tests() -> None:
     global _active_task_id, _pending_task_id
     with _task_state_lock:

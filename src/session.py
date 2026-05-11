@@ -8,6 +8,12 @@ from agents.actor_agent import AgentInterrupted, BrowserAgent
 from agents.types import GroundingMode
 from browser import ArtifactLogger, PlaywrightBrowser
 import config as app_config
+from task_events import (
+    build_session_metadata,
+    build_task_complete_event,
+    build_task_failed_event_from_result,
+    result_status,
+)
 from ui.bridge import (
     emit,
     finish_active_task,
@@ -112,15 +118,15 @@ class BrowserSession:
         execution_constraints = app_config.execution_constraints()
         if sink_registered:
             artifact_logger.record_session_meta(
-                {
-                    "query": query,
-                    "model_name": self._model_name,
-                    "grounding": self._grounding,
-                    "started_at": datetime.now().isoformat(timespec="seconds"),
-                    "use_planner": self._use_planner,
-                    "video_enabled": self._video_enabled,
-                    "constraints": execution_constraints.model_dump(),
-                }
+                build_session_metadata(
+                    query=query,
+                    model_name=self._model_name,
+                    grounding=self._grounding,
+                    started_at=datetime.now(),
+                    use_planner=self._use_planner,
+                    video_enabled=self._video_enabled,
+                    constraints=execution_constraints,
+                )
             )
             register_event_sink(artifact_logger.record_event)
         task_started_event = {"type": "task_started", "query": query, "task_id": task_id}
@@ -181,34 +187,24 @@ class BrowserSession:
                 self._browser.reset_to_blank()
                 emit({"type": "task_interrupted", "query": query, "task_id": task_id, "reason": "Task interrupted by user."})
                 return
-            result_status = getattr(result, "status", "complete")
-            if not isinstance(result_status, str):
-                result_status = "complete"
-            if result_status != "complete":
-                emit({
-                    "type": "task_failed",
-                    "query": query,
-                    "task_id": task_id,
-                    "status": result_status,
-                    "error_message": getattr(result, "reason", None) or getattr(result, "summary", None) or "Task did not complete successfully.",
-                    "succeeded_subgoals": getattr(result, "succeeded_subgoals", 0),
-                    "failed_subgoals": getattr(result, "failed_subgoals", 0),
-                })
+            if result_status(result) != "complete":
+                emit(
+                    build_task_failed_event_from_result(
+                        query=query,
+                        result=result,
+                        task_id=task_id,
+                    )
+                )
                 return
             self._remember_completed_task(query, agent)
-            final_reasoning = agent.final_reasoning
-            if not isinstance(final_reasoning, str) or not final_reasoning.strip():
-                result_summary = getattr(result, "summary", None)
-                final_reasoning = result_summary if isinstance(result_summary, str) else None
-            task_complete_event = {
-                "type": "task_complete",
-                "query": query,
-                "task_id": task_id,
-                "status": "complete",
-            }
-            if isinstance(final_reasoning, str) and final_reasoning.strip():
-                task_complete_event["final_reasoning"] = final_reasoning
-            emit(task_complete_event)
+            emit(
+                build_task_complete_event(
+                    query=query,
+                    agent=agent,
+                    result=result,
+                    task_id=task_id,
+                )
+            )
         finally:
             finish_active_task(task_id)
             if sink_registered:

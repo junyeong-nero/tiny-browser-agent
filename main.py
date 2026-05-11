@@ -16,6 +16,12 @@ from agents.planner_agent import PlannerAgent
 from agents.types import GroundingMode, Subgoal
 from browser import ArtifactLogger, PlaywrightBrowser
 import config as app_config
+from task_events import (
+    build_session_metadata,
+    build_task_complete_event,
+    build_task_failed_event_from_result,
+    result_status,
+)
 from ui.bridge import emit, register_event_sink, unregister_event_sink
 
 
@@ -281,15 +287,15 @@ def _session_metadata(
     args: argparse.Namespace,
     execution_constraints: Any,
 ) -> dict[str, Any]:
-    return {
-        "query": args.query,
-        "model_name": args.model,
-        "grounding": args.grounding,
-        "started_at": datetime.now().isoformat(timespec="seconds"),
-        "use_planner": args.planner,
-        "video_enabled": args.video,
-        "constraints": execution_constraints.model_dump(),
-    }
+    return build_session_metadata(
+        query=args.query,
+        model_name=args.model,
+        grounding=args.grounding,
+        started_at=datetime.now(),
+        use_planner=args.planner,
+        video_enabled=args.video,
+        constraints=execution_constraints,
+    )
 
 
 def _plan_subgoals(
@@ -345,28 +351,21 @@ def _run_cli_mode(
             max_subgoals=execution_constraints.max_subgoals,
         )
         result = agent.agent_loop()
-        result_status = getattr(result, "status", "complete")
-        if not isinstance(result_status, str):
-            result_status = "complete"
-        if result_status != "complete":
-            emit({
-                "type": "task_failed",
-                "query": args.query,
-                "status": result_status,
-                "error_message": result.reason or result.summary or "Task did not complete successfully.",
-                "succeeded_subgoals": result.succeeded_subgoals,
-                "failed_subgoals": result.failed_subgoals,
-            })
+        status = result_status(result)
+        if status != "complete":
+            failure_event = build_task_failed_event_from_result(
+                query=args.query,
+                result=result,
+            )
+            emit(failure_event)
             failure_emitted = True
-            raise RuntimeError(result.reason or result.summary or f"Task ended with status {result_status}")
-        final_reasoning = getattr(agent, "final_reasoning", None)
-        if not isinstance(final_reasoning, str) or not final_reasoning.strip():
-            result_summary = getattr(result, "summary", None)
-            final_reasoning = result_summary if isinstance(result_summary, str) else None
-        task_complete_event = {"type": "task_complete", "query": args.query, "status": "complete"}
-        if isinstance(final_reasoning, str) and final_reasoning.strip():
-            task_complete_event["final_reasoning"] = final_reasoning
-        emit(task_complete_event)
+            failure_reason = getattr(result, "reason", None) or getattr(
+                result, "summary", None
+            )
+            raise RuntimeError(
+                failure_reason or f"Task ended with status {status}"
+            )
+        emit(build_task_complete_event(query=args.query, agent=agent, result=result))
     except Exception as exc:
         if not failure_emitted:
             emit({"type": "task_failed", "query": args.query, "status": "failed", "error_message": str(exc)})

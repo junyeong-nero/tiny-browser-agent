@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 from google.genai import types
 import config as app_config
 from agents.actor_agent import BrowserAgent
-from agents.post_summary_agent import ActionReviewService
+from agents.post_summary_agent import ActionMetadataWriter, ActionReviewService
 from agents.types import Subgoal
 from browser import EnvState
 from llm.client import LLMClient
@@ -1012,10 +1012,15 @@ class TestBrowserAgent(unittest.TestCase):
             absolute_metadata_path.write_text("{}", encoding="utf-8")
             self.mock_browser_computer.history_dir.return_value = history_dir
 
-            relative_path = self.agent._resolve_metadata_file_path(
+            writer = ActionMetadataWriter(
+                browser_computer=self.mock_browser_computer,
+                review_service=ActionReviewService(query="test query"),
+            )
+
+            relative_path = writer.resolve_metadata_file_path(
                 {"metadata_path": "step-0001.json"}
             )
-            absolute_path = self.agent._resolve_metadata_file_path(
+            absolute_path = writer.resolve_metadata_file_path(
                 {"metadata_path": str(absolute_metadata_path)}
             )
 

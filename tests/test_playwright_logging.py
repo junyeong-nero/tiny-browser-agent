@@ -20,10 +20,10 @@ from unittest.mock import MagicMock, patch
 
 from google.genai import types
 
+from agents.post_summary_agent import ActionMetadataWriter, ActionReviewService
 from browser.artifact_logger import ArtifactLogger
 from browser.playwright import PlaywrightBrowser, playwright
 from browser.recording import BrowserRecordingHelper
-from agents.actor_agent import BrowserAgent
 
 
 class TestPlaywrightLogging(unittest.TestCase):
@@ -561,7 +561,7 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(metadata["a11y_capture_error"], "aria capture failed")
 
     @patch("browser.playwright.time.sleep", return_value=None)
-    def test_agent_enrichment_merges_action_metadata_into_history_json(self, _mock_sleep):
+    def test_metadata_writer_merges_action_metadata_into_history_json(self, _mock_sleep):
         with tempfile.TemporaryDirectory() as tmp_dir:
             computer = PlaywrightBrowser(
                 screen_size=(1440, 900),
@@ -577,31 +577,11 @@ class TestPlaywrightLogging(unittest.TestCase):
             computer._page.locator.return_value.aria_snapshot.return_value = "- document\n"
             computer.current_state()
 
-            mock_llm_client = MagicMock()
-            mock_llm_client.provider_name = "gemini_api"
-            mock_llm_client.build_function_declaration.return_value = types.FunctionDeclaration(
-                name="multiply_numbers",
-                description="Multiplies two numbers.",
-                parameters_json_schema={
-                    "type": "object",
-                    "properties": {
-                        "x": {"type": "number"},
-                        "y": {"type": "number"},
-                    },
-                    "required": ["x", "y"],
-                },
-            )
-
-            agent = BrowserAgent(
+            writer = ActionMetadataWriter(
                 browser_computer=computer,
-                query="test query",
-                model_name="test_model",
-                llm_client=mock_llm_client,
-                verbose=False,
-                step_summarizer=None,
+                review_service=ActionReviewService(query="test query", step_summarizer=None),
             )
-
-            agent._enrich_persisted_action_metadata(
+            writer.enrich_persisted_action_metadata(
                 step_id=1,
                 function_call_index=1,
                 function_call=types.FunctionCall(
