@@ -16,6 +16,7 @@ const trajectoryViewports = new Map(); // id → viewport node
 const trajectoryActions = new Map(); // id → action node
 let actionNodeIdByStep = new Map();
 let graphDrilldown = { level: 'url', urlId: null, viewportId: null };
+let graphDrillAnchor = null;
 let actionSequence = 0;
 
 function resetTrajectoryGraphState() {
@@ -30,8 +31,21 @@ function resetTrajectoryGraphState() {
   trajectoryActions.clear();
   actionNodeIdByStep.clear();
   graphDrilldown = { level: 'url', urlId: null, viewportId: null };
+  graphDrillAnchor = null;
   actionSequence = 0;
   activeGraphStepId = null;
+}
+
+function rememberGraphDrillAnchor(d) {
+  if (!d || !Number.isFinite(d.x) || !Number.isFinite(d.y)) {
+    graphDrillAnchor = null;
+    return;
+  }
+  graphDrillAnchor = { id: d.id, x: d.x, y: d.y };
+}
+
+function clearGraphDrillAnchor() {
+  graphDrillAnchor = null;
 }
 
 function setGraphRunningStep(stepId) {
@@ -649,11 +663,15 @@ function selectedGraphData() {
 
 function drillGraphNode(d) {
   if (!d || !d.drillable) return;
+  let nextDrilldown = null;
   if (d.type === 'url') {
-    graphDrilldown = { level: 'viewport', urlId: d.id, viewportId: null };
+    nextDrilldown = { level: 'viewport', urlId: d.id, viewportId: null };
   } else if (d.type === 'viewport') {
-    graphDrilldown = { level: 'action', urlId: d.urlId, viewportId: d.id };
+    nextDrilldown = { level: 'action', urlId: d.urlId, viewportId: d.id };
   }
+  if (!nextDrilldown) return;
+  rememberGraphDrillAnchor(d);
+  graphDrilldown = nextDrilldown;
   selectedNodeId = null;
   selectedNodeData = null;
   renderSelection(null);
@@ -777,6 +795,7 @@ function renderSelection(d) {
 }
 
 function setGraphDrilldown(next) {
+  clearGraphDrillAnchor();
   graphDrilldown = next;
   updateGraph();
 }
@@ -895,10 +914,17 @@ const graph = (() => {
     };
   }
 
+  function drillAnchorForNode(node) {
+    if (graphMode === 'url' || !graphDrillAnchor || !node) return null;
+    if (graphDrillAnchor.id !== node.id) return null;
+    if (!Number.isFinite(graphDrillAnchor.x) || !Number.isFinite(graphDrillAnchor.y)) return null;
+    return { x: graphDrillAnchor.x, y: graphDrillAnchor.y };
+  }
+
   function arrangeGraphNodes(nodes, previousById) {
     const rootNodes = nodes.filter(n => n.isRoot);
     const rootsById = new Map(rootNodes.map((node, index) => {
-      const pinned = rootPosition(index, rootNodes.length);
+      const pinned = drillAnchorForNode(node) || rootPosition(index, rootNodes.length);
       node._rootPin = pinned;
       node.fx = pinned.x;
       node.fy = pinned.y;

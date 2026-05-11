@@ -266,6 +266,8 @@ def test_panel_has_replay_session_controls():
     assert 'id="sessions-btn"' in PANEL_HTML
     assert 'id="sessions-panel"' in PANEL_HTML
     assert 'id="replay-controls"' in PANEL_HTML
+    assert 'id="replay-badge"' not in PANEL_HTML
+    assert "const replayBadge" not in PANEL_HTML
 
 
 def test_panel_run_button_toggles_to_stop_and_status_uses_loading_indicator():
@@ -303,7 +305,7 @@ def test_panel_disables_live_input_and_ignores_ws_during_replay():
     assert "if (replayMode) return;" in PANEL_HTML
     assert "function setReplayUi(active)" in PANEL_HTML
     assert "setInputEnabled(!active && !isRunning" in PANEL_HTML
-    assert "setStatus('connected', 'replay')" in PANEL_HTML
+    assert "setStatus('connected', 'replay')" not in PANEL_HTML
 
 
 def test_panel_links_replay_screenshots_from_action_artifacts():
@@ -481,6 +483,24 @@ def test_panel_graph_pins_root_nodes_and_seeds_children_from_parent():
     assert "simulation.force('x').x(d => targetX(d));" in graph_renderer
     assert "simulation.force('y').y(d => targetY(d));" in graph_renderer
     assert "if (d.isRoot) {" in graph_renderer
+
+
+def test_panel_graph_drilldown_keeps_double_clicked_node_position_as_child_root():
+    drill_fn = PANEL_HTML.split("function drillGraphNode(d)", 1)[1].split(
+        "let selectedNodeId", 1
+    )[0]
+    graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
+        "function updateGraph()", 1
+    )[0]
+
+    assert "let graphDrillAnchor = null;" in PANEL_HTML
+    assert "function rememberGraphDrillAnchor(d)" in PANEL_HTML
+    assert "rememberGraphDrillAnchor(d);" in drill_fn
+    assert "function drillAnchorForNode(node)" in graph_renderer
+    assert "if (graphMode === 'url' || !graphDrillAnchor || !node) return null;" in graph_renderer
+    assert "if (graphDrillAnchor.id !== node.id) return null;" in graph_renderer
+    assert "return { x: graphDrillAnchor.x, y: graphDrillAnchor.y };" in graph_renderer
+    assert "const pinned = drillAnchorForNode(node) || rootPosition(index, rootNodes.length);" in graph_renderer
 
 
 def test_panel_graph_clears_stale_root_flag_when_reusing_nodes():
