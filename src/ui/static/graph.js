@@ -14,6 +14,7 @@ let activeGraphStepId = null;
 const trajectoryEdges = new Map(); // key: "src|dst" → {source, target, count}
 const trajectoryViewports = new Map(); // id → viewport node
 const trajectoryActions = new Map(); // id → action node
+let actionNodeIdByStep = new Map();
 let graphDrilldown = { level: 'url', urlId: null, viewportId: null };
 let actionSequence = 0;
 
@@ -27,6 +28,7 @@ function resetTrajectoryGraphState() {
   trajectoryEdges.clear();
   trajectoryViewports.clear();
   trajectoryActions.clear();
+  actionNodeIdByStep.clear();
   graphDrilldown = { level: 'url', urlId: null, viewportId: null };
   actionSequence = 0;
   activeGraphStepId = null;
@@ -47,6 +49,7 @@ function clearGraphRunningStep(stepId) {
 
 function isRunningGraphNode(d) {
   if (activeGraphStepId == null || !d) return false;
+  if (Array.isArray(d.stepIds)) return d.stepIds.map(String).includes(String(activeGraphStepId));
   if (d.step != null) return String(d.step) === String(activeGraphStepId);
   if (d.firstStep == null || d.lastStep == null) return false;
   const activeStep = Number(activeGraphStepId);
@@ -376,6 +379,7 @@ function recordActionExecution(ev) {
   const action = ev.action || {};
   const actionName = action.name || 'action';
   const actionArgs = action.args || {};
+  const stepIdKey = ev.step_id != null ? String(ev.step_id) : null;
   const actionId = `action|${viewportId}|${actionSignature(actionName, actionArgs)}`;
   let actionNode = trajectoryActions.get(actionId);
   if (!actionNode) {
@@ -387,6 +391,7 @@ function recordActionExecution(ev) {
       type: 'action',
       actionName,
       args: actionArgs,
+      stepIds: [],
       step: ev.step_id,
       order: actionSequence++,
       fullUrl: urlNode.fullUrl,
@@ -403,6 +408,10 @@ function recordActionExecution(ev) {
     trajectoryActions.set(actionId, actionNode);
     viewportNode.actionIds.add(actionId);
     urlNode.actionIds.add(actionId);
+  }
+  if (stepIdKey != null && !actionNode.stepIds.includes(stepIdKey)) {
+    actionNode.stepIds.push(stepIdKey);
+    actionNodeIdByStep.set(stepIdKey, actionId);
   }
   actionNode.step = ev.step_id;
   actionNode.lastStep = ev.step_id;
@@ -668,6 +677,25 @@ function selectGraphNode(d) {
   updateGraphSelectionClass();
 }
 
+function selectGraphActionForStep(stepId) {
+  const key = stepId != null ? String(stepId) : null;
+  if (key == null) {
+    clearGraphSelection();
+    return false;
+  }
+  const actionId = actionNodeIdByStep.get(key);
+  const actionNode = actionId ? trajectoryActions.get(actionId) : null;
+  if (!actionNode) {
+    clearGraphSelection();
+    return false;
+  }
+  graphDrilldown = { level: 'action', urlId: actionNode.urlId, viewportId: actionNode.viewportId };
+  selectedNodeId = actionNode.id;
+  selectedNodeData = actionNode;
+  updateGraph();
+  return true;
+}
+
 function clearGraphSelection() {
   if (selectedNodeId === null) return;
   selectedNodeId = null;
@@ -696,19 +724,10 @@ function updateGraphRunningClass() {
   }
 }
 
-function renderSelection(d) {
+function renderGraphNodeSelection(d) {
   const titleEl = document.getElementById('side-step-title');
   const replayEl = document.getElementById('side-replay');
   const infoEl = document.getElementById('side-selection');
-  if (!d) {
-    if (titleEl) {
-      titleEl.className = 'side-step-title side-empty';
-      titleEl.textContent = 'no action step selected.';
-    }
-    if (replayEl) replayEl.innerHTML = '<div class="side-empty">no action step selected.</div>';
-    if (infoEl) infoEl.innerHTML = '<div class="side-empty">no action step selected.</div>';
-    return;
-  }
   const rows = [];
   const stepNum = d.step ?? d.firstStep ?? d.lastStep;
   const title = stepNum != null ? `Step #${stepNum}` : (d.label || d.fullUrl || d.id);
@@ -733,6 +752,28 @@ function renderSelection(d) {
   const replayBody = renderActionArtifacts(d.artifacts) + renderActionPreviewGallery(d.actionPreviews);
   if (replayEl) replayEl.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
   if (infoEl) infoEl.innerHTML = (rows.length ? rows.join('') : '<div class="side-empty">no info.</div>') + renderLlmInferenceButton(d.llmInference);
+}
+
+function renderSelection(d) {
+  const titleEl = document.getElementById('side-step-title');
+  const replayEl = document.getElementById('side-replay');
+  const infoEl = document.getElementById('side-selection');
+  if (!d) {
+    if (titleEl) {
+      titleEl.className = 'side-step-title side-empty';
+      titleEl.textContent = 'no action step selected.';
+    }
+    if (replayEl) replayEl.innerHTML = '<div class="side-empty">no action step selected.</div>';
+    if (infoEl) infoEl.innerHTML = '<div class="side-empty">no action step selected.</div>';
+    return;
+  }
+  if (d.type === 'action') {
+    if (typeof renderActionGroupAdditionalInfo === 'function') {
+      renderActionGroupAdditionalInfo(d);
+      return;
+    }
+  }
+  renderGraphNodeSelection(d);
 }
 
 function setGraphDrilldown(next) {
@@ -1082,6 +1123,7 @@ window.updateGraph = updateGraph;
 window.resetGraph = resetGraph;
 window.resizeGraph = resizeGraph;
 window.clearGraphSelection = clearGraphSelection;
+window.selectGraphActionForStep = selectGraphActionForStep;
 window.recordActionExecution = recordActionExecution;
 window.setGraphRunningStep = setGraphRunningStep;
 window.clearGraphRunningStep = clearGraphRunningStep;

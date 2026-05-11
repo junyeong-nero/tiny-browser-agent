@@ -197,9 +197,13 @@ def test_panel_uses_user_friendly_viewport_and_action_labels():
 def test_panel_action_graph_reuses_same_action_nodes_and_draws_cycles():
     assert "function stableActionValue(value)" in PANEL_HTML
     assert "function actionSignature(actionName, args)" in PANEL_HTML
+    assert "let actionNodeIdByStep = new Map();" in PANEL_HTML
     assert "const actionId = `action|${viewportId}|${actionSignature(actionName, actionArgs)}`;" in PANEL_HTML
     assert "let actionNode = trajectoryActions.get(actionId);" in PANEL_HTML
     assert "if (!actionNode)" in PANEL_HTML
+    assert "stepIds: []," in PANEL_HTML
+    assert "actionNode.stepIds.push(stepIdKey);" in PANEL_HTML
+    assert "actionNodeIdByStep.set(stepIdKey, actionId);" in PANEL_HTML
     assert "actionNode.visits += 1;" in PANEL_HTML
     assert "viewportNode.actionSequence.push(actionId);" in PANEL_HTML
     assert "buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true)" in PANEL_HTML
@@ -307,10 +311,10 @@ def test_panel_links_replay_screenshots_from_action_artifacts():
         "case 'step_error':", 1
     )[0]
     assert "storeArtifactsForStep(ev.step_id, ev.artifacts);" in action_case
-    timeline_render = PANEL_HTML.split("function renderTimelineActionStepInfo(stepId)", 1)[1].split(
-        "function refreshAdditionalInfoForStep", 1
+    step_render = PANEL_HTML.split("function renderActionStepAdditionalInfo(stepId)", 1)[1].split(
+        "function renderTimelineActionStepInfo", 1
     )[0]
-    assert "renderActionArtifacts(artifacts)" in timeline_render
+    assert "renderActionArtifacts(artifacts)" in step_render
 
 
 def test_panel_uses_apple_design_theme_tokens():
@@ -667,12 +671,24 @@ def test_panel_right_additional_info_includes_reasoning_artifacts_and_llm_button
     assert "let reasoningByStep = new Map();" in PANEL_HTML
     assert "storeStepReasoning(ev.step_id, ev.reasoning);" in PANEL_HTML
     assert "refreshAdditionalInfoForStep(stepId);" in PANEL_HTML
+    assert "function renderActionStepAdditionalInfo(stepId)" in PANEL_HTML
+    assert "function renderTimelineActionStepInfo(stepId)" in PANEL_HTML
+    assert "return renderActionStepAdditionalInfo(stepId);" in PANEL_HTML
+    for label in (
+        "Action step number",
+        "Summary",
+        "Outcome",
+        "Reasoning",
+        "Function call",
+        "Function call arguments",
+    ):
+        assert label in PANEL_HTML
     assert "Reasoning" in PANEL_HTML
-    timeline_render = PANEL_HTML.split("function renderTimelineActionStepInfo(stepId)", 1)[1].split(
-        "function refreshAdditionalInfoForStep", 1
+    step_render = PANEL_HTML.split("function renderActionStepAdditionalInfo(stepId)", 1)[1].split(
+        "function renderTimelineActionStepInfo", 1
     )[0]
-    assert "renderActionArtifacts(artifacts)" in timeline_render
-    assert "renderLlmInferenceButton(inference)" in timeline_render
+    assert "renderActionArtifacts(artifacts)" in step_render
+    assert "renderLlmInferenceButton(inference)" in step_render
     assert "let artifactsByStep = new Map();" in PANEL_HTML
     assert "storeArtifactsForStep(ev.step_id, ev.artifacts);" in PANEL_HTML
 
@@ -693,8 +709,8 @@ def test_panel_agent_step_raw_events_are_hidden_behind_action_summary_details():
     assert "addRow('', `<span style=\"color:var(--fg-dim)\">⚙" not in calls_case
     assert "storeObservedUrl(ev.step_id, ev.env_state.url);" in action_case
     assert "addRow('dim', `@ <span class=\"url\">" not in action_case
-    assert "Function calls" in PANEL_HTML
-    assert "Observed URL" in PANEL_HTML
+    assert "Function call" in PANEL_HTML
+    assert "Function call arguments" in PANEL_HTML
 
 
 def test_panel_user_chat_message_bubble_keeps_right_edge_but_text_is_left_aligned():
@@ -742,19 +758,70 @@ def test_panel_graph_selection_renders_action_before_after_artifacts():
     assert "renderActionArtifacts(d.artifacts)" in PANEL_HTML
 
 
+def test_panel_graph_action_nodes_use_group_additional_info():
+    graph_selection = PANEL_HTML.split("function renderSelection(d)", 1)[1].split(
+        "function setGraphDrilldown", 1
+    )[0]
+    graph_node_selection = PANEL_HTML.split("function renderGraphNodeSelection(d)", 1)[1].split(
+        "function renderSelection", 1
+    )[0]
+
+    assert "function renderGraphNodeSelection(d)" in PANEL_HTML
+    assert "if (d.type === 'action')" in graph_selection
+    assert "renderActionGroupAdditionalInfo(d);" in graph_selection
+    assert "renderActionStepAdditionalInfo(" not in graph_selection
+    assert "renderGraphNodeSelection(d);" in graph_selection
+    assert "renderActionArtifacts(d.artifacts)" in graph_node_selection
+    assert "renderActionPreviewGallery(d.actionPreviews)" in graph_node_selection
+
+
 def test_panel_graph_and_timeline_selection_share_action_step_highlight_and_info():
     assert ".action-step-group.timeline-highlight" in PANEL_HTML
     assert "function beginActionStepGroup(stepId)" in PANEL_HTML
     assert "currentTimelineStepGroup.dataset.stepId = String(stepId);" in PANEL_HTML
     assert "currentTimelineStepGroup.addEventListener('click'" in PANEL_HTML
     assert "function selectTimelineActionStep(stepId)" in PANEL_HTML
-    assert "renderTimelineActionStepInfo(selectedTimelineStepId);" in PANEL_HTML
+    assert "selectGraphActionForStep(key);" in PANEL_HTML
+    assert "renderActionStepAdditionalInfo(selectedTimelineStepId);" in PANEL_HTML
     assert "function highlightTimelineActionStep(stepId)" in PANEL_HTML
     assert "function timelineStepForGraphNode(d)" in PANEL_HTML
     assert "highlightTimelineActionStep(timelineStepForGraphNode(selectedNodeData));" in PANEL_HTML
     assert "highlightTimelineActionStep(null);" in PANEL_HTML
     assert "appendTimelineElement(el);" in PANEL_HTML
     assert "if (currentTimelineStepGroup) currentTimelineStepGroup.appendChild(el);" in PANEL_HTML
+
+
+def test_panel_select_graph_action_for_step_drills_to_action_layer_and_selects_node():
+    selector = PANEL_HTML.split("function selectGraphActionForStep(stepId)", 1)[1].split(
+        "function updateGraphSelectionClass", 1
+    )[0]
+
+    assert "const actionId = actionNodeIdByStep.get(key);" in selector
+    assert "const actionNode = actionId ? trajectoryActions.get(actionId) : null;" in selector
+    assert "graphDrilldown = { level: 'action', urlId: actionNode.urlId, viewportId: actionNode.viewportId };" in selector
+    assert "selectedNodeId = actionNode.id;" in selector
+    assert "selectedNodeData = actionNode;" in selector
+    assert "updateGraph();" in selector
+
+
+def test_panel_action_group_info_lists_members_and_links_to_single_step_detail():
+    assert "function renderActionGroupAdditionalInfo(actionNode)" in PANEL_HTML
+    group_render = PANEL_HTML.split("function renderActionGroupAdditionalInfo(actionNode)", 1)[1].split(
+        "window.renderActionGroupAdditionalInfo", 1
+    )[0]
+
+    for label in (
+        "Action steps",
+        "Summary",
+        "Outcome",
+        "Reasoning",
+        "Function call",
+        "Function call arguments",
+    ):
+        assert label in group_render
+    assert "related action steps" in group_render
+    assert "data-action-member-step" in group_render
+    assert "selectTimelineActionStep(stepId);" in group_render
 
 
 def test_panel_graph_separates_selected_and_running_node_accents():

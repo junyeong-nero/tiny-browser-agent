@@ -260,7 +260,25 @@ function renderEmptyAdditionalInfo(message = 'no action step selected.') {
   if (sideSelection) sideSelection.innerHTML = empty;
 }
 
-function renderTimelineActionStepInfo(stepId) {
+function renderAdditionalInfoRow(label, value) {
+  return `<div class="bullet"><span class="dot">•</span><span><span class="k">${escHtml(label)}</span> <span class="v">${escHtml(value)}</span></span></div>`;
+}
+
+function functionCallNames(calls) {
+  if (!calls.length) return '—';
+  return calls.map((call, index) => call && call.name ? call.name : `call ${index + 1}`).join(', ');
+}
+
+function functionCallArguments(calls) {
+  if (!calls.length) return '—';
+  return calls.map((call, index) => {
+    const name = call && call.name ? call.name : `call ${index + 1}`;
+    const args = call && call.args && Object.keys(call.args).length ? formatArgs(call.args) : '—';
+    return `${name}: ${args}`;
+  }).join('; ');
+}
+
+function renderActionStepAdditionalInfo(stepId) {
   const key = stepKey(stepId);
   if (key == null) {
     renderEmptyAdditionalInfo();
@@ -274,24 +292,15 @@ function renderTimelineActionStepInfo(stepId) {
   const artifacts = artifactsByStep.get(key) || null;
   const inference = getLlmInferenceForStep(key);
 
-  const rows = [];
-  rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">summary</span> <span class="v">${escHtml(what)}</span></span></div>`);
-  if (item.outcome && item.outcome !== '—') {
-    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">outcome</span> <span class="v">${escHtml(item.outcome)}</span></span></div>`);
-  }
-  if (reasoning) {
-    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">Reasoning</span> <span class="v">${escHtml(reasoning)}</span></span></div>`);
-  }
-  if (calls.length) {
-    const callsTxt = calls.map(c => {
-      const a = c.args && Object.keys(c.args).length ? ` ${formatArgs(c.args)}` : '';
-      return `${c.name}${a}`;
-    }).join(', ');
-    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">Function calls</span> <span class="v">${escHtml(callsTxt)}</span></span></div>`);
-  }
-  if (url) {
-    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">Observed URL</span> <span class="v">${escHtml(url)}</span></span></div>`);
-  }
+  const rows = [
+    renderAdditionalInfoRow('Action step number', `#${key}`),
+    renderAdditionalInfoRow('Summary', what),
+    renderAdditionalInfoRow('Outcome', item.outcome && item.outcome !== '—' ? item.outcome : '—'),
+    renderAdditionalInfoRow('Reasoning', reasoning || '—'),
+    renderAdditionalInfoRow('Function call', functionCallNames(calls)),
+    renderAdditionalInfoRow('Function call arguments', functionCallArguments(calls)),
+  ];
+  if (url) rows.push(renderAdditionalInfoRow('Observed URL', url));
 
   const replayBody = artifacts ? renderActionArtifacts(artifacts) : '';
 
@@ -307,10 +316,88 @@ function renderTimelineActionStepInfo(stepId) {
   }
 }
 
+function actionGroupStepIds(actionNode) {
+  const ids = Array.isArray(actionNode && actionNode.stepIds)
+    ? actionNode.stepIds.map(stepKey).filter(key => key != null)
+    : [];
+  const fallback = stepKey(actionNode && (actionNode.step ?? actionNode.lastStep ?? actionNode.firstStep));
+  if (!ids.length && fallback != null) ids.push(fallback);
+  return ids;
+}
+
+function summaryForActionStep(stepId) {
+  const item = actionSummariesByStep.get(stepId);
+  return (item && (item.what || item.actionSummary)) || `Step ${stepId}`;
+}
+
+function renderActionGroupAdditionalInfo(actionNode) {
+  if (!actionNode) {
+    renderEmptyAdditionalInfo();
+    return;
+  }
+
+  const stepIds = actionGroupStepIds(actionNode);
+  const latestStepId = stepIds.length ? stepIds[stepIds.length - 1] : null;
+  const latestItem = latestStepId != null ? actionSummariesByStep.get(latestStepId) : null;
+  const representative = actionNode.label || (latestStepId != null ? summaryForActionStep(latestStepId) : 'Action group');
+  const summary = stepIds.length > 1 ? `${stepIds.length} related action steps` : representative;
+  const reasoning = (latestStepId != null && reasoningByStep.get(latestStepId)) ||
+    (latestItem && (latestItem.reason || latestItem.why)) ||
+    '';
+  const calls = (latestStepId != null && functionCallsByStep.get(latestStepId)) ||
+    (actionNode.actionName ? [{ name: actionNode.actionName, args: actionNode.args || {} }] : []);
+  const artifacts = (latestStepId != null && artifactsByStep.get(latestStepId)) || actionNode.artifacts || null;
+  const inference = (latestStepId != null && getLlmInferenceForStep(latestStepId)) || actionNode.llmInference || null;
+  const stepList = stepIds.length ? stepIds.map(id => `#${id}`).join(', ') : '—';
+
+  const rows = [
+    renderAdditionalInfoRow('Action steps', stepList),
+    renderAdditionalInfoRow('Summary', summary),
+    renderAdditionalInfoRow('Outcome', latestItem && latestItem.outcome && latestItem.outcome !== '—' ? latestItem.outcome : '—'),
+    renderAdditionalInfoRow('Reasoning', reasoning || '—'),
+    renderAdditionalInfoRow('Function call', functionCallNames(calls)),
+    renderAdditionalInfoRow('Function call arguments', functionCallArguments(calls)),
+  ];
+
+  const memberList = stepIds.length
+    ? `<div class="action-member-list" aria-label="Action group member steps">${stepIds.map(stepId => {
+        const selected = selectedTimelineStepId === stepId ? ' selected' : '';
+        return `<button type="button" class="action-member-step${selected}" data-action-member-step="${escHtml(stepId)}"><span class="member-step-no">#${escHtml(stepId)}</span><span class="member-step-summary">${escHtml(summaryForActionStep(stepId))}</span></button>`;
+      }).join('')}</div>`
+    : '';
+  const replayBody = artifacts ? renderActionArtifacts(artifacts) : '';
+
+  if (sideStepTitle) {
+    sideStepTitle.className = 'side-step-title';
+    sideStepTitle.textContent = representative;
+  }
+  if (sideReplay) {
+    sideReplay.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
+  }
+  if (sideSelection) {
+    sideSelection.innerHTML = (rows.length ? rows.join('') : '<div class="side-empty">no info.</div>') + memberList + renderLlmInferenceButton(inference);
+    sideSelection.querySelectorAll('[data-action-member-step]').forEach(button => {
+      button.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const stepId = button.getAttribute('data-action-member-step');
+        if (selectedTimelineStepId === stepId) selectedTimelineStepId = null;
+        selectTimelineActionStep(stepId);
+      });
+    });
+  }
+}
+
+window.renderActionStepAdditionalInfo = renderActionStepAdditionalInfo;
+window.renderActionGroupAdditionalInfo = renderActionGroupAdditionalInfo;
+
+function renderTimelineActionStepInfo(stepId) {
+  return renderActionStepAdditionalInfo(stepId);
+}
+
 function refreshAdditionalInfoForStep(stepId) {
   const key = stepKey(stepId);
   if (key == null || selectedTimelineStepId !== key) return;
-  renderTimelineActionStepInfo(selectedTimelineStepId);
+  renderActionStepAdditionalInfo(selectedTimelineStepId);
 }
 
 function selectTimelineActionStep(stepId) {
@@ -319,12 +406,12 @@ function selectTimelineActionStep(stepId) {
   if (selectedTimelineStepId === key) {
     if (typeof clearGraphSelection === 'function') clearGraphSelection();
     highlightTimelineActionStep(null);
-    renderTimelineActionStepInfo(selectedTimelineStepId);
+    renderActionStepAdditionalInfo(selectedTimelineStepId);
     return;
   }
-  if (typeof clearGraphSelection === 'function') clearGraphSelection();
   highlightTimelineActionStep(key);
-  renderTimelineActionStepInfo(selectedTimelineStepId);
+  if (typeof selectGraphActionForStep === 'function') selectGraphActionForStep(key);
+  renderActionStepAdditionalInfo(selectedTimelineStepId);
 }
 
 function addRow(cls, html) {
@@ -702,6 +789,9 @@ function handleEvent(ev) {
     }
 
     case 'action_executed':
+      if (ev.action && ev.action.name && !functionCallsByStep.has(stepKey(ev.step_id))) {
+        storeFunctionCalls(ev.step_id, [ev.action]);
+      }
       if (ev.env_state && ev.env_state.url) {
         metaUrl.textContent = ev.env_state.url;
         storeObservedUrl(ev.step_id, ev.env_state.url);
