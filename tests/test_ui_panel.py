@@ -218,15 +218,15 @@ def test_panel_action_graph_reuses_same_action_nodes_and_draws_cycles():
     assert 'id="graph-arrow-cycle"' in PANEL_HTML
 
 
-def test_panel_graph_action_artifacts_prioritize_replay_and_compare_controls():
+def test_panel_graph_action_artifacts_prioritize_replay_and_inline_compare():
     assert "function renderActionReplayCard(label, href)" in PANEL_HTML
     assert "function renderBeforeAfterCompare(beforeHref, afterHref)" in PANEL_HTML
     assert "class=\"artifact-primary\"" in PANEL_HTML
-    assert "class=\"artifact-compare-tabs\"" in PANEL_HTML
-    assert "data-compare-mode=\"before\"" in PANEL_HTML
-    assert "data-compare-mode=\"after\"" in PANEL_HTML
-    assert "data-compare-mode=\"split\"" in PANEL_HTML
     assert "class=\"artifact-split\"" in PANEL_HTML
+    assert "class=\"artifact-compare-tabs\"" not in PANEL_HTML
+    assert "data-compare-mode=\"before\"" not in PANEL_HTML
+    assert "data-compare-mode=\"after\"" not in PANEL_HTML
+    assert "data-compare-mode=\"split\"" not in PANEL_HTML
     assert "Technical paths" in PANEL_HTML
 
 

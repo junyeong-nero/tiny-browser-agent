@@ -145,15 +145,6 @@ function renderArtifactCard(label, href, kind = 'image') {
   return `<div class="artifact-card"><div class="artifact-label">${safeLabel} · <a class="artifact-link" target="_blank" rel="noreferrer" href="${safeHref}">open</a></div>${media}</div>`;
 }
 
-function artifactCompareId(beforeHref, afterHref) {
-  const raw = `${beforeHref || ''}|${afterHref || ''}`;
-  let hash = 0;
-  for (let i = 0; i < raw.length; i += 1) {
-    hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
-  }
-  return `artifact-compare-${Math.abs(hash)}`;
-}
-
 function renderActionReplayCard(label, href) {
   if (!href) return '';
   const safeLabel = escHtml(label || 'Action replay');
@@ -167,29 +158,14 @@ function renderBeforeAfterCompare(beforeHref, afterHref) {
     const label = beforeHref ? 'Before screenshot' : 'After screenshot';
     return renderArtifactCard(label, beforeHref || afterHref);
   }
-  const id = artifactCompareId(beforeHref, afterHref);
   const before = escHtml(beforeHref);
   const after = escHtml(afterHref);
   return `
     <div class="artifact-compare-control">
       <div class="artifact-compare-title">Compare · <a class="artifact-link" target="_blank" rel="noreferrer" href="${before}">open before</a> · <a class="artifact-link" target="_blank" rel="noreferrer" href="${after}">open after</a></div>
-      <input id="${id}-before" name="${id}" type="radio" data-compare-mode="before" checked>
-      <input id="${id}-after" name="${id}" type="radio" data-compare-mode="after">
-      <input id="${id}-split" name="${id}" type="radio" data-compare-mode="split">
-      <div class="artifact-compare-tabs">
-        <label for="${id}-before">Before</label>
-        <label for="${id}-after">After</label>
-        <label for="${id}-split">Split</label>
-      </div>
-      <div class="artifact-compare-panels">
-        <a class="artifact-compare-panel artifact-panel-before" target="_blank" rel="noreferrer" href="${before}"><img src="${before}" alt="Before screenshot"></a>
-        <a class="artifact-compare-panel artifact-panel-after" target="_blank" rel="noreferrer" href="${after}"><img src="${after}" alt="After screenshot"></a>
-        <div class="artifact-compare-panel artifact-panel-split">
-          <div class="artifact-split">
-            <figure><figcaption>Before</figcaption><a target="_blank" rel="noreferrer" href="${before}"><img src="${before}" alt="Before screenshot"></a></figure>
-            <figure><figcaption>After</figcaption><a target="_blank" rel="noreferrer" href="${after}"><img src="${after}" alt="After screenshot"></a></figure>
-          </div>
-        </div>
+      <div class="artifact-split">
+        <figure><figcaption>Before</figcaption><a target="_blank" rel="noreferrer" href="${before}"><img src="${before}" alt="Before screenshot"></a></figure>
+        <figure><figcaption>After</figcaption><a target="_blank" rel="noreferrer" href="${after}"><img src="${after}" alt="After screenshot"></a></figure>
       </div>
     </div>`;
 }

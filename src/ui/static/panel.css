@@ -1235,48 +1235,6 @@
     font-size: 11px;
     border-bottom: 1px solid var(--border);
   }
-  .artifact-compare-control input {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  }
-  .artifact-compare-tabs {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 4px;
-    padding: 6px;
-    border-bottom: 1px solid var(--border);
-    background: var(--md-sys-color-surface-container);
-  }
-  .artifact-compare-tabs label {
-    cursor: pointer;
-    padding: 5px 6px;
-    border-radius: var(--md-sys-shape-corner-sm);
-    color: var(--fg-dim);
-    font-size: 11px;
-    text-align: center;
-    user-select: none;
-  }
-  .artifact-compare-control input[data-compare-mode="before"]:checked ~ .artifact-compare-tabs label[for$="-before"],
-  .artifact-compare-control input[data-compare-mode="after"]:checked  ~ .artifact-compare-tabs label[for$="-after"],
-  .artifact-compare-control input[data-compare-mode="split"]:checked  ~ .artifact-compare-tabs label[for$="-split"] {
-    background: color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
-    color: var(--md-sys-color-primary);
-    font-weight: 600;
-  }
-  .artifact-compare-panel { display: none; }
-  .artifact-compare-control input[data-compare-mode="before"]:checked ~ .artifact-compare-panels .artifact-panel-before,
-  .artifact-compare-control input[data-compare-mode="after"]:checked  ~ .artifact-compare-panels .artifact-panel-after,
-  .artifact-compare-control input[data-compare-mode="split"]:checked  ~ .artifact-compare-panels .artifact-panel-split {
-    display: block;
-  }
-  .artifact-compare-panel img {
-    display: block;
-    width: 100%;
-    max-height: 220px;
-    object-fit: contain;
-    background: #000;
-  }
   .artifact-split {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1285,6 +1243,13 @@
   }
   .artifact-split figure {
     min-width: 0;
+    background: #000;
+  }
+  .artifact-split img {
+    display: block;
+    width: 100%;
+    max-height: 220px;
+    object-fit: contain;
     background: #000;
   }
   .artifact-split figcaption {
