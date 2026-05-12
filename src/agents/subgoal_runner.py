@@ -28,11 +28,15 @@ def _subgoal_prompt(agent: Any, subgoal: Subgoal, prior_outcomes: list[SubgoalOu
     scope = getattr(agent, "_navigation_scope", None)
     scope_text = getattr(scope, "description", "No explicit navigation scope.")
     return (
-        f"Original user task:\n{agent._query}\n\n"
+        f"Overall task context (reference only):\n{agent._query}\n\n"
         f"Task navigation scope:\n{scope_text}\n\n"
         f"Latest browser URL before this subgoal: {latest_url}\n\n"
         "Prior subgoal outcomes (compact summary, not full trajectory):\n"
         f"{_format_prior_outcomes(prior_outcomes)}\n\n"
+        "Your only executable objective in this loop is the current subgoal. "
+        "Use the overall task only as background context for interpreting scope, "
+        "references, and constraints. Do not continue to the next subgoal or "
+        "complete extra parts of the overall task after this subgoal is satisfied.\n\n"
         f"[Subgoal {subgoal.id}] {subgoal.description}\n"
         f"Success criteria: {subgoal.success_criteria}\n"
         "When you determine the success criteria is met, stop calling tools and "

@@ -1394,11 +1394,34 @@ class TestBrowserAgent(unittest.TestCase):
 
         prompt = agent.get_recent_messages(limit=1)[0]["text"] or ""
         self.assertEqual(result, "done")
-        self.assertIn("Original user task:\noriginal user query", prompt)
+        self.assertIn("Overall task context (reference only):\noriginal user query", prompt)
+        self.assertIn("Your only executable objective in this loop is the current subgoal", prompt)
+        self.assertIn("Do not continue to the next subgoal or complete extra parts of the overall task", prompt)
         self.assertIn("Prior subgoal outcomes", prompt)
         self.assertIn("SUBGOAL_DONE: opened example.com", prompt)
         self.assertIn("Latest browser URL before this subgoal", prompt)
         self.assertIn("SUBGOAL_DONE: summarized", reason)
+
+
+    def test_actor_system_prompt_treats_active_subgoal_as_only_current_objective(self):
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="original user query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            step_summarizer=None,
+        )
+
+        system_text = " ".join(
+            part.text or ""
+            for part in agent._generate_content_config.system_instruction.parts
+        )
+
+        self.assertIn(
+            "If a planner subgoal is active, treat that subgoal as the only current objective",
+            system_text,
+        )
+        self.assertIn("The original task is context only", system_text)
 
     def test_subgoal_empty_replan_returns_blocked_result(self):
         events = []

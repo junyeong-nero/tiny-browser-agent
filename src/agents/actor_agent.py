@@ -82,7 +82,10 @@ class AgentInterrupted(Exception):
 
 
 _ACTOR_SYSTEM_PROMPT = """You are a browser automation agent that completes the user's task by inspecting the current webpage and calling browser tools.
-Use the task as the final goal, and use any active subgoal or latest browser state as the immediate step to execute.
+Use the task as the final goal unless a planner subgoal is active.
+If a planner subgoal is active, treat that subgoal as the only current objective.
+The original task is context only while a planner subgoal is active; do not continue
+to later subgoals or complete extra parts of the overall task in that loop.
 
 When deciding what to do:
 - Ground every browser action in the visible page state, ARIA tree, screenshot, URL, or tool result you have received.
