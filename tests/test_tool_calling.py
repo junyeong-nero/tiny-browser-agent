@@ -255,6 +255,26 @@ class TestBrowserToolExecutor(unittest.TestCase):
             ["Meta", "Shift", "P"]
         )
 
+    def test_execute_key_combination_accepts_declared_list_args(self):
+        self.executor.execute(
+            types.FunctionCall(
+                name="key_combination",
+                args={"keys": ["Meta", "Shift", "P"]},
+            )
+        )
+
+        self.mock_browser_computer.key_combination.assert_called_once_with(
+            ["Meta", "Shift", "P"]
+        )
+
+    def test_execute_key_combination_rejects_empty_keys(self):
+        with self.assertRaisesRegex(ValueError, "at least one key"):
+            self.executor.execute(
+                types.FunctionCall(name="key_combination", args={"keys": []})
+            )
+
+        self.mock_browser_computer.key_combination.assert_not_called()
+
     def test_execute_reload_page_delegates_to_browser_computer(self):
         env_state = EnvState(screenshot=b"screenshot", url="https://example.com")
         self.mock_browser_computer.reload_page.return_value = env_state
