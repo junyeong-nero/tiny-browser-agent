@@ -161,7 +161,7 @@ class BrowserRecordingHelper:
                 self._action_capture_started_at = None
             self._action_cdp_session = None
 
-    def end_action_capture(self) -> dict[str, Any] | None:
+    def end_action_capture(self, *, persist: bool = True) -> dict[str, Any] | None:
         cdp_session = self._action_cdp_session
         if cdp_session is not None:
             try:
@@ -175,6 +175,9 @@ class BrowserRecordingHelper:
             started_at = self._action_capture_started_at
             self._action_capture_frames = None
             self._action_capture_started_at = None
+
+        if not persist:
+            return None
 
         metadata = self.latest_artifact_metadata()
         history_dir = self.history_dir()

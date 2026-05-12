@@ -460,12 +460,14 @@ class TestBrowserToolExecutor(unittest.TestCase):
             def __init__(self):
                 self.started = False
                 self.ended = False
+                self.persist_values = []
 
             def begin_action_capture(self):
                 self.started = True
 
-            def end_action_capture(self):
+            def end_action_capture(self, *, persist=True):
                 self.ended = True
+                self.persist_values.append(persist)
                 return {"action_clip_gif_path": "step-0001-action.gif"}
 
             def navigate(self, url):
@@ -483,7 +485,80 @@ class TestBrowserToolExecutor(unittest.TestCase):
 
         self.assertTrue(browser.started)
         self.assertTrue(browser.ended)
+        self.assertEqual(browser.persist_values, [True])
         self.assertEqual(executed_call.artifacts["action_clip_gif_path"], "step-0001-action.gif")
+
+    def test_execute_call_discards_action_capture_for_dict_results(self):
+        class CaptureBrowser:
+            def __init__(self):
+                self.started = False
+                self.persist_values = []
+                self.cleared_actions = []
+
+            def begin_action_capture(self):
+                self.started = True
+
+            def end_action_capture(self, *, persist=True):
+                self.persist_values.append(persist)
+                if persist:
+                    return {"action_clip_gif_path": "should-not-be-used.gif"}
+                return None
+
+            def clear_pending_action(self, action_name=None):
+                self.cleared_actions.append(action_name)
+
+            def latest_artifact_metadata(self):
+                return {
+                    "metadata_path": "step-0001.json",
+                    "action_clip_gif_path": "old-action.gif",
+                }
+
+        browser = CaptureBrowser()
+        executor = BrowserToolExecutor(
+            browser_computer=browser,
+            custom_functions=[multiply_numbers],
+        )
+
+        executed_call = executor.execute_call(
+            types.FunctionCall(name=multiply_numbers.__name__, args={"x": 2, "y": 3})
+        )
+
+        self.assertTrue(browser.started)
+        self.assertEqual(browser.persist_values, [False])
+        self.assertEqual(browser.cleared_actions, [None])
+        self.assertEqual(executed_call.result, {"result": 6})
+        self.assertIsNone(executed_call.artifacts)
+
+    def test_execute_call_discards_action_capture_when_tool_raises(self):
+        class CaptureBrowser:
+            def __init__(self):
+                self.persist_values = []
+                self.cleared_actions = []
+
+            def begin_action_capture(self):
+                pass
+
+            def end_action_capture(self, *, persist=True):
+                self.persist_values.append(persist)
+                return {"action_clip_gif_path": "should-not-be-used.gif"}
+
+            def clear_pending_action(self, action_name=None):
+                self.cleared_actions.append(action_name)
+
+        def failing_tool() -> dict:
+            raise RuntimeError("boom")
+
+        browser = CaptureBrowser()
+        executor = BrowserToolExecutor(
+            browser_computer=browser,
+            custom_functions=[failing_tool],
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "boom"):
+            executor.execute_call(types.FunctionCall(name=failing_tool.__name__, args={}))
+
+        self.assertEqual(browser.persist_values, [False])
+        self.assertEqual(browser.cleared_actions, [None])
 
     def test_serialize_function_response_for_env_state(self):
         executed_call = self.executor.execute_call(

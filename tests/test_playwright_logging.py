@@ -530,6 +530,39 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(latest_metadata["a11y_path"], "step-0001.a11y.yaml")
 
     @patch("browser.playwright.time.sleep", return_value=None)
+    def test_clear_pending_action_prevents_failed_action_from_leaking_to_next_snapshot(
+        self,
+        _mock_sleep,
+    ):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            computer = PlaywrightBrowser(
+                screen_size=(1440, 900),
+                artifact_logger=ArtifactLogger(log_dir=tmp_dir),
+            )
+            computer._page = MagicMock()
+            computer._page.url = "https://example.com"
+            computer._page.title.return_value = "Example Domain"
+            computer._page.viewport_size = {"width": 1440, "height": 900}
+            computer._page.evaluate.return_value = {"scrollX": 0, "scrollY": 0}
+            computer._page.screenshot.return_value = b"png-bytes"
+            computer._page.content.return_value = "<html>example</html>"
+            computer._page.locator.return_value.aria_snapshot.return_value = "- document\n"
+
+            computer._mark_last_action("click_by_ref")
+            computer.clear_pending_action("click_by_ref")
+            computer._mark_last_action("open_web_browser")
+
+            state = computer.current_state()
+
+            self.assertEqual(state.interaction.last_action, "open_web_browser")
+            metadata = json.loads((Path(tmp_dir) / "history" / "step-0001.json").read_text())
+            nodes_by_id = {node["id"]: node for node in metadata["state_graph"]["nodes"]}
+            self.assertEqual(
+                nodes_by_id["interaction.last_action"]["full_value"],
+                "open_web_browser",
+            )
+
+    @patch("browser.playwright.time.sleep", return_value=None)
     def test_current_state_keeps_base_artifacts_when_a11y_capture_fails(self, _mock_sleep):
         with tempfile.TemporaryDirectory() as tmp_dir:
             computer = PlaywrightBrowser(
@@ -675,6 +708,44 @@ class TestPlaywrightLogging(unittest.TestCase):
             self.assertEqual(
                 artifact_logger.latest_artifact_metadata()["action_clip_gif_path"],
                 "step-0001-action.gif",
+            )
+
+    def test_action_capture_discard_does_not_mutate_latest_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            artifact_logger = ArtifactLogger(log_dir=tmp_dir)
+            fake_shutil = MagicMock()
+            fake_shutil.which.return_value = "/usr/bin/ffmpeg"
+            fake_subprocess = MagicMock()
+            fake_subprocess.PIPE = object()
+            fake_subprocess.DEVNULL = object()
+            recording = BrowserRecordingHelper(
+                artifact_logger=artifact_logger,
+                subprocess_module=fake_subprocess,
+                shutil_module=fake_shutil,
+            )
+            history_dir = Path(tmp_dir) / "history"
+            history_dir.mkdir(parents=True)
+            metadata_path = history_dir / "step-0001.json"
+            metadata_path.write_text(
+                json.dumps({"step": 1, "metadata_path": "step-0001.json"}) + "\n",
+                encoding="utf-8",
+            )
+            artifact_logger._latest_artifact_metadata = {
+                "step": 1,
+                "metadata_path": "step-0001.json",
+            }
+            recording._action_capture_started_at = 10.0
+            recording._action_capture_frames = [(10.0, b"frame1"), (11.0, b"frame2")]
+
+            updates = recording.end_action_capture(persist=False)
+
+            self.assertIsNone(updates)
+            self.assertFalse(fake_subprocess.Popen.called)
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            self.assertEqual(metadata, {"step": 1, "metadata_path": "step-0001.json"})
+            self.assertEqual(
+                artifact_logger.latest_artifact_metadata(),
+                {"step": 1, "metadata_path": "step-0001.json"},
             )
 
     def test_action_gif_samples_sixty_frames_across_full_capture(self):

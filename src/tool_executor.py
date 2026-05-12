@@ -169,18 +169,54 @@ class BrowserToolExecutor:
         captures_actions = hasattr(type(self._browser_computer), "begin_action_capture")
         if captures_actions:
             self._browser_computer.begin_action_capture()
+        result: ToolResult | None = None
+        capture_updates = None
+        persist_capture = False
         try:
             result = self.execute(action)
+            persist_capture = is_env_state_result(result)
         finally:
-            capture_updates = None
             if captures_actions:
-                capture_updates = self._browser_computer.end_action_capture()
+                capture_updates = self._end_action_capture(persist=persist_capture)
+            if not persist_capture:
+                self._clear_pending_action()
         artifacts = None
         if is_env_state_result(result):
             artifacts = self._latest_artifact_metadata()
             if isinstance(capture_updates, dict) and artifacts is not None:
                 artifacts = {**artifacts, **capture_updates}
         return ExecutedCall(function_call=action, result=result, artifacts=artifacts)
+
+    def _end_action_capture(self, *, persist: bool) -> dict[str, Any] | None:
+        end_capture = getattr(self._browser_computer, "end_action_capture", None)
+        if not callable(end_capture):
+            return None
+
+        try:
+            parameters = inspect.signature(end_capture).parameters
+        except (TypeError, ValueError):
+            parameters = {}
+
+        if "persist" in parameters:
+            capture_updates = end_capture(persist=persist)
+            return capture_updates if isinstance(capture_updates, dict) else None
+
+        # Backward-compatible fallback for browser doubles or older facades that
+        # cannot discard captures explicitly. We still stop the capture; callers
+        # should only rely on updates when persistence was requested.
+        capture_updates = end_capture()
+        if persist and isinstance(capture_updates, dict):
+            return capture_updates
+        return None
+
+    def _clear_pending_action(self) -> None:
+        clear_pending_action = getattr(
+            self._browser_computer,
+            "clear_pending_action",
+            None,
+        )
+        if callable(clear_pending_action):
+            clear_pending_action()
 
     def supports_function(self, name: str | None) -> bool:
         """Return whether `name` can be executed by this executor."""

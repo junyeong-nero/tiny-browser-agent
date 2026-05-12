@@ -694,6 +694,10 @@ class PlaywrightBrowser:
         if self._pending_last_action is None:
             self._pending_last_action = action_name
 
+    def clear_pending_action(self, action_name: str | None = None) -> None:
+        if action_name is None or self._pending_last_action == action_name:
+            self._pending_last_action = None
+
     def screen_size(self) -> tuple[int, int]:
         viewport_size = self._page.viewport_size
         if viewport_size:
@@ -794,8 +798,8 @@ class PlaywrightBrowser:
         """Best-effort capture of frames emitted while a browser action runs."""
         self._recording.begin_action_capture(page=self._page, context=self._context)
 
-    def end_action_capture(self) -> dict[str, Any] | None:
-        return self._recording.end_action_capture()
+    def end_action_capture(self, *, persist: bool = True) -> dict[str, Any] | None:
+        return self._recording.end_action_capture(persist=persist)
 
     def _prepare_log_dirs(self):
         self._artifact_logger.prepare_log_dirs()
