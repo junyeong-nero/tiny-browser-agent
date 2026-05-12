@@ -20,6 +20,8 @@ else:
 playwright = type(sys)("playwright")  # placeholder so existing `playwright.sync_api.X` refs resolve
 playwright.sync_api = playwright_sync_module  # type: ignore[attr-defined]
 sync_playwright = playwright_sync_module.sync_playwright
+PlaywrightError = playwright_sync_module.Error
+PlaywrightTimeoutError = playwright_sync_module.TimeoutError
 
 from .aria_snapshot import AriaSnapshot, NodeInfo, build_aria_snapshot
 from .artifact_logger import ArtifactLogger

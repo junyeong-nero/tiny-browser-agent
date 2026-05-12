@@ -2,10 +2,8 @@ from typing import Any, Literal
 
 from browser.aria_snapshot import NodeInfo
 
-from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-
 from browser import PlaywrightBrowser
+from browser.playwright import PlaywrightError, PlaywrightTimeoutError
 
 from tools.types import denormalize_x, denormalize_y
 
