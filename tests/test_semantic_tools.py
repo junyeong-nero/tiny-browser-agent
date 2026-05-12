@@ -5,10 +5,19 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import pytest
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from browser.aria_snapshot import NodeInfo, build_aria_snapshot
-from browser.playwright import EnvState
+from browser.playwright import EnvState, PlaywrightError, PlaywrightTimeoutError
+
+
+def test_semantic_tool_exception_aliases_follow_selected_browser_backend():
+    import tools.helpers as helpers
+    import tools.scroll_by_ref as scroll_by_ref
+
+    assert helpers.PlaywrightError is PlaywrightError
+    assert helpers.PlaywrightTimeoutError is PlaywrightTimeoutError
+    assert scroll_by_ref.PlaywrightError is PlaywrightError
+    assert scroll_by_ref.PlaywrightTimeoutError is PlaywrightTimeoutError
 
 
 def _make_browser_with_snapshot(yaml: str = None):
@@ -224,6 +233,38 @@ class TestScrollByRef:
         from tools.scroll_by_ref import handle_scroll_by_ref
         result = handle_scroll_by_ref(browser, {"ref": 1, "direction": "up"})
 
+        browser.scroll_document.assert_called_once_with("up")
+        assert result == fake_state
+
+
+    def test_fallback_to_scroll_document_when_ref_scroll_times_out(self):
+        browser, snapshot = _make_browser_with_snapshot()
+        mock_locator = MagicMock()
+        mock_locator.scroll_into_view_if_needed.side_effect = PlaywrightTimeoutError("timeout")
+        browser.resolve_ref.return_value = mock_locator
+        fake_state = EnvState(screenshot=b"fake", url="https://example.com")
+        browser.scroll_document.return_value = fake_state
+
+        from tools.scroll_by_ref import handle_scroll_by_ref
+        result = handle_scroll_by_ref(browser, {"ref": 1, "direction": "down"})
+
+        mock_locator.scroll_into_view_if_needed.assert_called_once_with(timeout=3000)
+        mock_locator.bounding_box.assert_not_called()
+        browser.scroll_document.assert_called_once_with("down")
+        assert result == fake_state
+
+    def test_fallback_to_scroll_document_when_bounding_box_fails(self):
+        browser, snapshot = _make_browser_with_snapshot()
+        mock_locator = MagicMock()
+        mock_locator.bounding_box.side_effect = PlaywrightError("detached")
+        browser.resolve_ref.return_value = mock_locator
+        fake_state = EnvState(screenshot=b"fake", url="https://example.com")
+        browser.scroll_document.return_value = fake_state
+
+        from tools.scroll_by_ref import handle_scroll_by_ref
+        result = handle_scroll_by_ref(browser, {"ref": 1, "direction": "up"})
+
+        mock_locator.scroll_into_view_if_needed.assert_called_once_with(timeout=3000)
         browser.scroll_document.assert_called_once_with("up")
         assert result == fake_state
 
