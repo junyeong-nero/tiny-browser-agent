@@ -45,8 +45,10 @@ let replayIndex = 0;
 let replayTimer = null;
 let replaySessionId = null;
 let liveSessionId = null;
+let liveIsRunning = false;
 
 let subgoals = [];
+let subgoalStartRowsById = new Map();
 let pendingReplanFailedSubgoalId = null;
 let actionSummariesByStep = new Map();
 let actionSummaryCardsByStep = new Map();
@@ -138,8 +140,13 @@ function connect() {
     }
   };
   ws.onmessage = (e) => {
-    if (replayMode) return;
-    try { handleEvent(JSON.parse(e.data)); } catch (_) {}
+    try {
+      const ev = JSON.parse(e.data);
+      if (ev.type === 'task_started') liveIsRunning = true;
+      if (ev.type === 'task_complete' || ev.type === 'task_failed' || ev.type === 'task_interrupted') liveIsRunning = false;
+      if (replayMode) return;
+      handleEvent(ev);
+    } catch (_) {}
   };
   ws.onclose = () => {
     if (!replayMode) {
@@ -161,8 +168,8 @@ function setStatus(state, label) {
 }
 
 function updateControlStates() {
-  const stopMode = (isRunning || isSubmitting) && !replayMode;
-  const canRun = inputAllowed && !stopMode;
+  const stopMode = isRunning && !replayMode;
+  const canRun = inputAllowed && !stopMode && !isSubmitting;
   btn.disabled = stopMode ? isStopping : !canRun;
   btn.classList.toggle('stop', stopMode);
   btn.setAttribute('aria-label', stopMode ? 'Stop task' : 'Run task');
@@ -182,6 +189,7 @@ function resetTimeline() {
   currentTimelineStepId = null;
   currentTimelineStepGroup = null;
   selectedTimelineStepId = null;
+  subgoalStartRowsById = new Map();
 }
 
 function setAgentModel(modelName) {
@@ -247,6 +255,44 @@ function highlightTimelineActionStep(stepId) {
   selectedTimelineStepId = stepId != null ? String(stepId) : null;
   updateTimelineHighlight();
   scrollHighlightedTimelineStep();
+}
+
+function subgoalKey(subgoalId) {
+  return subgoalId != null ? String(subgoalId) : null;
+}
+
+function recordSubgoalStart(subgoalId, row) {
+  const key = subgoalKey(subgoalId);
+  if (key == null || !row) return;
+  row.dataset.subgoalId = key;
+  row.classList.add('subgoal-anchor');
+  row.setAttribute('tabindex', '-1');
+  subgoalStartRowsById.set(key, row);
+  renderPlan();
+}
+
+function flashSubgoalStartRow(row) {
+  timeline.querySelectorAll('.row.subgoal-anchor.subgoal-jump-highlight').forEach(el => {
+    el.classList.remove('subgoal-jump-highlight');
+  });
+  row.classList.remove('subgoal-jump-highlight');
+  void row.offsetWidth;
+  row.classList.add('subgoal-jump-highlight');
+  row.addEventListener('animationend', () => {
+    row.classList.remove('subgoal-jump-highlight');
+  }, { once: true });
+}
+
+function jumpToSubgoalStart(subgoalId) {
+  const key = subgoalKey(subgoalId);
+  if (key == null) return;
+  const row = subgoalStartRowsById.get(key) ||
+    timeline.querySelector(`.row.subgoal-anchor[data-subgoal-id="${CSS.escape(key)}"]`);
+  if (!row) return;
+  activateMainView('timeline', { scrollSelection: false });
+  flashSubgoalStartRow(row);
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  try { row.focus({ preventScroll: true }); } catch (_) {}
 }
 
 function renderEmptyAdditionalInfo(message = 'no action step selected.') {
@@ -445,6 +491,7 @@ function addBlock(cls, html) {
 // ── Sidebar helpers ────────────────────────────────────
 function resetSidebar() {
   subgoals = [];
+  subgoalStartRowsById = new Map();
   pendingReplanFailedSubgoalId = null;
   actionSummariesByStep = new Map();
   actionSummaryCardsByStep = new Map();
@@ -529,12 +576,19 @@ function renderPlan() {
     done: '<svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.2 13.6-3.4-3.4 1.4-1.4 2 2 4.6-4.6 1.4 1.4-6 6z"></path></svg>',
     failed: '<svg aria-hidden="true" viewBox="0 0 24 24" focusable="false"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm3.5 12.1-1.4 1.4L12 13.4l-2.1 2.1-1.4-1.4 2.1-2.1-2.1-2.1 1.4-1.4 2.1 2.1 2.1-2.1 1.4 1.4-2.1 2.1 2.1 2.1z"></path></svg>',
   };
-  sidePlan.innerHTML = subgoals.map(sg => `
-    <div class="todo ${sg.status}">
+  sidePlan.innerHTML = subgoals.map(sg => {
+    const key = subgoalKey(sg.id);
+    const jumpable = key != null && subgoalStartRowsById.has(key);
+    const disabled = jumpable ? '' : ' disabled aria-disabled="true"';
+    return `
+    <button type="button" class="todo ${sg.status}${jumpable ? ' jumpable' : ''}" data-subgoal-id="${escHtml(key || '')}"${disabled} aria-label="Jump to subgoal ${escHtml(key || '')} start">
       <span class="status-icon">${statusIcons[sg.status] || statusIcons.pending}</span>
       <span class="text">${escHtml(sg.description)}</span>
-    </div>
-  `).join('');
+    </button>`;
+  }).join('');
+  sidePlan.querySelectorAll('[data-subgoal-id]').forEach(item => {
+    item.addEventListener('click', () => jumpToSubgoalStart(item.getAttribute('data-subgoal-id')));
+  });
 }
 
 function stepKey(stepId) {
@@ -657,22 +711,26 @@ function setMainView(view) {
   document.body.classList.toggle('view-timeline', view === 'timeline');
   document.body.classList.toggle('view-graph', view === 'graph');
 }
-(function setupTabs() {
+function activateMainView(view, options = {}) {
+  const scrollSelection = options.scrollSelection !== false;
   const tabs = document.querySelectorAll('.view-tab');
   const panes = document.querySelectorAll('.view-pane');
+  tabs.forEach(t => { t.classList.toggle('active', t.dataset.view === view); });
+  panes.forEach(p => { p.classList.toggle('active', p.dataset.view === view); });
+  setMainView(view);
+  if (view === 'graph') {
+    resizeGraph();
+    updateGraph();
+  } else if (view === 'timeline' && scrollSelection) {
+    scrollHighlightedTimelineStep();
+  }
+}
+(function setupTabs() {
+  const tabs = document.querySelectorAll('.view-tab');
   setMainView('timeline');
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
-      const view = tab.dataset.view;
-      tabs.forEach(t => { t.classList.toggle('active', t === tab); });
-      panes.forEach(p => { p.classList.toggle('active', p.dataset.view === view); });
-      setMainView(view);
-      if (view === 'graph') {
-        resizeGraph();
-        updateGraph();
-      } else if (view === 'timeline') {
-        scrollHighlightedTimelineStep();
-      }
+      activateMainView(tab.dataset.view);
     });
   });
 })();
@@ -731,7 +789,10 @@ function handleEvent(ev) {
 
     case 'subgoal_started':
       updateSubgoalStatus(ev.subgoal_id, 'active');
-      addRow('', `<span style="color:var(--orange)">▸</span> subgoal ${escHtml(ev.subgoal_id)} <span class="pill running">RUNNING</span> <span class="dim" style="color:var(--fg-dim)">${escHtml(ev.description || '')}</span>`);
+      recordSubgoalStart(
+        ev.subgoal_id,
+        addRow('', `<span style="color:var(--orange)">▸</span> subgoal ${escHtml(ev.subgoal_id)} <span class="pill running">RUNNING</span> <span class="dim" style="color:var(--fg-dim)">${escHtml(ev.description || '')}</span>`)
+      );
       break;
 
     case 'subgoal_completed':
@@ -834,7 +895,7 @@ function handleEvent(ev) {
       break;
     }
 
-    case 'task_failed':
+    case 'task_failed': {
       isRunning = false;
       isSubmitting = false;
       isStopping = false;
@@ -850,6 +911,7 @@ function handleEvent(ev) {
         `<div class="message-meta">${escHtml(errorMessage)}</div>`
       );
       break;
+    }
 
     case 'task_interrupted':
       isRunning = false;
@@ -1034,7 +1096,14 @@ liveBtn.addEventListener('click', () => {
   resetTimeline();
   resetSidebar();
   setReplayUi(false);
-  setStatus(ws && ws.readyState === WebSocket.OPEN ? 'connected' : 'disconnected', ws && ws.readyState === WebSocket.OPEN ? 'ready' : 'disconnected');
+  isRunning = liveIsRunning;
+  if (isRunning) {
+    setStatus('running', 'running');
+    setInputEnabled(false);
+  } else {
+    setStatus(ws && ws.readyState === WebSocket.OPEN ? 'connected' : 'disconnected', ws && ws.readyState === WebSocket.OPEN ? 'ready' : 'disconnected');
+    setInputEnabled(ws && ws.readyState === WebSocket.OPEN);
+  }
 });
 replayPlay.addEventListener('click', () => {
   replayPaused = !replayPaused;
@@ -1053,8 +1122,6 @@ replaySlider.addEventListener('input', () => replayTo(Number(replaySlider.value 
 async function submitTask() {
   const query = input.value.trim();
   if (!query || isRunning || isSubmitting) return;
-  input.value = '';
-  autoResize();
   isSubmitting = true;
   isStopping = false;
   setStatus('running', 'submitting…');
@@ -1066,11 +1133,15 @@ async function submitTask() {
       body: JSON.stringify({ query }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Task rejected');
+    input.value = '';
+    autoResize();
   } catch (e) {
     isSubmitting = false;
     setStatus(ws && ws.readyState === WebSocket.OPEN ? 'connected' : 'disconnected', ws && ws.readyState === WebSocket.OPEN ? 'ready' : 'disconnected');
     setInputEnabled(ws && ws.readyState === WebSocket.OPEN && !replayMode);
-    addBlock('red', `<div class="title">network error</div><div class="meta">failed to submit task. is the server running?</div>`);
+    addBlock('red', `<div class="title">network error</div><div class="meta">${escHtml(e.message || 'failed to submit task. is the server running?')}</div>`);
   }
 }
 
@@ -1083,10 +1154,12 @@ async function interruptTask() {
   try {
     const res = await fetch('/interrupt', { method: 'POST' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Interrupt rejected');
   } catch (e) {
     isStopping = false;
     updateControlStates();
-    addBlock('red', `<div class="title">network error</div><div class="meta">failed to interrupt task. is the server running?</div>`);
+    addBlock('red', `<div class="title">network error</div><div class="meta">${escHtml(e.message || 'failed to interrupt task. is the server running?')}</div>`);
   }
 }
 

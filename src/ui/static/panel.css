@@ -794,6 +794,26 @@
   .row .tool { color: var(--primary); font-weight: 500; }
   .row .args { color: var(--fg-dim); font-family: var(--mono); }
   .row a, .row .url { color: var(--primary); text-decoration: underline; text-decoration-color: rgba(138,180,248,.45); text-underline-offset: 3px; }
+  .row.subgoal-anchor {
+    border-radius: var(--md-sys-shape-corner-md);
+    display: block;
+    margin-block: 4px;
+    padding-block: 4px;
+    scroll-margin-block: 80px;
+  }
+  .row.subgoal-anchor.subgoal-jump-highlight {
+    animation: subgoal-jump-highlight-fade 1100ms var(--md-sys-motion-easing-standard) both;
+  }
+  @keyframes subgoal-jump-highlight-fade {
+    0% {
+      background: color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--md-sys-color-primary) 48%, transparent);
+    }
+    100% {
+      background: transparent;
+      box-shadow: 0 0 0 1px transparent;
+    }
+  }
 
   .action-step-group {
     display: flex;
@@ -1072,6 +1092,12 @@
     overflow-wrap: anywhere;
     word-break: break-word;
   }
+  #side-plan {
+    display: grid;
+    grid-auto-rows: minmax(28px, auto);
+    row-gap: 6px;
+    align-content: start;
+  }
   .side-empty { color: var(--fg-mute); font-style: italic; }
   .side-sel-title {
     color: var(--md-sys-color-primary);
@@ -1281,14 +1307,40 @@
   .kvline .v-dim { color: var(--fg-dim); }
 
   .todo {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    border: 0;
+    border-radius: var(--md-sys-shape-corner-md);
+    box-sizing: border-box;
     display: grid;
     grid-template-columns: 30px minmax(0, 1fr);
     gap: 8px;
+    height: auto;
     align-items: start;
+    align-self: stretch;
+    font: inherit;
     line-height: 1.42;
-    padding: 4px 0;
+    margin: 0;
+    min-height: 28px;
+    padding: 4px;
+    text-align: left;
     color: var(--fg);
     min-width: 0;
+    white-space: normal;
+    width: 100%;
+  }
+  .todo:disabled {
+    cursor: default;
+    opacity: 1;
+  }
+  .todo.jumpable {
+    cursor: pointer;
+  }
+  .todo.jumpable:hover,
+  .todo.jumpable:focus-visible {
+    background: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent);
+    outline: none;
   }
   .todo .status-icon {
     color: var(--fg-dim);

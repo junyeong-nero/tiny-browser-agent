@@ -18,6 +18,7 @@ let actionNodeIdByStep = new Map();
 let graphDrilldown = { level: 'url', urlId: null, viewportId: null };
 let graphDrillAnchor = null;
 let actionSequence = 0;
+const GRAPH_NODE_LABEL_MAX_CHARS = 28;
 
 function resetTrajectoryGraphState() {
   trajectoryNodes = new Map();
@@ -294,6 +295,18 @@ function actionSignature(actionName, args) {
   return `${actionName}|${JSON.stringify(stableActionValue(args || {}))}`;
 }
 
+function actionStepCountForAction(action) {
+  if (!action) return 0;
+  if (Array.isArray(action.stepIds) && action.stepIds.length) return action.stepIds.length;
+  return Number.isFinite(action.visits) ? action.visits : 0;
+}
+
+function actionStepCountForActionIds(actionIds) {
+  return Array.from(actionIds || []).reduce((total, actionId) => {
+    return total + actionStepCountForAction(trajectoryActions.get(actionId));
+  }, 0);
+}
+
 function recordNavigation(url, stepId) {
   if (!url || url === 'about:blank') return null;
   const { key, host, path, full } = parseUrlParts(url);
@@ -520,6 +533,7 @@ function buildUrlGraphData() {
     firstStep: src.firstStep,
     lastStep: src.lastStep,
     viewportCount: src.viewportIds ? src.viewportIds.size : 0,
+    actionStepCount: actionStepCountForActionIds(src.actionIds),
     actionCount: src.actionIds ? src.actionIds.size : 0,
     actionPreviews: collectActionPreviewArtifacts(src.actionIds),
     llmInference: llmInferenceForStep(src.lastStep),
@@ -551,6 +565,7 @@ function buildViewportGraphData(urlId) {
     firstStep: urlNode.firstStep,
     lastStep: urlNode.lastStep,
     viewportCount: urlNode.viewportIds.size,
+    actionStepCount: actionStepCountForActionIds(urlNode.actionIds),
     actionCount: urlNode.actionIds.size,
     actionPreviews: collectActionPreviewArtifacts(urlNode.actionIds),
     isRoot: true,
@@ -570,6 +585,7 @@ function buildViewportGraphData(urlId) {
       visits: vp.visits,
       firstStep: vp.firstStep,
       lastStep: vp.lastStep,
+      actionStepCount: actionStepCountForActionIds(vp.actionIds),
       actionCount: vp.actionIds.size,
       actionPreviews: collectActionPreviewArtifacts(vp.actionIds),
       llmInference: llmInferenceForStep(vp.lastStep),
@@ -604,6 +620,7 @@ function buildActionGraphData(viewportId) {
     visits: viewportNode.visits,
     firstStep: viewportNode.firstStep,
     lastStep: viewportNode.lastStep,
+    actionStepCount: actionStepCountForActionIds(viewportNode.actionIds),
     actionCount: viewportNode.actionIds.size,
     actionPreviews: collectActionPreviewArtifacts(viewportNode.actionIds),
     llmInference: llmInferenceForStep(viewportNode.lastStep),
@@ -616,6 +633,7 @@ function buildActionGraphData(viewportId) {
     .sort((a, b) => (a.firstStep - b.firstStep) || (a.order - b.order))
     .map(action => ({
       ...action,
+      actionStepCount: actionStepCountForAction(action),
       argsText: formatArgs(action.args || {}),
       llmInference: action.llmInference || llmInferenceForStep(action.lastStep || action.step),
       isCurrent: action.id === trajectoryCurrentActionId,
@@ -631,6 +649,16 @@ function trajectoryLabelFor(n) {
   const p = n.path && n.path !== '/' ? n.path : '';
   const short = (n.host || '') + (p ? (p.length > 18 ? p.slice(0, 17) + '…' : p) : '');
   return short || n.id;
+}
+
+function compactGraphNodeLabel(label, maxChars = GRAPH_NODE_LABEL_MAX_CHARS) {
+  const text = String(label || '');
+  if (maxChars <= 1) return text.slice(0, maxChars);
+  return text.length <= maxChars ? text : text.slice(0, maxChars - 1) + '…';
+}
+
+function displayGraphNodeLabel(d) {
+  return compactGraphNodeLabel((d && (d.label || d.id)) || '');
 }
 
 function selectedGraphData() {
@@ -732,9 +760,10 @@ function renderGraphNodeSelection(d) {
   if (d.scroll)      rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">scroll</span> <span class="v">${escHtml(d.scroll)}</span></span></div>`);
   if (d.actionName)  rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">action</span> <span class="v">${escHtml(d.actionName)}</span></span></div>`);
   if (d.argsText)    rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">args</span> <span class="v">${escHtml(d.argsText)}</span></span></div>`);
+  if (d.actionStepCount != null) rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">total steps</span> <span class="v">${d.actionStepCount}</span></span></div>`);
   if (d.visits != null)        rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">visits</span> <span class="v">${d.visits}</span></span></div>`);
   if (d.viewportCount != null) rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">viewports</span> <span class="v">${d.viewportCount}</span></span></div>`);
-  if (d.actionCount != null)   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">actions</span> <span class="v">${d.actionCount}</span></span></div>`);
+  if (d.actionCount != null)   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">unique actions</span> <span class="v">${d.actionCount}</span></span></div>`);
   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">first step</span> <span class="v">#${d.firstStep ?? d.step ?? '—'}</span></span></div>`);
   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">last step</span> <span class="v">#${d.lastStep ?? d.step ?? '—'}</span></span></div>`);
   if (d.drillable)   rows.push(`<div class="bullet"><span class="dot">•</span><span><span class="k">tip</span> <span class="v">double-click to drill in</span></span></div>`);
@@ -941,8 +970,9 @@ const graph = (() => {
     const rows = [];
     const title = d.label || d.host || d.actionName || d.id;
     rows.push(`<div class="tt-row"><span>level</span><span class="v">${escHtml(d.type || '—')}</span></div>`);
-    if (d.actionCount != null) rows.push(`<div class="tt-row"><span>actions</span><span class="v">${d.actionCount}</span></div>`);
-    else if (d.visits != null) rows.push(`<div class="tt-row"><span>visits</span><span class="v">${d.visits}</span></div>`);
+    if (d.actionStepCount != null) rows.push(`<div class="tt-row"><span>total steps</span><span class="v">${d.actionStepCount}</span></div>`);
+    if (d.actionCount != null) rows.push(`<div class="tt-row"><span>unique actions</span><span class="v">${d.actionCount}</span></div>`);
+    if (d.visits != null) rows.push(`<div class="tt-row"><span>visits</span><span class="v">${d.visits}</span></div>`);
     if (d.drillable) rows.push(`<div class="tt-row"><span>double-click</span><span class="v">drill in</span></div>`);
     tooltip.innerHTML = `<div class="tt-url">${escHtml(title)}</div>` + rows.join('');
     tooltip.classList.remove('hidden');
@@ -961,6 +991,8 @@ const graph = (() => {
 
   function graphNodeWorkCount(d) {
     if (!d) return 0;
+    if (Number.isFinite(d.actionStepCount)) return d.actionStepCount;
+    if (Array.isArray(d.stepIds) && d.stepIds.length) return d.stepIds.length;
     if (Number.isFinite(d.actionCount)) return d.actionCount;
     return Number.isFinite(d.visits) ? d.visits : 0;
   }
@@ -968,7 +1000,8 @@ const graph = (() => {
   function graphNodeFill(d, maxWorkCount) {
     const count = graphNodeWorkCount(d);
     if (!count || !maxWorkCount) return d3.interpolateViridis(0.12);
-    const t = 0.12 + (Math.min(count, maxWorkCount) / maxWorkCount) * 0.82;
+    const normalized = Math.sqrt(Math.min(count, maxWorkCount) / maxWorkCount);
+    const t = 0.12 + normalized * 0.82;
     return d3.interpolateViridis(t);
   }
 
@@ -979,7 +1012,7 @@ const graph = (() => {
       return;
     }
     const maxLabel = legendEl.querySelector('[data-legend-max]');
-    if (maxLabel) maxLabel.textContent = `max ${maxWorkCount}`;
+    if (maxLabel) maxLabel.textContent = `max ${maxWorkCount} steps`;
     legendEl.classList.remove('hidden');
   }
 
@@ -1080,7 +1113,7 @@ const graph = (() => {
       .classed('selected', d => d.id === selectedNodeId)
       .style('--graph-node-fill', d => graphNodeFill(d, maxWorkCount));
     nodeSel.select('circle').attr('r', d => 6 + Math.min(8, Math.log2((d.visits || 1) + 1) * 2));
-    nodeSel.select('text').text(d => d.label || d.id);
+    nodeSel.select('text').text(displayGraphNodeLabel);
 
     simulation.nodes(nodesData);
     simulation.force('link').links(linksData);

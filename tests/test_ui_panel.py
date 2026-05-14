@@ -194,6 +194,21 @@ def test_panel_uses_user_friendly_viewport_and_action_labels():
     assert "return String(actionName || 'Action').replace(/_/g, ' ');" in PANEL_HTML
 
 
+def test_panel_graph_truncates_rendered_node_labels_without_changing_data_labels():
+    assert "const GRAPH_NODE_LABEL_MAX_CHARS = 28;" in PANEL_HTML
+    assert "function compactGraphNodeLabel(label, maxChars = GRAPH_NODE_LABEL_MAX_CHARS)" in PANEL_HTML
+    assert "function displayGraphNodeLabel(d)" in PANEL_HTML
+    assert "return text.length <= maxChars ? text : text.slice(0, maxChars - 1) + '…';" in PANEL_HTML
+    assert "nodeSel.select('text').text(displayGraphNodeLabel);" in PANEL_HTML
+
+    graph_renderer = PANEL_HTML.split("function update(payload)", 1)[1].split(
+        "function reset()", 1
+    )[0]
+    assert "nodeSel.select('text').text(d => d.label || d.id);" not in graph_renderer
+    assert "label: actionLabel(actionName, actionArgs)" in PANEL_HTML
+    assert "const title = d.label || d.host || d.actionName || d.id;" in PANEL_HTML
+
+
 def test_panel_action_graph_reuses_same_action_nodes_and_draws_cycles():
     assert "function stableActionValue(value)" in PANEL_HTML
     assert "function actionSignature(actionName, args)" in PANEL_HTML
@@ -466,6 +481,35 @@ def test_panel_plan_status_uses_icons_instead_of_text_markers():
         assert marker not in render_plan
 
 
+def test_panel_plan_items_jump_to_subgoal_start_rows():
+    render_plan = PANEL_HTML.split("function renderPlan()", 1)[1].split(
+        "function upsertActionSummary", 1
+    )[0]
+    subgoal_started_case = PANEL_HTML.split("case 'subgoal_started':", 1)[1].split(
+        "case 'subgoal_completed':", 1
+    )[0]
+
+    assert "let subgoalStartRowsById = new Map();" in PANEL_HTML
+    assert "function recordSubgoalStart(subgoalId, row)" in PANEL_HTML
+    assert "function jumpToSubgoalStart(subgoalId)" in PANEL_HTML
+    assert "function flashSubgoalStartRow(row)" in PANEL_HTML
+    assert "subgoalStartRowsById.set(key, row);" in PANEL_HTML
+    assert "row.dataset.subgoalId = key;" in PANEL_HTML
+    assert "row.scrollIntoView({ block: 'center', behavior: 'smooth' });" in PANEL_HTML
+    assert "activateMainView('timeline', { scrollSelection: false });" in PANEL_HTML
+    assert 'type="button" class="todo ${sg.status}${jumpable ? \' jumpable\' : \'\'}"' in render_plan
+    assert 'data-subgoal-id="${escHtml(key || \'\')}"' in render_plan
+    assert "sidePlan.querySelectorAll('[data-subgoal-id]').forEach" in render_plan
+    assert "jumpToSubgoalStart(item.getAttribute('data-subgoal-id'))" in render_plan
+    assert "recordSubgoalStart(" in subgoal_started_case
+    assert "addRow('', `<span style=\"color:var(--orange)\">▸</span> subgoal" in subgoal_started_case
+    assert ".row.subgoal-anchor.subgoal-jump-highlight" in PANEL_HTML
+    assert "@keyframes subgoal-jump-highlight-fade" in PANEL_HTML
+    assert "row.addEventListener('animationend'" in PANEL_HTML
+    assert "selectedSubgoalId" not in PANEL_HTML
+    assert ".todo.jumpable:hover" in PANEL_HTML
+
+
 def test_panel_graph_pins_root_nodes_and_seeds_children_from_parent():
     graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
         "function updateGraph()", 1
@@ -583,6 +627,7 @@ def test_panel_sidebar_itself_is_viewport_constrained_and_scrollable():
 def test_panel_sidebar_long_content_uses_flow_safe_grid_items():
     side_section_css = PANEL_HTML.split("details.side-section {", 1)[1].split("}", 1)[0]
     side_body_css = PANEL_HTML.split(".side-body {", 1)[1].split("}", 1)[0]
+    side_plan_css = PANEL_HTML.split("#side-plan {", 1)[1].split("}", 1)[0]
     todo_css = PANEL_HTML.split(".todo {", 1)[1].split("}", 1)[0]
     action_summary_css = PANEL_HTML.split(".action-summary-card .summary-head {", 1)[1].split("}", 1)[0]
 
@@ -592,7 +637,15 @@ def test_panel_sidebar_long_content_uses_flow_safe_grid_items():
     assert "min-width: 0;" in side_body_css
     assert "max-width: 100%;" in side_body_css
     assert "word-break: break-word;" in side_body_css
+    assert "display: grid;" in side_plan_css
+    assert "grid-auto-rows: minmax(28px, auto);" in side_plan_css
+    assert "row-gap: 6px;" in side_plan_css
     assert "grid-template-columns: 30px minmax(0, 1fr);" in todo_css
+    assert "box-sizing: border-box;" in todo_css
+    assert "height: auto;" in todo_css
+    assert "min-height: 28px;" in todo_css
+    assert "margin: 0;" in todo_css
+    assert "white-space: normal;" in todo_css
     assert "display: flex;" in action_summary_css
     assert "align-items: flex-start;" in action_summary_css
     assert ".todo .text  { color: var(--fg); min-width: 0; overflow-wrap: anywhere; }" in PANEL_HTML
@@ -885,12 +938,23 @@ def test_panel_graph_separates_selected_and_running_node_accents():
     assert "updateGraphRunningClass();" in PANEL_HTML
 
 
-def test_panel_graph_uses_opaque_plotly_viridis_work_color_scale():
+def test_panel_graph_uses_total_action_steps_for_work_color_scale():
     assert "fill: var(--graph-node-fill, var(--surface-2));" in PANEL_HTML
+    assert "function actionStepCountForActionIds(actionIds)" in PANEL_HTML
+    assert "actionStepCount: actionStepCountForActionIds(src.actionIds)" in PANEL_HTML
+    assert "actionStepCount: actionStepCountForActionIds(vp.actionIds)" in PANEL_HTML
+    assert "actionStepCount: actionStepCountForAction(action)" in PANEL_HTML
     assert "function graphNodeWorkCount(d)" in PANEL_HTML
-    assert "if (Number.isFinite(d.actionCount)) return d.actionCount;" in PANEL_HTML
+    work_count = PANEL_HTML.split("function graphNodeWorkCount(d)", 1)[1].split(
+        "function graphNodeFill", 1
+    )[0]
+    assert "if (Number.isFinite(d.actionStepCount)) return d.actionStepCount;" in work_count
+    assert "if (Array.isArray(d.stepIds) && d.stepIds.length) return d.stepIds.length;" in work_count
+    assert "if (Number.isFinite(d.actionCount)) return d.actionCount;" in work_count
+    assert work_count.index("d.actionStepCount") < work_count.index("d.actionCount")
     assert "function graphNodeFill(d, maxWorkCount)" in PANEL_HTML
     assert "d3.interpolateViridis(0.12)" in PANEL_HTML
+    assert "Math.sqrt(Math.min(count, maxWorkCount) / maxWorkCount)" in PANEL_HTML
     assert "d3.interpolateViridis(t)" in PANEL_HTML
     assert "d3.interpolateBlues" not in PANEL_HTML
     assert "const maxWorkCount = Math.max(1, ...nodesData.map(graphNodeWorkCount));" in PANEL_HTML
@@ -934,6 +998,8 @@ def test_panel_graph_shows_work_color_legend():
     assert "work count" not in PANEL_HTML
     assert "legend-title" not in PANEL_HTML
     assert "data-legend-max" in PANEL_HTML
+    assert "<span>few steps</span>" in PANEL_HTML
+    assert "<span data-legend-max>max 1 step</span>" in PANEL_HTML
     legend_css = PANEL_HTML.split(".graph-legend {", 1)[1].split(".graph-legend.hidden", 1)[0]
     assert "bottom: 14px;" in legend_css
     assert "right: 14px;" in legend_css
@@ -943,7 +1009,7 @@ def test_panel_graph_shows_work_color_legend():
     assert "flex-direction: column-reverse;" not in PANEL_HTML
     assert "const legendEl = document.getElementById('graph-legend');" in PANEL_HTML
     assert "function updateGraphLegend(maxWorkCount, hasNodes)" in PANEL_HTML
-    assert "maxLabel.textContent = `max ${maxWorkCount}`;" in PANEL_HTML
+    assert "maxLabel.textContent = `max ${maxWorkCount} steps`;" in PANEL_HTML
     assert "updateGraphLegend(maxWorkCount, nodesData.length > 0);" in PANEL_HTML
     assert "updateGraphLegend(1, false);" in PANEL_HTML
 
@@ -952,7 +1018,8 @@ def test_panel_graph_hover_tooltip_stays_compact():
     tooltip_block = PANEL_HTML.split("function showTooltip(event, d) {", 1)[1].split("function moveTooltip(event)", 1)[0]
     assert "const title = d.label || d.host || d.actionName || d.id;" in tooltip_block
     assert "<span>level</span>" in tooltip_block
-    assert "<span>actions</span>" in tooltip_block
+    assert "<span>total steps</span>" in tooltip_block
+    assert "<span>unique actions</span>" in tooltip_block
     assert "<span>visits</span>" in tooltip_block
     assert "drill in" in tooltip_block
     for hidden_detail in ("<span>host</span>", "<span>path</span>", "<span>size</span>", "<span>scroll</span>", "<span>shot</span>", "<span>args</span>", "<span>first step</span>", "<span>last step</span>", "<span>out / in</span>", "<span>click</span>"):
@@ -986,3 +1053,29 @@ def test_panel_aggregates_child_action_gif_previews_for_url_and_viewport_nodes()
 def test_panel_prefers_action_clip_gif_over_two_frame_fallback():
     assert "artifacts.action_clip_gif_path || artifacts.action_gif_path" in PANEL_HTML
     assert "action_clip_gif_path" in PANEL_HTML
+
+def test_panel_submit_task_handles_ok_false_and_preserves_input():
+    submit_task = PANEL_HTML.split("async function submitTask() {", 1)[1].split("async function interruptTask()", 1)[0]
+    assert "const data = await res.json();" in submit_task
+    assert "if (!data.ok) throw new Error(data.error || 'Task rejected');" in submit_task
+    assert "input.value = '';" not in submit_task.split("try {")[0]
+    assert "input.value = '';" in submit_task.split("try {")[1]
+
+def test_panel_interrupt_task_handles_ok_false():
+    interrupt_task = PANEL_HTML.split("async function interruptTask() {", 1)[1].split("btn.addEventListener('click'", 1)[0]
+    assert "const data = await res.json();" in interrupt_task
+    assert "if (!data.ok) throw new Error(data.error || 'Interrupt rejected');" in interrupt_task
+
+def test_panel_stop_button_not_shown_during_is_submitting():
+    update_controls = PANEL_HTML.split("function updateControlStates() {", 1)[1].split("}", 1)[0]
+    assert "const stopMode = isRunning && !replayMode;" in update_controls
+    assert "stopMode = (isRunning || isSubmitting)" not in update_controls
+
+def test_panel_replay_mode_processes_live_events_for_state_but_not_ui():
+    ws_onmessage = PANEL_HTML.split("ws.onmessage = (e) => {", 1)[1].split("};", 1)[0]
+    assert "if (ev.type === 'task_started') liveIsRunning = true;" in ws_onmessage
+    assert "if (ev.type === 'task_complete' || ev.type === 'task_failed' || ev.type === 'task_interrupted') liveIsRunning = false;" in ws_onmessage
+    assert "if (replayMode) return;" in ws_onmessage
+    
+    live_btn = PANEL_HTML.split("liveBtn.addEventListener('click', () => {", 1)[1].split("});", 1)[0]
+    assert "isRunning = liveIsRunning;" in live_btn
