@@ -114,64 +114,63 @@ class BrowserSession:
     def run_task(self, query: str) -> None:
         task_id = start_next_task()
         artifact_logger = self._make_artifact_logger()
-        sink_registered = self._log_enabled
-        execution_constraints = app_config.execution_constraints()
-        if sink_registered:
-            artifact_logger.record_session_meta(
-                build_session_metadata(
-                    query=query,
-                    model_name=self._model_name,
-                    grounding=self._grounding,
-                    started_at=datetime.now(),
-                    use_planner=self._use_planner,
-                    video_enabled=self._video_enabled,
-                    constraints=execution_constraints,
-                )
-            )
-            register_event_sink(artifact_logger.record_event)
-        task_started_event = {"type": "task_started", "query": query, "task_id": task_id}
-        session_id = artifact_logger.session_id()
-        if session_id is not None:
-            task_started_event["session_id"] = session_id
-        emit(task_started_event)
-        self._browser.set_artifact_logger(artifact_logger)
-        conversation_context = self._format_conversation_memory()
-
-        subgoals = None
-        replan_callback = None
-        if self._use_planner:
-            from agents.planner_agent import PlannerAgent
-            planner = PlannerAgent(query=query, event_sink=emit)
-            subgoals = planner.plan()
-            if is_task_interrupted():
-                emit({"type": "task_interrupted", "query": query, "task_id": task_id, "reason": "Task interrupted by user."})
-                finish_active_task(task_id)
-                if sink_registered:
-                    unregister_event_sink(artifact_logger.record_event)
-                return
-            if not subgoals:
-                emit({"type": "planner_fallback", "reason": "no valid subgoals returned"})
-                subgoals = None
-            else:
-                replan_callback = planner.replan
-
-        agent = BrowserAgent(
-            browser_computer=self._browser,
-            query=query,
-            model_name=self._model_name,
-            event_sink=emit,
-            artifact_logger=artifact_logger,
-            grounding=self._grounding,
-            subgoals=subgoals,
-            replan_callback=replan_callback,
-            conversation_context=conversation_context,
-            interrupt_checker=is_task_interrupted,
-            safety_confirmation_callback=self._reject_ui_safety_confirmation,
-            max_steps_per_subgoal=execution_constraints.max_steps_per_subgoal,
-            max_total_steps=execution_constraints.max_total_steps,
-            max_subgoals=execution_constraints.max_subgoals,
-        )
+        sink_registered = False
+        agent: BrowserAgent | None = None
         try:
+            execution_constraints = app_config.execution_constraints()
+            if self._log_enabled:
+                artifact_logger.record_session_meta(
+                    build_session_metadata(
+                        query=query,
+                        model_name=self._model_name,
+                        grounding=self._grounding,
+                        started_at=datetime.now(),
+                        use_planner=self._use_planner,
+                        video_enabled=self._video_enabled,
+                        constraints=execution_constraints,
+                    )
+                )
+                register_event_sink(artifact_logger.record_event)
+                sink_registered = True
+            task_started_event = {"type": "task_started", "query": query, "task_id": task_id}
+            session_id = artifact_logger.session_id()
+            if session_id is not None:
+                task_started_event["session_id"] = session_id
+            emit(task_started_event)
+            self._browser.set_artifact_logger(artifact_logger)
+            conversation_context = self._format_conversation_memory()
+
+            subgoals = None
+            replan_callback = None
+            if self._use_planner:
+                from agents.planner_agent import PlannerAgent
+                planner = PlannerAgent(query=query, event_sink=emit)
+                subgoals = planner.plan()
+                if is_task_interrupted():
+                    emit({"type": "task_interrupted", "query": query, "task_id": task_id, "reason": "Task interrupted by user."})
+                    return
+                if not subgoals:
+                    emit({"type": "planner_fallback", "reason": "no valid subgoals returned"})
+                    subgoals = None
+                else:
+                    replan_callback = planner.replan
+
+            agent = BrowserAgent(
+                browser_computer=self._browser,
+                query=query,
+                model_name=self._model_name,
+                event_sink=emit,
+                artifact_logger=artifact_logger,
+                grounding=self._grounding,
+                subgoals=subgoals,
+                replan_callback=replan_callback,
+                conversation_context=conversation_context,
+                interrupt_checker=is_task_interrupted,
+                safety_confirmation_callback=self._reject_ui_safety_confirmation,
+                max_steps_per_subgoal=execution_constraints.max_steps_per_subgoal,
+                max_total_steps=execution_constraints.max_total_steps,
+                max_subgoals=execution_constraints.max_subgoals,
+            )
             try:
                 result = agent.agent_loop()
             except AgentInterrupted as exc:
@@ -196,6 +195,7 @@ class BrowserSession:
                     )
                 )
                 return
+            assert agent is not None
             self._remember_completed_task(query, agent)
             emit(
                 build_task_complete_event(
@@ -205,6 +205,13 @@ class BrowserSession:
                     task_id=task_id,
                 )
             )
+        except Exception as exc:
+            emit({"type": "step_error", "step_id": -1, "error_message": str(exc)})
+            try:
+                self._browser.reset_to_blank()
+            except Exception as reset_exc:
+                emit({"type": "step_error", "step_id": -1, "error_message": f"Browser reset failed: {reset_exc}"})
+            emit({"type": "task_failed", "query": query, "task_id": task_id, "status": "failed", "error_message": str(exc)})
         finally:
             finish_active_task(task_id)
             if sink_registered:
