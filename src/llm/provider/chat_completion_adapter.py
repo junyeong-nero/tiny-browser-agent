@@ -222,7 +222,7 @@ def payload_to_response(payload: dict[str, Any]) -> types.GenerateContentRespons
         if text:
             parts.append(types.Part(text=text))
 
-        for tc in tool_calls:
+        for tool_call_index, tc in enumerate(tool_calls):
             func = tc.get("function", {}) or {}
             func_name = func.get("name", "")
             args_str = func.get("arguments", "{}")
@@ -236,10 +236,11 @@ def payload_to_response(payload: dict[str, Any]) -> types.GenerateContentRespons
                         exc=exc,
                     )
                 }
+            tool_call_id = tc.get("id") or f"call_{tool_call_index}"
             parts.append(
                 types.Part(
                     function_call=types.FunctionCall(
-                        id=tc.get("id"),
+                        id=tool_call_id,
                         name=func_name,
                         args=args,
                     )
@@ -263,16 +264,6 @@ def payload_to_response(payload: dict[str, Any]) -> types.GenerateContentRespons
             types.Candidate(
                 content=candidate_content,
                 finish_reason=finish_reason,
-            )
-        )
-
-    if not candidates:
-        empty_part = types.Part(text="")
-        empty_content = types.Content(role="model", parts=[empty_part])
-        candidates.append(
-            types.Candidate(
-                content=empty_content,
-                finish_reason=types.FinishReason.FINISH_REASON_UNSPECIFIED,
             )
         )
 
