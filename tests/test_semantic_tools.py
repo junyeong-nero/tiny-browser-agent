@@ -158,6 +158,7 @@ class TestTypeByRef:
 
         browser.resolve_ref.assert_called_once_with(1)
         browser._mark_last_action.assert_called_once_with("type_by_ref")
+        browser.highlight_locator.assert_called_once_with(mock_locator, kind="type")
         mock_locator.click.assert_called_once_with(timeout=5000)
         mock_locator.fill.assert_called_once_with("hello")
         browser.key_combination.assert_not_called()
@@ -195,6 +196,7 @@ class TestHoverByRef:
 
         browser.resolve_ref.assert_called_once_with(1)
         browser._mark_last_action.assert_called_once_with("hover_by_ref")
+        browser.highlight_locator.assert_called_once_with(mock_locator, kind="hover")
         mock_locator.hover.assert_called_once()
         assert result == browser.current_state.return_value
 

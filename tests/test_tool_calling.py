@@ -99,6 +99,16 @@ class TestBrowserToolExecutor(unittest.TestCase):
 
         self.mock_browser_computer.scroll_document.assert_called_once_with("down")
 
+    def test_execute_scroll_document_uses_default_direction(self):
+        self.executor.execute(types.FunctionCall(name="scroll_document", args={}))
+
+        self.mock_browser_computer.scroll_document.assert_called_once_with("down")
+
+    def test_execute_click_at_clamps_normalized_edge_coordinates(self):
+        self.executor.execute(types.FunctionCall(name="click_at", args={"x": 1000, "y": 1000}))
+
+        self.mock_browser_computer.click_at.assert_called_once_with(x=1999, y=3999)
+
     def test_execute_wait_5_seconds(self):
         self.executor.execute(types.FunctionCall(name="wait_5_seconds", args={}))
 

@@ -79,8 +79,17 @@ def extract_tool_argument_error(args: dict[str, Any] | None) -> dict[str, Any] |
 
 
 def denormalize_x(x: int, computer: PlaywrightBrowser) -> int:
-    return int(x / 1000 * computer.screen_size()[0])
+    width = computer.screen_size()[0]
+    return _denormalize_coordinate(x, width)
 
 
 def denormalize_y(y: int, computer: PlaywrightBrowser) -> int:
-    return int(y / 1000 * computer.screen_size()[1])
+    height = computer.screen_size()[1]
+    return _denormalize_coordinate(y, height)
+
+
+def _denormalize_coordinate(value: int, extent: int) -> int:
+    if extent <= 0:
+        return 0
+    normalized = max(0, min(1000, value))
+    return min(extent - 1, int(normalized / 1000 * extent))

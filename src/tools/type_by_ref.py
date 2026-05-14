@@ -12,7 +12,7 @@ def handle_type_by_ref(computer: PlaywrightBrowser, args: dict) -> EnvState:
     text = str(args["text"])
     press_enter = bool(args.get("press_enter", False))
 
-    computer.highlight_locator(locator, kind="click")
+    computer.highlight_locator(locator, kind="type")
     click_locator(locator)
     wait_for_page_ready(computer)
     locator.fill(text)
