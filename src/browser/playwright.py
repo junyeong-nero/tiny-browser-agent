@@ -30,6 +30,7 @@ from .state import BrowserState, EnvState, InteractionState, PageState, Viewport
 from .state_graph import browser_state_to_graph
 
 FRAME_CAPTURE_FPS = 60
+MOUSE_HIGHLIGHT_CAPTURE_DELAY_SECONDS = 0.28
 
 
 PLAYWRIGHT_INSTALL_HINT = (
@@ -178,6 +179,7 @@ class PlaywrightBrowser:
         """
         self._artifact_logger = artifact_logger
         self._recording.set_artifact_logger(artifact_logger)
+        self._previous_state = None
         self._artifact_logger.prepare_log_dirs()
 
     def _normalize_upload_roots(
@@ -238,9 +240,16 @@ class PlaywrightBrowser:
                     color="yellow",
                 )
 
-    def _handle_new_page(self, new_page: playwright.sync_api.Page):
+    def _handle_new_page(self, new_page: Any) -> None:
         self._page = new_page
-        self._page.wait_for_load_state()
+        self._clear_aria_ref_cache()
+        try:
+            self._page.wait_for_load_state()
+        except Exception as exc:
+            termcolor.cprint(
+                f"New page load-state wait failed: {exc}",
+                color="yellow",
+            )
 
     def __enter__(self):
         print("Creating session...")
@@ -276,13 +285,10 @@ class PlaywrightBrowser:
             if "Executable doesn't exist" in str(exc):
                 raise RuntimeError(PLAYWRIGHT_INSTALL_HINT) from exc
             raise
-        viewport_size = cast(
-            playwright.sync_api.ViewportSize,
-            {
-                "width": self._screen_size[0],
-                "height": self._screen_size[1],
-            },
-        )
+        viewport_size: dict[str, int] = {
+            "width": self._screen_size[0],
+            "height": self._screen_size[1],
+        }
         context_kwargs: dict[str, Any]
         if self._fit_window_to_screen and not self._headless:
             context_kwargs = {"no_viewport": True}
@@ -316,24 +322,39 @@ class PlaywrightBrowser:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._stop_frame_stream()
-        if self._context:
-            if self._storage_state_path:
-                try:
-                    self._storage_state_path.parent.mkdir(parents=True, exist_ok=True)
-                    self._context.storage_state(path=str(self._storage_state_path))
-                except Exception as exc:
-                    termcolor.cprint(
-                        f"Failed to persist storage_state to {self._storage_state_path}: {exc}",
-                        color="yellow",
-                    )
-            self._context.close()
+        close_error: BaseException | None = None
         try:
-            self._browser.close()
-        except Exception as e:
-            if "Browser.close: Connection closed while reading from the driver" not in str(e):
-                raise
-        self._playwright.stop()
+            self._stop_frame_stream()
+            context = getattr(self, "_context", None)
+            if context:
+                if self._storage_state_path:
+                    try:
+                        self._storage_state_path.parent.mkdir(parents=True, exist_ok=True)
+                        context.storage_state(path=str(self._storage_state_path))
+                    except Exception as exc:
+                        termcolor.cprint(
+                            f"Failed to persist storage_state to {self._storage_state_path}: {exc}",
+                            color="yellow",
+                        )
+                try:
+                    context.close()
+                except Exception as exc:
+                    close_error = exc
+                    termcolor.cprint(f"Failed to close browser context: {exc}", color="yellow")
+            browser = getattr(self, "_browser", None)
+            if browser:
+                try:
+                    browser.close()
+                except Exception as exc:
+                    if "Browser.close: Connection closed while reading from the driver" not in str(exc):
+                        close_error = close_error or exc
+                        termcolor.cprint(f"Failed to close browser: {exc}", color="yellow")
+        finally:
+            playwright_runtime = getattr(self, "_playwright", None)
+            if playwright_runtime:
+                playwright_runtime.stop()
+        if close_error is not None and exc_type is None:
+            raise close_error
 
     def open_web_browser(self) -> EnvState:
         self._mark_last_action("open_web_browser")
@@ -347,7 +368,7 @@ class PlaywrightBrowser:
 
     def hover_at(self, x: int, y: int) -> EnvState:
         self._mark_last_action("hover_at")
-        self.highlight_mouse(x, y)
+        self.highlight_mouse(x, y, kind="hover")
         self._page.mouse.move(x, y)
         return self._state_after_load()
 
@@ -360,7 +381,7 @@ class PlaywrightBrowser:
         clear_before_typing: bool = True,
     ) -> EnvState:
         self._mark_last_action("type_text_at")
-        self.highlight_mouse(x, y, kind="click")
+        self.highlight_mouse(x, y, kind="type")
         self._page.mouse.click(x, y)
         self._page.wait_for_load_state()
 
@@ -405,7 +426,7 @@ class PlaywrightBrowser:
         magnitude: int = 800,
     ) -> EnvState:
         self._mark_last_action("scroll_at")
-        self.highlight_mouse(x, y)
+        self.highlight_mouse(x, y, kind=f"scroll-{direction}")
         self._page.mouse.move(x, y)
         self._page.wait_for_load_state()
 
@@ -432,11 +453,13 @@ class PlaywrightBrowser:
 
     def go_back(self) -> EnvState:
         self._mark_last_action("go_back")
+        self._clear_aria_ref_cache()
         self._page.go_back()
         return self._state_after_load()
 
     def go_forward(self) -> EnvState:
         self._mark_last_action("go_forward")
+        self._clear_aria_ref_cache()
         self._page.go_forward()
         return self._state_after_load()
 
@@ -446,6 +469,7 @@ class PlaywrightBrowser:
 
     def navigate(self, url: str) -> EnvState:
         self._mark_last_action("navigate")
+        self._clear_aria_ref_cache()
         normalized_url = url if url.startswith(("http://", "https://")) else "https://" + url
         self._goto_or_blank(normalized_url, context="Page")
         return self._state_after_load()
@@ -464,7 +488,7 @@ class PlaywrightBrowser:
         self._aria_ref_map = snapshot.ref_map
         return snapshot
 
-    def resolve_ref(self, ref: int) -> playwright.sync_api.Locator:
+    def resolve_ref(self, ref: int) -> Any:
         """Resolve an integer ref to a Playwright Locator using the cached ref map."""
         if self._aria_ref_map is None:
             raise ValueError("No ARIA snapshot cached. Call take_aria_snapshot() first.")
@@ -486,6 +510,7 @@ class PlaywrightBrowser:
 
     def reload_page(self) -> EnvState:
         self._mark_last_action("reload_page")
+        self._clear_aria_ref_cache()
         self._page.reload()
         return self._state_after_load()
 
@@ -561,7 +586,7 @@ class PlaywrightBrowser:
             )
 
         with self._page.expect_file_chooser() as file_chooser_info:
-            self.highlight_mouse(x, y, kind="click")
+            self.highlight_mouse(x, y, kind="upload")
             self._page.mouse.click(x, y)
         file_chooser_info.value.set_files(str(resolved_path))
         return self.current_state()
@@ -591,11 +616,14 @@ class PlaywrightBrowser:
     def key_combination(self, keys: list[str]) -> EnvState:
         self._mark_last_action("key_combination")
         keys = [PLAYWRIGHT_KEY_MAP.get(k.lower(), k) for k in keys]
-        for key in keys[:-1]:
+        held_keys = keys[:-1]
+        for key in held_keys:
             self._page.keyboard.down(key)
-        self._page.keyboard.press(keys[-1])
-        for key in reversed(keys[:-1]):
-            self._page.keyboard.up(key)
+        try:
+            self._page.keyboard.press(keys[-1])
+        finally:
+            for key in reversed(held_keys):
+                self._page.keyboard.up(key)
         return self.current_state()
 
     def drag_and_drop(
@@ -719,58 +747,135 @@ class PlaywrightBrowser:
                     style.textContent = `
                         .tiny-browser-agent-pointer-highlight {
                             position: fixed;
-                            width: 32px;
-                            height: 32px;
-                            border: 3px solid #ff1744;
+                            left: 0;
+                            top: 0;
+                            width: 64px;
+                            height: 64px;
+                            border: 5px solid #ff1744;
                             border-radius: 999px;
-                            box-shadow: 0 0 0 4px rgba(255, 23, 68, .18),
-                                        0 0 24px rgba(255, 23, 68, .55);
+                            background:
+                                radial-gradient(circle at center,
+                                    rgba(255, 255, 255, .95) 0 4px,
+                                    rgba(255, 23, 68, .95) 5px 8px,
+                                    transparent 9px),
+                                linear-gradient(to right,
+                                    transparent 0 calc(50% - 1px),
+                                    rgba(255, 255, 255, .95) calc(50% - 1px) calc(50% + 1px),
+                                    transparent calc(50% + 1px)),
+                                linear-gradient(to bottom,
+                                    transparent 0 calc(50% - 1px),
+                                    rgba(255, 255, 255, .95) calc(50% - 1px) calc(50% + 1px),
+                                    transparent calc(50% + 1px));
+                            box-shadow:
+                                0 0 0 9999px rgba(0, 0, 0, .10),
+                                0 0 0 8px rgba(255, 255, 255, .85),
+                                0 0 0 13px rgba(255, 23, 68, .18),
+                                0 0 36px rgba(255, 23, 68, .85);
                             box-sizing: border-box;
                             pointer-events: none;
                             z-index: 2147483647;
-                            animation: tba-pointer-pulse 900ms ease-out forwards;
+                            transform: translate(-50%, -50%) scale(.72);
+                            animation: tba-pointer-pulse 2200ms ease-out forwards;
                         }
+                        .tiny-browser-agent-pointer-highlight::before,
                         .tiny-browser-agent-pointer-highlight::after {
-                            content: "";
                             position: absolute;
+                            pointer-events: none;
+                        }
+                        .tiny-browser-agent-pointer-highlight::before {
+                            content: "";
                             left: 50%;
                             top: 50%;
-                            width: 7px;
-                            height: 7px;
-                            transform: translate(-50%, -50%);
+                            width: 86px;
+                            height: 86px;
+                            border: 2px dashed rgba(255, 255, 255, .9);
                             border-radius: 999px;
-                            background: #ff1744;
-                            box-shadow: 0 0 0 2px rgba(255, 255, 255, .9);
+                            transform: translate(-50%, -50%);
+                        }
+                        .tiny-browser-agent-pointer-highlight::after {
+                            content: attr(data-label);
+                            left: 50%;
+                            top: calc(100% + 12px);
+                            min-width: max-content;
+                            transform: translateX(-50%);
+                            padding: 5px 9px;
+                            border: 2px solid rgba(255, 255, 255, .95);
+                            border-radius: 999px;
+                            background: #b00020;
+                            color: #fff;
+                            font: 800 12px/1.15 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                            letter-spacing: .04em;
+                            text-shadow: 0 1px 2px rgba(0, 0, 0, .45);
+                            box-shadow: 0 5px 16px rgba(0, 0, 0, .32);
+                            white-space: nowrap;
                         }
                         .tiny-browser-agent-pointer-highlight[data-kind^="drag"] {
                             border-color: #2962ff;
-                            box-shadow: 0 0 0 4px rgba(41, 98, 255, .18),
-                                        0 0 24px rgba(41, 98, 255, .55);
+                            box-shadow:
+                                0 0 0 9999px rgba(0, 0, 0, .10),
+                                0 0 0 8px rgba(255, 255, 255, .85),
+                                0 0 0 13px rgba(41, 98, 255, .18),
+                                0 0 36px rgba(41, 98, 255, .85);
                         }
-                        .tiny-browser-agent-pointer-highlight[data-kind^="drag"]::after {
-                            background: #2962ff;
+                        .tiny-browser-agent-pointer-highlight[data-kind^="drag"]::after,
+                        .tiny-browser-agent-pointer-highlight[data-kind^="scroll"]::after {
+                            background: #0b57d0;
+                        }
+                        .tiny-browser-agent-pointer-highlight[data-kind^="scroll"] {
+                            border-color: #0b57d0;
+                            box-shadow:
+                                0 0 0 9999px rgba(0, 0, 0, .10),
+                                0 0 0 8px rgba(255, 255, 255, .85),
+                                0 0 0 13px rgba(11, 87, 208, .18),
+                                0 0 36px rgba(11, 87, 208, .85);
+                        }
+                        .tiny-browser-agent-pointer-highlight[data-kind="hover"] {
+                            border-color: #f9ab00;
+                            box-shadow:
+                                0 0 0 9999px rgba(0, 0, 0, .10),
+                                0 0 0 8px rgba(255, 255, 255, .85),
+                                0 0 0 13px rgba(249, 171, 0, .20),
+                                0 0 36px rgba(249, 171, 0, .9);
+                        }
+                        .tiny-browser-agent-pointer-highlight[data-kind="hover"]::after {
+                            background: #8a5b00;
+                        }
+                        .tiny-browser-agent-pointer-highlight[data-kind="type"] {
+                            border-color: #9334e6;
+                            box-shadow:
+                                0 0 0 9999px rgba(0, 0, 0, .10),
+                                0 0 0 8px rgba(255, 255, 255, .85),
+                                0 0 0 13px rgba(147, 52, 230, .18),
+                                0 0 36px rgba(147, 52, 230, .85);
+                        }
+                        .tiny-browser-agent-pointer-highlight[data-kind="type"]::after {
+                            background: #681da8;
                         }
                         @keyframes tba-pointer-pulse {
-                            0% { opacity: 0; transform: scale(.65); }
-                            18% { opacity: 1; transform: scale(1); }
-                            100% { opacity: 0; transform: scale(1.9); }
+                            0% { opacity: 0; transform: translate(-50%, -50%) scale(.72); }
+                            10% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+                            70% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }
+                            100% { opacity: 0; transform: translate(-50%, -50%) scale(1.28); }
                         }
                     `;
                     document.head.appendChild(style);
                 }
 
+                const rawKind = String(kind || "pointer");
+                const label = `${rawKind.replace(/[-_]/g, " ").toUpperCase()} (${Math.round(x)}, ${Math.round(y)})`;
                 const marker = document.createElement("div");
                 marker.className = "tiny-browser-agent-pointer-highlight";
-                marker.dataset.kind = kind || "pointer";
-                marker.style.left = `${Math.round(x) - 16}px`;
-                marker.style.top = `${Math.round(y) - 16}px`;
+                marker.dataset.kind = rawKind;
+                marker.dataset.label = label;
+                marker.style.left = `${Math.round(x)}px`;
+                marker.style.top = `${Math.round(y)}px`;
                 document.documentElement.appendChild(marker);
-                setTimeout(() => marker.remove(), 950);
+                setTimeout(() => marker.remove(), 2250);
             }
             """,
             {"x": int(x), "y": int(y), "kind": kind},
         )
-        time.sleep(0.12)
+        time.sleep(MOUSE_HIGHLIGHT_CAPTURE_DELAY_SECONDS)
 
     def highlight_locator(self, locator: Any, *, kind: str = "click") -> None:
         """Highlight the center of a resolved locator when mouse highlighting is enabled."""
@@ -791,7 +896,10 @@ class PlaywrightBrowser:
         )
 
     def _start_frame_stream(self) -> None:
-        self._recording.start_frame_stream(fps=FRAME_CAPTURE_FPS)
+        try:
+            self._recording.start_frame_stream(fps=FRAME_CAPTURE_FPS)
+        except Exception as exc:
+            termcolor.cprint(f"Frame stream startup failed: {exc}", color="yellow")
 
     def _stop_frame_stream(self) -> None:
         self._recording.stop_frame_stream()
@@ -858,7 +966,14 @@ class PlaywrightBrowser:
 
         for index, target in enumerate(targets, start=1):
             target_url = getattr(target, "url", self._page.url)
-            raw_yaml = target.locator("html > body").aria_snapshot()
+            try:
+                raw_yaml = target.locator("html > body").aria_snapshot()
+            except Exception as exc:
+                if multi_frame:
+                    combined_lines.append(f"Frame {index}: {target_url}")
+                    combined_lines.append(f"  [ARIA snapshot failed: {exc}]")
+                    continue
+                raise
             snapshot = build_aria_snapshot(raw_yaml, target_url, ref_offset=ref_offset)
             if multi_frame:
                 combined_lines.append(f"Frame {index}: {target_url}")

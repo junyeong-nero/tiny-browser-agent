@@ -37,7 +37,11 @@ class TestPlaywrightLogging(unittest.TestCase):
         computer._page.evaluate.assert_called_once()
         script, payload = computer._page.evaluate.call_args.args
         self.assertIn("tiny-browser-agent-pointer-highlight", script)
+        self.assertIn("data-label", script)
+        self.assertIn("9999px rgba(0, 0, 0, .10)", script)
+        self.assertIn("2200ms ease-out", script)
         self.assertEqual(payload, {"x": 10, "y": 20, "kind": "click"})
+        _mock_sleep.assert_called_once_with(0.28)
 
     def test_highlight_mouse_is_noop_when_disabled(self):
         computer = PlaywrightBrowser(screen_size=(1440, 900), highlight_mouse=False)
@@ -699,8 +703,12 @@ class TestPlaywrightLogging(unittest.TestCase):
 
             self.assertEqual(captured_cmd["cmd"][captured_cmd["cmd"].index("-framerate") + 1], "0.500")
             filter_complex = captured_cmd["cmd"][captured_cmd["cmd"].index("-filter_complex") + 1]
-            self.assertIn("palettegen=max_colors=256:stats_mode=diff:reserve_transparent=0", filter_complex)
-            self.assertIn("paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle", filter_complex)
+            self.assertIn("scale=w='min(iw\\,1920)':h='min(ih\\,1080)'", filter_complex)
+            self.assertIn("force_original_aspect_ratio=decrease", filter_complex)
+            self.assertIn("force_divisible_by=2", filter_complex)
+            self.assertNotIn("scale=640", filter_complex)
+            self.assertIn("palettegen=max_colors=256:stats_mode=full:reserve_transparent=0", filter_complex)
+            self.assertIn("paletteuse=dither=sierra2_4a", filter_complex)
 
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             self.assertEqual(metadata["action_clip_gif_path"], "step-0001-action.gif")
