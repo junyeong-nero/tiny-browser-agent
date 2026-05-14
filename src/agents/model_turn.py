@@ -73,8 +73,4 @@ def is_malformed_function_call_turn(
     reasoning: Optional[str],
     function_calls: list[types.FunctionCall],
 ) -> bool:
-    return (
-        not function_calls
-        and not reasoning
-        and candidate.finish_reason == FinishReason.MALFORMED_FUNCTION_CALL
-    )
+    return not function_calls and candidate.finish_reason == FinishReason.MALFORMED_FUNCTION_CALL

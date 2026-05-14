@@ -20,7 +20,7 @@ from typing import cast
 from unittest.mock import MagicMock, patch
 from google.genai import types
 import config as app_config
-from agents.actor_agent import BrowserAgent
+from agents.actor_agent import AgentInterrupted, BrowserAgent
 from agents.post_summary_agent import ActionMetadataWriter, ActionReviewService
 from agents.types import Subgoal
 from browser import EnvState
@@ -528,7 +528,8 @@ class TestBrowserAgent(unittest.TestCase):
 
         self.assertEqual(result, "CONTINUE")
         self.assertEqual(len(agent._contents), 2)
-        self.assertEqual(agent._contents[1].parts, [])
+        self.assertEqual(agent._contents[1].role, "user")
+        self.assertIn("malformed function call", agent._contents[1].parts[0].text)
         self.assertEqual(
             [event["type"] for event in events],
             [
@@ -538,9 +539,57 @@ class TestBrowserAgent(unittest.TestCase):
                 "reasoning_extracted",
                 "function_calls_extracted",
                 "step_error",
+                "step_complete",
             ],
         )
-        self.assertEqual(events[-1]["error_message"], "Malformed function call.")
+        self.assertEqual(events[-2]["error_message"], "Malformed function call.")
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_retries_malformed_function_call_with_reasoning(
+        self,
+        mock_get_model_response,
+    ):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [types.Part(text="I will call a tool but malformed it.")],
+            finish_reason=types.FinishReason.MALFORMED_FUNCTION_CALL,
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        self.assertEqual(agent._contents[-1].role, "user")
+        self.assertIn("malformed function call", agent._contents[-1].parts[0].text)
+        self.assertEqual(events[-1]["status"], "retry")
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_retries_thought_only_turn(self, mock_get_model_response):
+        events = []
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="test query",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            event_sink=events.append,
+            step_summarizer=None,
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [types.Part(text="internal reasoning only", thought=True)]
+        )
+
+        result = agent.run_one_iteration()
+
+        self.assertEqual(result, "CONTINUE")
+        self.assertIn("visible final answer", agent._contents[-1].parts[0].text)
+        self.assertEqual(events[-1]["status"], "retry")
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_with_function_call(self, mock_get_model_response):
@@ -557,8 +606,19 @@ class TestBrowserAgent(unittest.TestCase):
         result = self.agent.run_one_iteration()
 
         self.assertEqual(result, "CONTINUE")
+
+    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    def test_run_one_iteration_propagates_agent_interrupted_from_tool(self, mock_get_model_response):
+        function_call = types.FunctionCall(name="navigate", args={"url": "https://example.com"})
+        mock_get_model_response.return_value = self.make_response(
+            [types.Part(function_call=function_call)]
+        )
+        self.mock_browser_computer.navigate.side_effect = AgentInterrupted("stopped")
+
+        with self.assertRaises(AgentInterrupted):
+            self.agent.run_one_iteration()
         self.mock_browser_computer.navigate.assert_called_once_with("https://example.com")
-        self.assertEqual(len(self.agent._contents), 3)
+        self.assertEqual(len(self.agent._contents), 2)
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_retries_unsupported_function_call(
@@ -1225,6 +1285,10 @@ class TestBrowserAgent(unittest.TestCase):
         )
         self.assertEqual(
             events[-1]["final_reasoning"],
+            "Terminated after safety confirmation rejection.",
+        )
+        self.assertEqual(
+            agent.final_reasoning,
             "Terminated after safety confirmation rejection.",
         )
 

@@ -43,7 +43,7 @@ from agents.safety import (
 )
 from agents import subgoals as subgoal_helpers
 from agents import tool_orchestration
-from agents.types import AgentRunResult, GroundingMode, Subgoal
+from agents.types import AgentRunResult, AgentRunStatus, GroundingMode, Subgoal
 from browser import (
     ArtifactLogger,
     BrowserActionName,
@@ -523,9 +523,22 @@ class BrowserAgent:
             reasoning=reasoning,
             function_calls=function_calls,
         ):
+            if self._contents and self._contents[-1].role == "model":
+                self._contents.pop()
             self._emit_event(
                 "step_error",
                 step_id=step_id,
+                error_message="Malformed function call.",
+            )
+            self.append_user_message(
+                "Your previous response contained a malformed function call. "
+                "Retry the previous step with valid tool-call JSON, or finish "
+                "with a concise visible final answer."
+            )
+            self._emit_event(
+                "step_complete",
+                step_id=step_id,
+                status="retry",
                 error_message="Malformed function call.",
             )
             return True
@@ -592,7 +605,7 @@ class BrowserAgent:
         visible_text: Optional[str],
         function_calls: list[types.FunctionCall],
     ) -> bool:
-        if reasoning or visible_text or function_calls:
+        if visible_text or function_calls:
             self._empty_model_turn_retries = 0
             return False
 
@@ -605,7 +618,7 @@ class BrowserAgent:
 
         self._empty_model_turn_retries += 1
         error_message = (
-            "Model returned no text and no tool calls. "
+            "Model returned no visible text and no tool calls. "
             f"Retrying empty turn ({self._empty_model_turn_retries}/"
             f"{EMPTY_MODEL_TURN_MAX_RETRIES})."
         )
@@ -630,8 +643,8 @@ class BrowserAgent:
 
         self.append_user_message(
             "Your previous response was empty: it contained neither a browser "
-            "tool call nor a final answer. Continue the task by calling an "
-            "appropriate browser tool, or finish with a concise final answer."
+            "tool call nor a visible final answer. Continue the task by calling "
+            "an appropriate browser tool, or finish with a concise visible final answer."
         )
         self._emit_event(
             "step_complete",
@@ -767,6 +780,8 @@ class BrowserAgent:
                         executed_call = self._tool_executor.execute_call(function_call)
                 else:
                     executed_call = self._tool_executor.execute_call(function_call)
+            except AgentInterrupted:
+                raise
             except Exception as exc:  # noqa: BLE001
                 error_message = tool_orchestration.build_tool_execution_error_message(function_call, exc)
                 self._emit_event(
@@ -853,11 +868,12 @@ class BrowserAgent:
                 decision = self._get_safety_confirmation(safety)
                 if decision == "TERMINATE":
                     print("Terminating agent loop")
+                    self.final_reasoning = "Terminated after safety confirmation rejection."
                     self._emit_event(
                         "step_complete",
                         step_id=step_id,
                         status="complete",
-                        final_reasoning="Terminated after safety confirmation rejection.",
+                        final_reasoning=self.final_reasoning,
                     )
                     return ToolBatchResult(status="COMPLETE", function_responses=[])
                 extra_fr_fields["safety_acknowledgement"] = "true"
@@ -1010,7 +1026,7 @@ class BrowserAgent:
         self,
         outcomes: list[tuple[Subgoal, Literal["done", "failed"], str]],
         *,
-        status: str | None = None,
+        status: AgentRunStatus | None = None,
         reason: str | None = None,
     ) -> AgentRunResult:
         if not outcomes:
@@ -1021,7 +1037,7 @@ class BrowserAgent:
         raw_summary = subgoal_helpers.build_subgoal_plan_summary(outcomes)
         succeeded = sum(1 for _, result, _ in outcomes if result == "done")
         failed = sum(1 for _, result, _ in outcomes if result == "failed")
-        final_status = status or ("complete" if failed == 0 else "partial_failure")
+        final_status: AgentRunStatus = status or ("complete" if failed == 0 else "partial_failure")
         final_result_summary = self._review_service.build_final_result_summary(
             final_response=raw_summary,
             current_url=self._latest_url,
