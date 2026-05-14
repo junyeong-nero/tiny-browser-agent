@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .artifact_logger import ArtifactLogger
+from .gif import build_high_quality_gif_filter
 
 
 class BrowserRecordingHelper:
@@ -100,6 +101,10 @@ class BrowserRecordingHelper:
                 self._ffmpeg_proc.wait(timeout=30)
             except Exception:
                 self._ffmpeg_proc.kill()
+                try:
+                    self._ffmpeg_proc.wait(timeout=5)
+                except Exception:
+                    pass
             self._ffmpeg_proc = None
 
     def _frame_pipe_loop(self, fps: int) -> None:
@@ -254,11 +259,7 @@ class BrowserRecordingHelper:
             "-i",
             "pipe:0",
             "-filter_complex",
-            (
-                "[0:v]scale=640:-1:flags=lanczos,split[p0][p1];"
-                "[p0]palettegen=max_colors=256:stats_mode=diff:reserve_transparent=0[p];"
-                "[p1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
-            ),
+            build_high_quality_gif_filter("[0:v]"),
             str(output_path),
         ]
         try:

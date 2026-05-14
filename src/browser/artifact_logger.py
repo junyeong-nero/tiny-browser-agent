@@ -6,6 +6,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .gif import build_high_quality_gif_filter
+
 
 class ArtifactLogger:
     def __init__(
@@ -79,12 +81,7 @@ class ArtifactLogger:
             "-i",
             str(after_path),
             "-filter_complex",
-            (
-                "[0:v][1:v]concat=n=2:v=1:a=0,"
-                "fps=2,scale=640:-1:flags=lanczos,split[p0][p1];"
-                "[p0]palettegen=max_colors=256:stats_mode=diff:reserve_transparent=0[p];"
-                "[p1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
-            ),
+            build_high_quality_gif_filter("[0:v][1:v]concat=n=2:v=1:a=0,fps=2"),
             str(gif_path),
         ]
         try:
@@ -137,7 +134,7 @@ class ArtifactLogger:
             "result_summary": result_summary,
         }
         with self._actions_file.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
 
     def write_snapshot(
         self,

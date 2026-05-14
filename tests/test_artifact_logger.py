@@ -111,6 +111,10 @@ def test_write_snapshot_creates_action_gif_when_previous_screenshot_exists(tmp_p
     assert second["after_screenshot_path"] == "step-0002.png"
     assert second["action_gif_path"] == "step-0002.gif"
     filter_complex = captured_cmd["cmd"][captured_cmd["cmd"].index("-filter_complex") + 1]
-    assert "palettegen=max_colors=256:stats_mode=diff:reserve_transparent=0" in filter_complex
-    assert "paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" in filter_complex
+    assert "scale=w='min(iw\\,1920)':h='min(ih\\,1080)'" in filter_complex
+    assert "force_original_aspect_ratio=decrease" in filter_complex
+    assert "force_divisible_by=2" in filter_complex
+    assert "scale=640" not in filter_complex
+    assert "palettegen=max_colors=256:stats_mode=full:reserve_transparent=0" in filter_complex
+    assert "paletteuse=dither=sierra2_4a" in filter_complex
     assert (tmp_path / "history" / "step-0002.gif").read_bytes() == b"GIF89a"
