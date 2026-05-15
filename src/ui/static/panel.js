@@ -720,7 +720,7 @@ function activateMainView(view, options = {}) {
   setMainView(view);
   if (view === 'graph') {
     resizeGraph();
-    updateGraph();
+    updateGraph({ force: true });
   } else if (view === 'timeline' && scrollSelection) {
     scrollHighlightedTimelineStep();
   }

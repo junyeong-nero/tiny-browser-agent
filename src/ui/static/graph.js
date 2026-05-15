@@ -6,6 +6,7 @@ let trajectoryCurrentKey = null;
 let trajectoryCurrentViewportId = null;
 let trajectoryCurrentActionId = null;
 let activeGraphStepId = null;
+let graphRenderDirty = false;
 
 // ── Hierarchical graph state ────────────────────────────
 // URL → viewport → action. Each level preserves chronological DAG edges;
@@ -37,12 +38,20 @@ function resetTrajectoryGraphState() {
   activeGraphStepId = null;
 }
 
-function rememberGraphDrillAnchor(d) {
+function rememberGraphDrillAnchor(d, nextDrilldown) {
   if (!d || !Number.isFinite(d.x) || !Number.isFinite(d.y)) {
     graphDrillAnchor = null;
     return;
   }
-  graphDrillAnchor = { id: d.id, x: d.x, y: d.y };
+  graphDrillAnchor = {
+    id: d.id,
+    type: d.type || null,
+    label: d.label || d.host || d.actionName || d.id,
+    x: d.x,
+    y: d.y,
+    fromLevel: graphDrilldown.level,
+    toLevel: nextDrilldown && nextDrilldown.level,
+  };
 }
 
 function clearGraphDrillAnchor() {
@@ -428,7 +437,7 @@ function recordActionExecution(ev) {
   actionNode.llmInference = llmInferenceForStep(ev.step_id) || actionNode.llmInference;
   viewportNode.actionSequence.push(actionId);
   trajectoryCurrentActionId = actionId;
-  updateGraph();
+  scheduleGraphUpdate();
 }
 
 function buildSequentialLinks(sequence, allowedIds, rootId = null, allowSelfLoops = false) {
@@ -674,7 +683,7 @@ function drillGraphNode(d) {
     nextDrilldown = { level: 'action', urlId: d.urlId, viewportId: d.id };
   }
   if (!nextDrilldown) return;
-  rememberGraphDrillAnchor(d);
+  rememberGraphDrillAnchor(d, nextDrilldown);
   graphDrilldown = nextDrilldown;
   selectedNodeId = null;
   selectedNodeData = null;
@@ -711,6 +720,7 @@ function selectGraphActionForStep(stepId) {
     clearGraphSelection();
     return false;
   }
+  clearGraphDrillAnchor();
   graphDrilldown = { level: 'action', urlId: actionNode.urlId, viewportId: actionNode.viewportId };
   selectedNodeId = actionNode.id;
   selectedNodeData = actionNode;
@@ -902,12 +912,15 @@ const graph = (() => {
   function targetX(d) {
     if (d && d.isRoot && d._rootPin) return d._rootPin.x;
     if (d && d.isRoot) return rootPosition().x;
+    if (d && Number.isFinite(d._targetX)) return d._targetX;
     return 0;
   }
 
   function targetY(d) {
     if (d && d.isRoot && d._rootPin) return d._rootPin.y;
-    return d && d.isRoot ? rootPosition().y : 90;
+    if (d && d.isRoot) return rootPosition().y;
+    if (d && Number.isFinite(d._targetY)) return d._targetY;
+    return 90;
   }
 
   function normalizeGraphNode(src) {
@@ -922,6 +935,7 @@ const graph = (() => {
   function drillAnchorForNode(node) {
     if (graphMode === 'url' || !graphDrillAnchor || !node) return null;
     if (graphDrillAnchor.id !== node.id) return null;
+    if (graphDrillAnchor.toLevel !== graphMode) return null;
     if (!Number.isFinite(graphDrillAnchor.x) || !Number.isFinite(graphDrillAnchor.y)) return null;
     return { x: graphDrillAnchor.x, y: graphDrillAnchor.y };
   }
@@ -942,13 +956,23 @@ const graph = (() => {
     childNodes.forEach((node, index) => {
       node.fx = null;
       node.fy = null;
-      if (previousById.has(node.id) && Number.isFinite(node.x) && Number.isFinite(node.y)) return;
       const parent = parentRoot || rootsById.get(node.urlId);
       const baseX = parent ? parent.fx : -80;
       const baseY = parent ? parent.fy : 0;
-      const offsetX = (index - (childNodes.length - 1) / 2) * 42;
-      node.x = baseX + offsetX;
-      node.y = baseY + 150;
+      const columns = graphMode === 'action' ? 4 : 3;
+      const col = index % columns;
+      const row = Math.floor(index / columns);
+      const rowCount = Math.max(1, Math.ceil(childNodes.length / columns));
+      const visibleColumns = Math.min(columns, childNodes.length);
+      const spacingX = graphMode === 'action' ? 88 : 118;
+      const spacingY = graphMode === 'action' ? 68 : 86;
+      const targetXPos = baseX + (col - (visibleColumns - 1) / 2) * spacingX;
+      const targetYPos = baseY + 126 + (row - (rowCount - 1) / 2) * spacingY;
+      node._targetX = targetXPos;
+      node._targetY = targetYPos;
+      if (previousById.has(node.id) && Number.isFinite(node.x) && Number.isFinite(node.y)) return;
+      node.x = targetXPos;
+      node.y = targetYPos;
     });
   }
 
@@ -997,6 +1021,11 @@ const graph = (() => {
     return Number.isFinite(d.visits) ? d.visits : 0;
   }
 
+  function graphNodeRadius(d) {
+    const base = d && d.type === 'url' ? 11 : (d && d.type === 'viewport' ? 9 : 7);
+    return base + Math.min(7, Math.log2(((d && d.visits) || 1) + 1) * 1.8);
+  }
+
   function graphNodeFill(d, maxWorkCount) {
     const count = graphNodeWorkCount(d);
     if (!count || !maxWorkCount) return d3.interpolateViridis(0.12);
@@ -1011,8 +1040,9 @@ const graph = (() => {
       legendEl.classList.add('hidden');
       return;
     }
+    const roundedMaxWorkCount = Math.round(Number(maxWorkCount) || 0);
     const maxLabel = legendEl.querySelector('[data-legend-max]');
-    if (maxLabel) maxLabel.textContent = `max ${maxWorkCount} steps`;
+    if (maxLabel) maxLabel.textContent = `${roundedMaxWorkCount}`;
     legendEl.classList.remove('hidden');
   }
 
@@ -1035,15 +1065,22 @@ const graph = (() => {
       });
   }
 
+  function layerName(level) {
+    if (level === 'action') return 'Action layer';
+    if (level === 'viewport') return 'Viewport layer';
+    return 'URL layer';
+  }
+
   function renderBreadcrumb(payload) {
     const crumbs = (payload && payload.breadcrumb) || [];
     const parts = [];
     crumbs.forEach((crumb, idx) => {
-      parts.push(`<button type="button" data-idx="${idx}">${escHtml(crumb.label)}</button>`);
-      parts.push('<span class="sep">/</span>');
+      parts.push(`<button type="button" data-idx="${idx}">${escHtml(layerName(crumb.level))}</button>`);
+      parts.push('<span class="sep">›</span>');
     });
-    const current = payload.mode === 'url' ? 'URLs' : (payload.mode === 'viewport' ? 'viewports' : 'actions');
-    parts.push(`<span>${escHtml(current)}</span>`);
+    const parentLabel = payload && payload.nodes && payload.nodes.find(n => n.isRoot && payload.mode !== 'url');
+    parts.push(`<span class="current-layer">${escHtml(layerName(payload.mode))}</span>`);
+    if (parentLabel) parts.push(`<span class="parent-label">inside ${escHtml(parentLabel.label || parentLabel.id)}</span>`);
     breadcrumbEl.innerHTML = parts.join('');
     breadcrumbEl.querySelectorAll('button').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1068,13 +1105,22 @@ const graph = (() => {
     if (nodeCountEl) nodeCountEl.textContent = String((payload.nodes || []).length);
     if (edgeCountEl) edgeCountEl.textContent = String((payload.links || []).length);
 
+    const previousNodeIds = new Set(nodesData.map(n => n.id));
+    const previousLinkKeys = new Set(linksData.map(e => `${edgeEndpointId(e.source)}|${edgeEndpointId(e.target)}`));
+    const incomingNodes = payload.nodes || [];
+    const incomingLinks = payload.links || [];
+    const structureChanged = incomingNodes.length !== nodesData.length ||
+      incomingLinks.length !== linksData.length ||
+      incomingNodes.some(n => !previousNodeIds.has(n.id)) ||
+      incomingLinks.some(e => !previousLinkKeys.has(`${edgeEndpointId(e.source)}|${edgeEndpointId(e.target)}`));
+
     const prevById = new Map(nodesData.map(n => [n.id, n]));
-    nodesData = (payload.nodes || []).map(src => {
+    nodesData = incomingNodes.map(src => {
       const prev = prevById.get(src.id);
       return Object.assign(prev || {}, normalizeGraphNode(src));
     });
     arrangeGraphNodes(nodesData, prevById);
-    linksData = (payload.links || []).map(e => ({ ...e }));
+    linksData = incomingLinks.map(e => ({ ...e }));
     const maxWorkCount = Math.max(1, ...nodesData.map(graphNodeWorkCount));
     updateGraphLegend(maxWorkCount, nodesData.length > 0);
 
@@ -1100,7 +1146,7 @@ const graph = (() => {
       .on('mousemove', moveTooltip)
       .on('mouseleave', hideTooltip);
     enter.append('circle').attr('r', 8);
-    enter.append('text').attr('dx', 12).attr('dy', 4);
+    enter.append('text').attr('class', 'graph-node-label').attr('dx', 12).attr('dy', 4);
     nodeSel = enter.merge(nodeSel);
     nodeSel
       .classed('root', d => d.isRoot)
@@ -1112,25 +1158,30 @@ const graph = (() => {
       .classed('running', d => isRunningGraphNode(d))
       .classed('selected', d => d.id === selectedNodeId)
       .style('--graph-node-fill', d => graphNodeFill(d, maxWorkCount));
-    nodeSel.select('circle').attr('r', d => 6 + Math.min(8, Math.log2((d.visits || 1) + 1) * 2));
-    nodeSel.select('text').text(displayGraphNodeLabel);
+    nodeSel.select('circle').attr('r', d => graphNodeRadius(d));
+    nodeSel.select('text.graph-node-label').text(displayGraphNodeLabel);
 
     simulation.nodes(nodesData);
     simulation.force('link').links(linksData);
     simulation.force('x').x(d => targetX(d));
     simulation.force('y').y(d => targetY(d));
-    simulation.alpha(0.6).restart();
+    if (structureChanged) {
+      simulation.alpha(Math.max(simulation.alpha(), 0.28)).restart();
+    } else {
+      simulation.alpha(Math.max(simulation.alpha(), 0.06)).restart();
+    }
   }
 
 
   function reset() {
     nodesData = [];
     linksData = [];
+    graphRenderDirty = false;
     linkG.selectAll('*').remove();
     nodeG.selectAll('*').remove();
     hideTooltip();
     updateGraphLegend(1, false);
-    breadcrumbEl.innerHTML = '<span>URLs</span>';
+    breadcrumbEl.innerHTML = '<span>URL layer</span>';
     emptyEl.style.display = 'flex';
     emptyEl.textContent = 'no navigation yet.';
     simulation.nodes([]);
@@ -1150,8 +1201,24 @@ const graph = (() => {
   return { update, reset, resize, refreshSelection, refreshRunning };
 })();
 
-function updateGraph() { graph.update(selectedGraphData()); }
-function resetGraph()  { resetTrajectoryGraphState(); clearGraphSelection(); graph.reset(); }
+function isGraphViewActive() {
+  return document.body.classList.contains('view-graph');
+}
+
+function updateGraph({ force = false } = {}) {
+  if (!force && !isGraphViewActive()) {
+    graphRenderDirty = true;
+    return;
+  }
+  graphRenderDirty = false;
+  graph.update(selectedGraphData());
+}
+
+function scheduleGraphUpdate() {
+  updateGraph();
+}
+
+function resetGraph()  { resetTrajectoryGraphState(); clearGraphSelection(); graphRenderDirty = false; graph.reset(); }
 function resizeGraph() { graph.resize(); }
 
 window.updateGraph = updateGraph;
