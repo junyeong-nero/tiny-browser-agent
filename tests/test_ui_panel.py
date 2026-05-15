@@ -103,7 +103,7 @@ def test_panel_graph_tab_shows_only_trajectory_graph():
     assert "return buildTrajectoryGraphData();" in PANEL_HTML
 
 
-def test_panel_graph_has_view_controls_and_horizontal_bottom_legend():
+def test_panel_graph_has_view_controls_and_vertical_top_right_legend():
     assert 'id="graph-controls" class="graph-controls"' in PANEL_HTML
     assert 'id="graph-fit" class="icon-only" type="button" aria-label="Show all graph nodes"' in PANEL_HTML
     assert 'id="graph-zoom-in" class="icon-only" type="button" aria-label="Zoom graph in"' in PANEL_HTML
@@ -114,17 +114,35 @@ def test_panel_graph_has_view_controls_and_horizontal_bottom_legend():
     assert "zoomBehavior.transform" in PANEL_HTML
 
     legend_css = PANEL_HTML.split(".graph-legend {", 1)[1].split(".graph-legend.hidden", 1)[0]
-    assert "bottom: 14px;" in legend_css
+    assert "top: 64px;" in legend_css
     assert "right: 14px;" in legend_css
     assert "display: flex;" in legend_css
-    assert "align-items: center;" in legend_css
-    assert "top: 14px;" not in legend_css
+    assert "flex-direction: column;" in legend_css
+    assert "align-items: stretch;" in legend_css
+    assert "border-radius: 18px;" in legend_css
+    assert "overflow: hidden;" in legend_css
+    assert "bottom: 14px;" not in legend_css
+    assert '<div class="legend-title">max steps</div>' in PANEL_HTML
+    legend_title_css = PANEL_HTML.split(".graph-legend .legend-title {", 1)[1].split(
+        ".graph-legend .legend-scale", 1
+    )[0]
+    assert "background:" not in legend_title_css
+    assert "font-weight: 800;" in legend_title_css
 
     legend_bar_css = PANEL_HTML.split(".graph-legend .legend-bar {", 1)[1].split(
         ".graph-legend .legend-labels", 1
     )[0]
-    assert "height: 10px;" in legend_bar_css
-    assert "linear-gradient(90deg" in legend_bar_css
+    assert "width: 10px;" in legend_bar_css
+    assert "height: 112px;" in legend_bar_css
+    assert "border-radius: 999px;" in legend_bar_css
+    assert "clip-path: inset(0 round 999px);" in legend_bar_css
+    assert "overflow: hidden;" in legend_bar_css
+    assert "linear-gradient(0deg" in legend_bar_css
+
+    legend_label_css = PANEL_HTML.split(".graph-legend .legend-labels {", 1)[1].split(
+        ".graph-tooltip.hidden", 1
+    )[0]
+    assert "flex-direction: column-reverse;" in legend_label_css
 
 
 def test_panel_uses_action_artifacts_for_hierarchical_graph():
@@ -199,7 +217,7 @@ def test_panel_graph_truncates_rendered_node_labels_without_changing_data_labels
     assert "function compactGraphNodeLabel(label, maxChars = GRAPH_NODE_LABEL_MAX_CHARS)" in PANEL_HTML
     assert "function displayGraphNodeLabel(d)" in PANEL_HTML
     assert "return text.length <= maxChars ? text : text.slice(0, maxChars - 1) + '…';" in PANEL_HTML
-    assert "nodeSel.select('text').text(displayGraphNodeLabel);" in PANEL_HTML
+    assert "nodeSel.select('text.graph-node-label').text(displayGraphNodeLabel);" in PANEL_HTML
 
     graph_renderer = PANEL_HTML.split("function update(payload)", 1)[1].split(
         "function reset()", 1
@@ -512,7 +530,7 @@ def test_panel_plan_items_jump_to_subgoal_start_rows():
 
 def test_panel_graph_pins_root_nodes_and_seeds_children_from_parent():
     graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
-        "function updateGraph()", 1
+        "function isGraphViewActive()", 1
     )[0]
 
     assert "function rootPosition(" in graph_renderer
@@ -521,9 +539,11 @@ def test_panel_graph_pins_root_nodes_and_seeds_children_from_parent():
     assert "y: graphMode === 'url' ? -180 : -220," in graph_renderer
     assert "node.fx = pinned.x;" in graph_renderer
     assert "node.fy = pinned.y;" in graph_renderer
-    assert "node.x = baseX + offsetX;" in graph_renderer
-    assert "node.y = baseY + 150;" in graph_renderer
-    assert "return d && d.isRoot ? rootPosition().y : 90;" in graph_renderer
+    assert "const targetXPos = baseX + (col - (visibleColumns - 1) / 2) * spacingX;" in graph_renderer
+    assert "const targetYPos = baseY + 126 + (row - (rowCount - 1) / 2) * spacingY;" in graph_renderer
+    assert "node._targetX = targetXPos;" in graph_renderer
+    assert "node._targetY = targetYPos;" in graph_renderer
+    assert "if (d && Number.isFinite(d._targetY)) return d._targetY;" in graph_renderer
     assert "simulation.force('x').x(d => targetX(d));" in graph_renderer
     assert "simulation.force('y').y(d => targetY(d));" in graph_renderer
     assert "if (d.isRoot) {" in graph_renderer
@@ -534,22 +554,103 @@ def test_panel_graph_drilldown_keeps_double_clicked_node_position_as_child_root(
         "let selectedNodeId", 1
     )[0]
     graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
-        "function updateGraph()", 1
+        "function isGraphViewActive()", 1
     )[0]
 
     assert "let graphDrillAnchor = null;" in PANEL_HTML
-    assert "function rememberGraphDrillAnchor(d)" in PANEL_HTML
-    assert "rememberGraphDrillAnchor(d);" in drill_fn
+    assert "function rememberGraphDrillAnchor(d, nextDrilldown)" in PANEL_HTML
+    assert "rememberGraphDrillAnchor(d, nextDrilldown);" in drill_fn
+    assert "fromLevel: graphDrilldown.level," in PANEL_HTML
+    assert "toLevel: nextDrilldown && nextDrilldown.level," in PANEL_HTML
     assert "function drillAnchorForNode(node)" in graph_renderer
     assert "if (graphMode === 'url' || !graphDrillAnchor || !node) return null;" in graph_renderer
     assert "if (graphDrillAnchor.id !== node.id) return null;" in graph_renderer
+    assert "if (graphDrillAnchor.toLevel !== graphMode) return null;" in graph_renderer
     assert "return { x: graphDrillAnchor.x, y: graphDrillAnchor.y };" in graph_renderer
     assert "const pinned = drillAnchorForNode(node) || rootPosition(index, rootNodes.length);" in graph_renderer
 
 
+
+
+def test_panel_graph_drilldown_omits_context_frame_and_arrow_affordance():
+    graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
+        "function isGraphViewActive()", 1
+    )[0]
+
+    assert "context-frames" not in graph_renderer
+    assert "graph-context-frame" not in PANEL_HTML
+    assert "function contextFrameData()" not in graph_renderer
+    assert "function updateContextFrameBounds()" not in graph_renderer
+    assert "graph-drill-affordance" not in PANEL_HTML
+    assert "↘" not in graph_renderer
+    assert ".graph-node.drillable circle" in PANEL_HTML
+
+
+def test_panel_graph_breadcrumb_uses_layer_stack_and_clears_context_on_return():
+    breadcrumb_renderer = PANEL_HTML.split("function renderBreadcrumb(payload)", 1)[1].split(
+        "function update(payload)", 1
+    )[0]
+    selector = PANEL_HTML.split("function selectGraphActionForStep(stepId)", 1)[1].split(
+        "function updateGraphSelectionClass", 1
+    )[0]
+
+    assert "function layerName(level)" in PANEL_HTML
+    assert "return 'URL layer';" in PANEL_HTML
+    assert "return 'Viewport layer';" in PANEL_HTML
+    assert "return 'Action layer';" in PANEL_HTML
+    assert '<span class="sep">›</span>' in breadcrumb_renderer
+    assert '<span class="current-layer">' in breadcrumb_renderer
+    assert '<span class="parent-label">inside' in breadcrumb_renderer
+    assert "setGraphDrilldown({ level: 'url', urlId: null, viewportId: null });" in breadcrumb_renderer
+    assert "setGraphDrilldown({ level: 'viewport', urlId: crumb.urlId, viewportId: null });" in breadcrumb_renderer
+    assert "function setGraphDrilldown(next)" in PANEL_HTML
+    assert "clearGraphDrillAnchor();" in PANEL_HTML.split("function setGraphDrilldown(next)", 1)[1].split("// ── d3 graph renderer", 1)[0]
+    assert "clearGraphDrillAnchor();" in selector
+    assert "breadcrumbEl.innerHTML = '<span>URL layer</span>';" in PANEL_HTML
+
+
+
+def test_panel_graph_updates_are_deferred_when_graph_tab_is_hidden():
+    action_recorder = PANEL_HTML.split("function recordActionExecution(ev)", 1)[1].split(
+        "function buildSequentialLinks", 1
+    )[0]
+    update_fn = PANEL_HTML.split("function updateGraph({ force = false } = {})", 1)[1].split(
+        "function scheduleGraphUpdate()", 1
+    )[0]
+    activate_view = PANEL_HTML.split("function activateMainView(view, options = {})", 1)[1].split(
+        "(function setupTabs()", 1
+    )[0]
+
+    assert "let graphRenderDirty = false;" in PANEL_HTML
+    assert "scheduleGraphUpdate();" in action_recorder
+    assert "function isGraphViewActive()" in PANEL_HTML
+    assert "document.body.classList.contains('view-graph')" in PANEL_HTML
+    assert "if (!force && !isGraphViewActive())" in update_fn
+    assert "graphRenderDirty = true;" in update_fn
+    assert "graph.update(selectedGraphData());" in update_fn
+    assert "updateGraph({ force: true });" in activate_view
+
+
+def test_panel_graph_performance_avoids_full_force_on_every_update():
+    graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
+        "function isGraphViewActive()", 1
+    )[0]
+    update_body = PANEL_HTML.split("function update(payload)", 1)[1].split(
+        "function reset()", 1
+    )[0]
+    node_circle_css = PANEL_HTML.split(".graph-node circle {", 1)[1].split("}", 1)[0]
+
+    assert "contextFrameTick" not in graph_renderer
+    assert "updateContextFrameBounds" not in graph_renderer
+    assert "const structureChanged =" in update_body
+    assert "simulation.alpha(Math.max(simulation.alpha(), 0.28)).restart();" in update_body
+    assert "simulation.alpha(Math.max(simulation.alpha(), 0.06)).restart();" in update_body
+    assert "simulation.alpha(0.6).restart();" not in PANEL_HTML
+    assert "filter: drop-shadow" not in node_circle_css
+
 def test_panel_graph_clears_stale_root_flag_when_reusing_nodes():
     graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
-        "function updateGraph()", 1
+        "function isGraphViewActive()", 1
     )[0]
 
     assert "function normalizeGraphNode(src)" in graph_renderer
@@ -980,10 +1081,10 @@ def test_panel_graph_base_nodes_hide_stroke_until_accented():
     assert "stroke: transparent;" in base_rule
     assert "stroke-width: 0;" in base_rule
     assert "stroke-width 0.16s ease" in base_rule
-    assert ".graph-node.root circle" not in PANEL_HTML
-    assert ".graph-node.url circle" not in PANEL_HTML
-    assert ".graph-node.viewport circle" not in PANEL_HTML
-    assert ".graph-node.action circle" not in PANEL_HTML
+    assert ".graph-node.root circle" in PANEL_HTML
+    assert ".graph-node.url circle" in PANEL_HTML
+    assert ".graph-node.viewport circle" in PANEL_HTML
+    assert ".graph-node.action circle" in PANEL_HTML
     for accent in (".graph-node.current circle", ".graph-node.running circle", ".graph-node.selected circle"):
         rule = PANEL_HTML.split(accent + " {", 1)[1].split("}", 1)[0]
         assert "stroke:" in rule
@@ -996,20 +1097,22 @@ def test_panel_graph_shows_work_color_legend():
     assert 'id="graph-legend"' in PANEL_HTML
     assert 'aria-label="Node color legend"' in PANEL_HTML
     assert "work count" not in PANEL_HTML
-    assert "legend-title" not in PANEL_HTML
+    assert '<div class="legend-title">max steps</div>' in PANEL_HTML
     assert "data-legend-max" in PANEL_HTML
-    assert "<span>few steps</span>" in PANEL_HTML
-    assert "<span data-legend-max>max 1 step</span>" in PANEL_HTML
+    assert "<span>few steps</span>" not in PANEL_HTML
+    assert "<span>0</span>" in PANEL_HTML
+    assert "<span data-legend-max>1</span>" in PANEL_HTML
     legend_css = PANEL_HTML.split(".graph-legend {", 1)[1].split(".graph-legend.hidden", 1)[0]
-    assert "bottom: 14px;" in legend_css
+    assert "top: 64px;" in legend_css
     assert "right: 14px;" in legend_css
-    assert "top: 14px;" not in legend_css
-    assert "background: linear-gradient(90deg, #482878 0%, #3e4989 25%, #26828e 50%, #35b779 75%, #fde725 100%);" in PANEL_HTML
+    assert "bottom: 14px;" not in legend_css
+    assert "background: linear-gradient(0deg, #482878 0%, #3e4989 25%, #26828e 50%, #35b779 75%, #fde725 100%);" in PANEL_HTML
     assert "flex-direction: row;" in PANEL_HTML
-    assert "flex-direction: column-reverse;" not in PANEL_HTML
+    assert "flex-direction: column-reverse;" in PANEL_HTML
     assert "const legendEl = document.getElementById('graph-legend');" in PANEL_HTML
     assert "function updateGraphLegend(maxWorkCount, hasNodes)" in PANEL_HTML
-    assert "maxLabel.textContent = `max ${maxWorkCount} steps`;" in PANEL_HTML
+    assert "const roundedMaxWorkCount = Math.round(Number(maxWorkCount) || 0);" in PANEL_HTML
+    assert "maxLabel.textContent = `${roundedMaxWorkCount}`;" in PANEL_HTML
     assert "updateGraphLegend(maxWorkCount, nodesData.length > 0);" in PANEL_HTML
     assert "updateGraphLegend(1, false);" in PANEL_HTML
 
