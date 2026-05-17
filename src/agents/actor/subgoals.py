@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from agents.types import Subgoal
+from core.types import Subgoal
 
 SubgoalOutcome = tuple[Subgoal, Literal["done", "failed"], str]
 
@@ -53,3 +53,4 @@ def build_subgoal_plan_summary(outcomes: list[SubgoalOutcome]) -> str:
             if result == "failed":
                 lines.append(f"- [{subgoal.id}] {reason}")
     return "\n".join(lines)
+

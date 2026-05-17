@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Literal
 
 from agents.actor import AgentInterrupted, BrowserAgent
-from agents.types import GroundingMode
 from browser import ArtifactLogger, PlaywrightBrowser
 import config as app_config
+from core.types import GroundingMode
 from task_events import (
     build_session_metadata,
     build_task_complete_event,

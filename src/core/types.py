@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -26,3 +28,4 @@ class AgentRunResult:
     @property
     def ok(self) -> bool:
         return self.status == "complete"
+

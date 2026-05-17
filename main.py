@@ -13,9 +13,9 @@ if str(SRC_DIR) not in sys.path:
 
 from agents.actor import BrowserAgent
 from agents.planner import PlannerAgent
-from agents.types import GroundingMode, Subgoal
 from browser import ArtifactLogger, PlaywrightBrowser
 import config as app_config
+from core.types import GroundingMode, Subgoal
 from task_events import (
     build_session_metadata,
     build_task_complete_event,

@@ -1,4 +1,4 @@
-"""Planner subgoal execution glue for BrowserAgent."""
+"""Subgoal execution glue for BrowserAgent."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 from google.genai.types import Content, Part
 
-from agents.types import AgentRunResult, Subgoal
+from core.types import AgentRunResult, Subgoal
 from . import subgoals as subgoal_helpers
 
 SubgoalOutcome = tuple[Subgoal, Literal["done", "failed"], str]
@@ -166,3 +166,4 @@ def run_subgoal_plan(agent: Any) -> AgentRunResult:
         index += 1
     status = "complete" if all(result == "done" for _, result, _ in outcomes) else "partial_failure"
     return agent._finalize_subgoal_plan(outcomes, status=status, reason=blocked_reason)
+

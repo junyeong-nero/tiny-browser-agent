@@ -1,8 +1,8 @@
-"""Planner package for subgoal planning and execution helpers."""
+"""Planner package for subgoal planning and replanning."""
 
 from importlib import import_module
 
-__all__ = ["PlannerAgent", "_SubgoalSchema"]
+__all__ = ["PlannerAgent"]
 
 
 def __getattr__(name: str):

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -125,3 +127,4 @@ class NavigationScope:
             f"Do not use external search engines or unrelated sites for this scoped task. "
             f"Blocked URL: {url}"
         )
+

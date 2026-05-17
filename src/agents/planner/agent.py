@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 import config as app_config
 
-from agents.types import Subgoal
+from core.types import Subgoal
 from llm import LLMClient
 
 

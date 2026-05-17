@@ -2,22 +2,25 @@
 
 from importlib import import_module
 
-__all__ = [
-    "ActionMetadataWriter",
-    "ActionReviewContext",
-    "ActionReviewService",
-    "ActionStepSummarizer",
-    "ActionStepSummarizerProtocol",
-    "ActionStepSummary",
-    "ActionSummaryTextProvider",
-    "AmbiguityCandidate",
-    "detect_ambiguity_candidate",
-]
+_EXPORT_MODULES = {
+    "ActionMetadataWriter": ".metadata_writer",
+    "ActionReviewContext": ".ambiguity",
+    "ActionReviewService": ".review_service",
+    "ActionStepSummarizer": ".step_summarizer",
+    "ActionStepSummarizerProtocol": ".types",
+    "ActionStepSummary": ".types",
+    "ActionSummaryTextProvider": ".types",
+    "AmbiguityCandidate": ".ambiguity",
+    "detect_ambiguity_candidate": ".ambiguity",
+}
+
+__all__ = sorted(_EXPORT_MODULES)
 
 
 def __getattr__(name: str):
-    if name in __all__:
-        return getattr(import_module(".agent", __name__), name)
+    module_name = _EXPORT_MODULES.get(name)
+    if module_name is not None:
+        return getattr(import_module(module_name, __name__), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
