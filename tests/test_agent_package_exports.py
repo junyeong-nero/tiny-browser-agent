@@ -5,30 +5,29 @@ import sys
 from agents.actor import AgentInterrupted, BrowserAgent
 from agents.actor.agent import AgentInterrupted as DirectAgentInterrupted
 from agents.actor.agent import BrowserAgent as DirectBrowserAgent
-from agents.planner import PlannerAgent, _SubgoalSchema
+from agents.planner import PlannerAgent
 from agents.planner.agent import PlannerAgent as DirectPlannerAgent
-from agents.planner.agent import _SubgoalSchema as DirectSubgoalSchema
-from agents.summarizer.agent import ActionReviewService as DirectActionReviewService
 from agents.summarizer import ActionReviewService
+from agents.summarizer.review_service import ActionReviewService as DirectActionReviewService
 
 
 def test_agent_packages_export_primary_classes_from_canonical_modules():
     assert BrowserAgent is DirectBrowserAgent
     assert AgentInterrupted is DirectAgentInterrupted
     assert PlannerAgent is DirectPlannerAgent
-    assert _SubgoalSchema is DirectSubgoalSchema
     assert ActionReviewService is DirectActionReviewService
 
 
 def test_helper_modules_are_imported_from_canonical_subpackages():
-    from agents.actor import context_compaction, model_trace, model_turn, task_scope
-    from agents.planner import subgoals
+    from agents.actor import context_compaction, model_trace, model_turn, subgoal_runner, subgoals
+    from core import navigation_scope
 
     assert context_compaction.__name__ == "agents.actor.context_compaction"
     assert model_trace.__name__ == "agents.actor.model_trace"
     assert model_turn.__name__ == "agents.actor.model_turn"
-    assert task_scope.__name__ == "agents.actor.task_scope"
-    assert subgoals.__name__ == "agents.planner.subgoals"
+    assert navigation_scope.__name__ == "core.navigation_scope"
+    assert subgoal_runner.__name__ == "agents.actor.subgoal_runner"
+    assert subgoals.__name__ == "agents.actor.subgoals"
 
 
 def test_removed_root_compatibility_modules_are_not_importable():
@@ -48,6 +47,11 @@ for name in [
     "agents.subgoals",
     "agents.task_scope",
     "agents.tool_orchestration",
+    "agents.types",
+    "agents.actor.task_scope",
+    "agents.planner.subgoal_runner",
+    "agents.planner.subgoals",
+    "agents.summarizer.agent",
 ]:
     print(importlib.util.find_spec(name) is None)
 """
@@ -60,7 +64,7 @@ for name in [
         text=True,
         capture_output=True,
     )
-    assert result.stdout.splitlines() == ["True"] * 12
+    assert result.stdout.splitlines() == ["True"] * 17
 
 
 def test_helper_submodule_imports_do_not_eager_load_heavy_agents():
@@ -68,8 +72,8 @@ def test_helper_submodule_imports_do_not_eager_load_heavy_agents():
 import importlib
 import sys
 
-importlib.import_module("agents.actor.task_scope")
-importlib.import_module("agents.planner.subgoals")
+importlib.import_module("core.navigation_scope")
+importlib.import_module("agents.actor.subgoals")
 
 print("agents.actor.agent" in sys.modules)
 print("agents.planner.agent" in sys.modules)

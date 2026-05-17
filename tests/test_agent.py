@@ -21,8 +21,8 @@ from unittest.mock import MagicMock, patch
 from google.genai import types
 import config as app_config
 from agents.actor.agent import AgentInterrupted, BrowserAgent
-from agents.summarizer.agent import ActionMetadataWriter, ActionReviewService
-from agents.types import Subgoal
+from agents.summarizer import ActionMetadataWriter, ActionReviewService
+from core.types import Subgoal
 from browser import EnvState
 from llm.client import LLMClient
 from tools.types import TOOL_ARGUMENT_ERROR_KEY

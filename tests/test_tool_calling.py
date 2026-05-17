@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 from google.genai import types
 
-from agents.actor.task_scope import NavigationScope
+from core.navigation_scope import NavigationScope
 from browser.aria_snapshot import NodeInfo
 from browser import build_browser_action_functions, EnvState
 from tool_executor import (

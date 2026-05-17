@@ -2,7 +2,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from agents.actor.agent import AgentInterrupted
-from agents.types import AgentRunResult
+from core.types import AgentRunResult
 import config as app_config
 from session import MAX_CONVERSATION_MEMORY_ITEMS, BrowserSession, TaskMemory
 

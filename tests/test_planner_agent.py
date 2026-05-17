@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import pytest
 
 from agents.planner.agent import PlannerAgent, _SubgoalSchema
-from agents.types import Subgoal
+from core.types import Subgoal
 
 
 def _mock_llm_client(subgoals_data: list[dict]) -> MagicMock:

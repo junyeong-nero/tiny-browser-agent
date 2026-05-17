@@ -1,6 +1,6 @@
 import unittest
 
-from agents.summarizer.agent import ActionReviewContext, detect_ambiguity_candidate
+from agents.summarizer import ActionReviewContext, detect_ambiguity_candidate
 
 
 class TestAmbiguityDetector(unittest.TestCase):
