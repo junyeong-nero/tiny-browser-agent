@@ -660,12 +660,12 @@ class BrowserAgent:
         reasoning: Optional[str],
         visible_text: Optional[str],
     ) -> Literal["COMPLETE"]:
-        final_reasoning = reasoning or visible_text
-        print(f"Agent Loop Complete: {final_reasoning or '<empty model response>'}")
         final_result_summary = self._review_service.build_final_result_summary(
             final_response=visible_text or reasoning,
             current_url=self._latest_url,
         )
+        final_reasoning = final_result_summary or visible_text or reasoning
+        print(f"Agent Loop Complete: {final_reasoning or '<empty model response>'}")
         self.final_reasoning = final_reasoning
         self._emit_review_metadata(
             step_id=step_id,

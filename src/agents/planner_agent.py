@@ -132,28 +132,30 @@ def _coerce_to_subgoal_list(value: Any) -> list[dict[str, Any]] | None:
 
 
 def _extract_answer_text(response: Any) -> str:
-    """Return the first non-thought text part from a model response.
+    """Return all non-thought text parts from a model response.
 
     OpenAI/OpenRouter-style providers may surface reasoning as a leading
     `thought=True` part; reading `parts[0]` blindly would give the chain of
-    thought instead of the JSON answer.
+    thought instead of the JSON answer. Some providers also split JSON answers
+    across multiple text parts, so preserve every non-thought text part in
+    response order.
     """
     candidates = getattr(response, "candidates", None) or []
     if not candidates:
         return ""
     content = getattr(candidates[0], "content", None)
     parts = getattr(content, "parts", None) or []
+    text_parts = []
     for part in parts:
         if getattr(part, "thought", None) is True:
             continue
         text = getattr(part, "text", None)
         if isinstance(text, str) and text:
-            return text
-    return ""
+            text_parts.append(text)
+    return "".join(text_parts).strip()
 
 
 class _SubgoalSchema(BaseModel):
-    id: int
     description: str
     success_criteria: str
 

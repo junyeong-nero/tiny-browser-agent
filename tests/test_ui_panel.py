@@ -305,7 +305,7 @@ def test_panel_selection_can_show_dom_and_aria_state_artifacts():
     assert 'id="side-browser-state-section" class="side-section side-scroll-section side-browser-state-section browser-state-details" hidden' in PANEL_HTML_ONLY
     assert '<summary data-icon="account_tree">View DOM/ARIA State</summary>' in PANEL_HTML_ONLY
     assert "function renderBrowserStateBody(artifacts)" in PANEL_HTML
-    assert "function renderBrowserStateButton(artifacts)" in PANEL_HTML
+    assert "function renderBrowserStateMetaLink(label, href, linkText)" in PANEL_HTML
     assert "View DOM/ARIA State" in PANEL_HTML
     assert "DOM snapshot" in PANEL_HTML
     assert "ARIA snapshot" in PANEL_HTML

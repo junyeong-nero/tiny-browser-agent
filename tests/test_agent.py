@@ -1687,6 +1687,15 @@ class TestBrowserAgent(unittest.TestCase):
             review_event["final_result_summary"],
             "EXAONE 4.5 Hugging Face 페이지를 찾았습니다.",
         )
+        self.assertEqual(
+            agent.final_reasoning,
+            "EXAONE 4.5 Hugging Face 페이지를 찾았습니다.",
+        )
+        self.assertEqual(
+            events[-1]["final_reasoning"],
+            "EXAONE 4.5 Hugging Face 페이지를 찾았습니다.",
+        )
+        self.assertNotIn("Waiting again worked", events[-1]["final_reasoning"])
         step_summarizer.summarize_final_result.assert_called_once()
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
@@ -1723,6 +1732,15 @@ class TestBrowserAgent(unittest.TestCase):
             review_event["final_result_summary"],
             "EXAONE 4.5 Hugging Face 페이지를 찾았습니다.",
         )
+        self.assertEqual(
+            agent.final_reasoning,
+            "EXAONE 4.5 Hugging Face 페이지를 찾았습니다.",
+        )
+        self.assertEqual(
+            events[-1]["final_reasoning"],
+            "EXAONE 4.5 Hugging Face 페이지를 찾았습니다.",
+        )
+        self.assertNotIn("Waiting again worked", events[-1]["final_reasoning"])
 
     @patch("agents.actor_agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_emits_runtime_phase_metadata_for_action_steps(

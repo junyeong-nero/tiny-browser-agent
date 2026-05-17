@@ -7,16 +7,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import pytest
 
-from agents.planner_agent import PlannerAgent
+from agents.planner_agent import PlannerAgent, _SubgoalSchema
 from agents.types import Subgoal
 
 
 def _mock_llm_client(subgoals_data: list[dict]) -> MagicMock:
-    client = MagicMock()
+    return _mock_llm_client_from_parts([_text_part(json.dumps(subgoals_data))])
+
+
+def _text_part(text: str, *, thought: bool | None = None) -> MagicMock:
     part = MagicMock()
-    part.text = json.dumps(subgoals_data)
+    part.text = text
+    part.thought = thought
+    return part
+
+
+def _mock_llm_client_from_parts(parts: list[MagicMock]) -> MagicMock:
+    client = MagicMock()
     content = MagicMock()
-    content.parts = [part]
+    content.parts = parts
     candidate = MagicMock()
     candidate.content = content
     response = MagicMock()
@@ -26,8 +35,13 @@ def _mock_llm_client(subgoals_data: list[dict]) -> MagicMock:
 
 
 SAMPLE_PLAN = [
-    {"id": 1, "description": "Open Google", "success_criteria": "Google homepage loaded"},
-    {"id": 2, "description": "Search for Python", "success_criteria": "Search results shown"},
+    {"description": "Open Google", "success_criteria": "Google homepage loaded"},
+    {"description": "Search for Python", "success_criteria": "Search results shown"},
+]
+
+SAMPLE_PLAN_WITH_IDS = [
+    {"id": 99, "description": "Open Google", "success_criteria": "Google homepage loaded"},
+    {"id": 100, "description": "Search for Python", "success_criteria": "Search results shown"},
 ]
 
 
@@ -69,6 +83,18 @@ class TestPlannerAgentPlan:
         call_kwargs = client.generate_content.call_args
         config = call_kwargs.kwargs.get("config") or call_kwargs.args[2]
         assert config.response_mime_type == "application/json"
+
+    def test_response_schema_does_not_require_model_supplied_ids(self):
+        client = _mock_llm_client(SAMPLE_PLAN)
+        planner = PlannerAgent(query="test", llm_client=client)
+        planner.plan()
+        call_kwargs = client.generate_content.call_args
+        config = call_kwargs.kwargs.get("config") or call_kwargs.args[2]
+        schema = config.response_schema
+        schema_item = getattr(schema, "__args__", [None])[0]
+
+        assert "id" not in _SubgoalSchema.model_fields
+        assert schema_item is _SubgoalSchema
 
     def test_uses_system_instruction_for_planning_prompt(self):
         client = _mock_llm_client(SAMPLE_PLAN)
@@ -142,24 +168,60 @@ class TestPlannerAgentPlan:
         assert len(subgoals) == 2
 
     def test_skips_reasoning_thought_part(self):
-        client = MagicMock()
-        thought = MagicMock()
-        thought.thought = True
-        thought.text = "Let me think... I should plan this carefully."
-        answer = MagicMock()
-        answer.thought = None
-        answer.text = json.dumps(SAMPLE_PLAN)
-        content = MagicMock()
-        content.parts = [thought, answer]
-        candidate = MagicMock()
-        candidate.content = content
-        response = MagicMock()
-        response.candidates = [candidate]
-        client.generate_content.return_value = response
+        client = _mock_llm_client_from_parts(
+            [
+                _text_part(
+                    "Let me think... I should plan this carefully.",
+                    thought=True,
+                ),
+                _text_part(json.dumps(SAMPLE_PLAN)),
+            ]
+        )
 
         planner = PlannerAgent(query="test", llm_client=client)
         subgoals = planner.plan()
         assert len(subgoals) == 2
+
+    def test_accepts_multi_part_json_text_response(self):
+        raw_plan = json.dumps(SAMPLE_PLAN)
+        split_at = raw_plan.index("success_criteria")
+        client = _mock_llm_client_from_parts(
+            [
+                _text_part(raw_plan[:split_at]),
+                _text_part(raw_plan[split_at:]),
+            ]
+        )
+
+        planner = PlannerAgent(query="test", llm_client=client)
+        subgoals = planner.plan()
+
+        assert len(subgoals) == 2
+        assert subgoals[0].description == "Open Google"
+
+    def test_accepts_thought_plus_multi_part_json_text_response(self):
+        raw_plan = json.dumps(SAMPLE_PLAN)
+        split_at = raw_plan.index("Search for Python")
+        client = _mock_llm_client_from_parts(
+            [
+                _text_part("internal chain of thought", thought=True),
+                _text_part(raw_plan[:split_at]),
+                _text_part(raw_plan[split_at:]),
+            ]
+        )
+
+        planner = PlannerAgent(query="test", llm_client=client)
+        subgoals = planner.plan()
+
+        assert len(subgoals) == 2
+        assert subgoals[1].description == "Search for Python"
+
+    def test_ignores_model_supplied_ids_and_assigns_runtime_ids(self):
+        client = _mock_llm_client(SAMPLE_PLAN_WITH_IDS)
+        planner = PlannerAgent(query="test", llm_client=client)
+
+        subgoals = planner.plan()
+
+        assert [subgoal.id for subgoal in subgoals] == [1, 2]
 
     def test_empty_plan(self):
         client = _mock_llm_client([])
@@ -171,7 +233,7 @@ class TestPlannerAgentPlan:
 class TestPlannerAgentReplan:
     def test_replan_returns_subgoals(self):
         new_plan = [
-            {"id": 3, "description": "Try Bing instead", "success_criteria": "Bing loaded"},
+            {"description": "Try the site's fallback path", "success_criteria": "Fallback loaded"},
         ]
         client = _mock_llm_client(new_plan)
         planner = PlannerAgent(query="search Python", llm_client=client)
@@ -190,7 +252,7 @@ class TestPlannerAgentReplan:
 
     def test_replan_start_id_after_failed(self):
         new_plan = [
-            {"id": 99, "description": "Fallback step", "success_criteria": "Done"},
+            {"description": "Fallback step", "success_criteria": "Done"},
         ]
         client = _mock_llm_client(new_plan)
         planner = PlannerAgent(query="test", llm_client=client)
@@ -207,7 +269,7 @@ class TestPlannerAgentReplan:
     def test_replan_completed_event_includes_failed_subgoal_id(self):
         events = []
         client = _mock_llm_client(
-            [{"id": 99, "description": "Fallback step", "success_criteria": "Done"}]
+            [{"description": "Fallback step", "success_criteria": "Done"}]
         )
         planner = PlannerAgent(query="test", llm_client=client, event_sink=events.append)
 
@@ -224,7 +286,7 @@ class TestPlannerAgentReplan:
 
     def test_replan_prompt_includes_outcomes_latest_url_and_remaining_context(self):
         client = _mock_llm_client(
-            [{"id": 99, "description": "Fallback step", "success_criteria": "Done"}]
+            [{"description": "Fallback step", "success_criteria": "Done"}]
         )
         planner = PlannerAgent(query="original query", llm_client=client)
         failed = Subgoal(id=2, description="Failed step", success_criteria="N/A")
@@ -249,7 +311,7 @@ class TestPlannerAgentReplan:
 
     def test_replan_uses_replan_system_instruction(self):
         client = _mock_llm_client(
-            [{"id": 99, "description": "Fallback step", "success_criteria": "Done"}]
+            [{"description": "Fallback step", "success_criteria": "Done"}]
         )
         planner = PlannerAgent(query="test", llm_client=client)
 

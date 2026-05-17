@@ -354,8 +354,6 @@ class BrowserToolExecutor:
             return result
         if scope.allows_url(url):
             return result
-        if not scope.blocks_search_url(url) and name in {"go_back", "go_forward"}:
-            return result
 
         return self._scope_error_payload(name, url)
 

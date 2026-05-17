@@ -249,15 +249,6 @@ function formatRawJson(value) {
   }
 }
 
-function renderSidePanelSection(className, icon, title, body, bodyClass = 'side-body') {
-  if (!body) return '';
-  return `
-    <details class="side-section side-scroll-section ${escHtml(className)}">
-      <summary data-icon="${escHtml(icon)}">${escHtml(title)}</summary>
-      <div class="${escHtml(bodyClass)}">${body}</div>
-    </details>`;
-}
-
 function renderLlmInferenceBody(inference) {
   if (!inference) return '';
   return `
@@ -265,16 +256,6 @@ function renderLlmInferenceBody(inference) {
     <pre>${escHtml(formatRawJson(inference.rawContext))}</pre>
     <div class="llm-raw-title">Output response</div>
     <pre>${escHtml(formatRawJson(inference.rawResponse))}</pre>`;
-}
-
-function renderLlmInferenceButton(inference) {
-  return renderSidePanelSection(
-    'side-llm-raw-section',
-    'psychology',
-    'View LLM raw context / response',
-    renderLlmInferenceBody(inference),
-    'side-body llm-raw-block'
-  );
 }
 
 function browserStateArtifactInfo(artifacts) {
@@ -305,6 +286,10 @@ function renderBrowserStateMetaRow(label, value) {
   return `<div class="bullet"><span class="dot">•</span><span><span class="k">${escHtml(label)}</span> <span class="v">${escHtml(value)}</span></span></div>`;
 }
 
+function renderBrowserStateMetaLink(label, href, linkText) {
+  return `<div class="bullet"><span class="dot">•</span><span><span class="k">${escHtml(label)}</span> <a class="artifact-link" target="_blank" rel="noreferrer" href="${escHtml(href)}">${escHtml(linkText)}</a></span></div>`;
+}
+
 function renderBrowserStateBody(artifacts) {
   const state = browserStateArtifactInfo(artifacts);
   if (!state) return '';
@@ -312,11 +297,7 @@ function renderBrowserStateBody(artifacts) {
   if (state.a11ySource) metaRows.push(renderBrowserStateMetaRow('ARIA source', state.a11ySource));
   if (state.a11yStatus) metaRows.push(renderBrowserStateMetaRow('ARIA capture', state.a11yStatus));
   if (state.a11yError) metaRows.push(renderBrowserStateMetaRow('ARIA error', state.a11yError));
-  if (state.metadataHref) {
-    metaRows.push(
-      `<div class="bullet"><span class="dot">•</span><span><span class="k">State metadata</span> <a class="artifact-link" target="_blank" rel="noreferrer" href="${escHtml(state.metadataHref)}">open JSON</a></span></div>`
-    );
-  }
+  if (state.metadataHref) metaRows.push(renderBrowserStateMetaLink('State metadata', state.metadataHref, 'open JSON'));
   const previews = [
     renderBrowserStatePreview('DOM snapshot', state.domHref, 'DOM'),
     renderBrowserStatePreview('ARIA snapshot', state.ariaHref, 'ARIA'),
@@ -324,16 +305,6 @@ function renderBrowserStateBody(artifacts) {
   return `
     ${metaRows.join('')}
     ${previews || '<div class="side-empty">No DOM or ARIA artifact for this action.</div>'}`;
-}
-
-function renderBrowserStateButton(artifacts) {
-  return renderSidePanelSection(
-    'side-browser-state-section browser-state-details',
-    'account_tree',
-    'View DOM/ARIA State',
-    renderBrowserStateBody(artifacts),
-    'side-body browser-state-block'
-  );
 }
 
 function setOptionalSideSection(section, body, content) {
@@ -378,7 +349,8 @@ async function loadBrowserStatePreviews(container) {
       const text = await response.text();
       pre.textContent = text || '(empty)';
     } catch (error) {
-      pre.textContent = `Unable to load ${kind} state: ${error && error.message ? error.message : error}`;
+      pre.dataset.browserStateLoaded = 'false';
+      pre.textContent = `Unable to load ${kind} state: ${error?.message ?? String(error)}`;
     }
   }));
 }

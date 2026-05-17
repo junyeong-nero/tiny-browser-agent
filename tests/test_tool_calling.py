@@ -227,6 +227,54 @@ class TestBrowserToolExecutor(unittest.TestCase):
         self.assertEqual(result["error_type"], "TaskScopeViolation")
         self.assertIn("search.naver.com", result["blocked_url"])
 
+    def test_navigation_scope_blocks_history_navigation_escape(self):
+        scoped_executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            navigation_scope=NavigationScope.from_query("allrecipes.com에서 pasta 검색"),
+        )
+
+        self.mock_browser_computer.go_back.return_value = EnvState(
+            screenshot=b"screenshot",
+            url="https://example.org/unrelated",
+        )
+        back_result = scoped_executor.execute(types.FunctionCall(name="go_back", args={}))
+
+        self.mock_browser_computer.go_forward.return_value = EnvState(
+            screenshot=b"screenshot",
+            url="https://www.wikipedia.org/wiki/Pasta",
+        )
+        forward_result = scoped_executor.execute(
+            types.FunctionCall(name="go_forward", args={})
+        )
+
+        self.assertEqual(back_result["status"], "error")
+        self.assertEqual(back_result["error_type"], "TaskScopeViolation")
+        self.assertIn("example.org", back_result["blocked_url"])
+        self.assertEqual(forward_result["status"], "error")
+        self.assertEqual(forward_result["error_type"], "TaskScopeViolation")
+        self.assertIn("wikipedia.org", forward_result["blocked_url"])
+
+    def test_navigation_scope_allows_history_navigation_within_scope_or_blank(self):
+        scoped_executor = BrowserToolExecutor(
+            browser_computer=self.mock_browser_computer,
+            navigation_scope=NavigationScope.from_query("allrecipes.com에서 pasta 검색"),
+        )
+        in_scope_state = EnvState(
+            screenshot=b"screenshot",
+            url="https://www.allrecipes.com/recipe/pasta",
+        )
+        blank_state = EnvState(screenshot=b"screenshot", url="about:blank")
+        self.mock_browser_computer.go_back.return_value = in_scope_state
+        self.mock_browser_computer.go_forward.return_value = blank_state
+
+        back_result = scoped_executor.execute(types.FunctionCall(name="go_back", args={}))
+        forward_result = scoped_executor.execute(
+            types.FunctionCall(name="go_forward", args={})
+        )
+
+        self.assertEqual(back_result, in_scope_state)
+        self.assertEqual(forward_result, blank_state)
+
     def test_google_flights_scope_allows_flights_but_blocks_google_search(self):
         scope = NavigationScope.from_query("googleflight에서 서울 도쿄 항공권 검색")
         self.assertIsNotNone(scope)
