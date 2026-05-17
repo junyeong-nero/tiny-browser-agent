@@ -277,13 +277,47 @@ def test_panel_graph_selection_can_show_llm_raw_context_and_response():
     assert "case 'llm_inference':" in PANEL_HTML
     assert "storeLlmInference(ev);" in PANEL_HTML
     assert "window.getLlmInferenceForStep = getLlmInferenceForStep;" in PANEL_HTML
-    assert "function renderLlmInferenceButton(inference)" in PANEL_HTML
+    assert 'id="side-llm-raw-section" class="side-section side-scroll-section side-llm-raw-section" hidden' in PANEL_HTML_ONLY
+    assert '<summary data-icon="psychology">View LLM raw context / response</summary>' in PANEL_HTML_ONLY
+    assert "function renderLlmInferenceBody(inference)" in PANEL_HTML
+    assert "function renderRightPanelAuxiliarySections(inference, artifacts)" in PANEL_HTML
     assert "View LLM raw context / response" in PANEL_HTML
     assert "Raw context" in PANEL_HTML
     assert "Output response" in PANEL_HTML
     assert "llmInference: llmInferenceForStep(ev.step_id)" in PANEL_HTML
-    assert "renderLlmInferenceButton(d.llmInference)" in PANEL_HTML
-    assert ".llm-raw-details" in PANEL_HTML
+    assert "renderRightPanelAuxiliarySections(d.llmInference, d.artifacts)" in PANEL_HTML
+    assert "setOptionalSideSection(llmSection, llmBody, renderLlmInferenceBody(inference));" in PANEL_HTML
+    assert "details.side-section[hidden]" in PANEL_HTML
+    assert "display: none;" in PANEL_HTML.split("details.side-section[hidden] {", 1)[1].split("}", 1)[0]
+
+
+def test_panel_selection_can_show_dom_and_aria_state_artifacts():
+    step_render = PANEL_HTML.split("function renderActionStepAdditionalInfo(stepId)", 1)[1].split(
+        "function actionGroupStepIds", 1
+    )[0]
+    group_render = PANEL_HTML.split("function renderActionGroupAdditionalInfo(actionNode)", 1)[1].split(
+        "window.renderActionStepAdditionalInfo", 1
+    )[0]
+    graph_node_selection = PANEL_HTML.split("function renderGraphNodeSelection(d)", 1)[1].split(
+        "function renderSelection(d)", 1
+    )[0]
+
+    assert 'id="side-browser-state-section" class="side-section side-scroll-section side-browser-state-section browser-state-details" hidden' in PANEL_HTML_ONLY
+    assert '<summary data-icon="account_tree">View DOM/ARIA State</summary>' in PANEL_HTML_ONLY
+    assert "function renderBrowserStateBody(artifacts)" in PANEL_HTML
+    assert "function renderBrowserStateButton(artifacts)" in PANEL_HTML
+    assert "View DOM/ARIA State" in PANEL_HTML
+    assert "DOM snapshot" in PANEL_HTML
+    assert "ARIA snapshot" in PANEL_HTML
+    assert "artifacts.html_path || artifacts.after_html_path" in PANEL_HTML
+    assert "artifacts.a11y_path || artifacts.after_a11y_path" in PANEL_HTML
+    assert "function hydrateBrowserStateButtons(root = document)" in PANEL_HTML
+    assert "fetch(src, { cache: 'no-store' })" in PANEL_HTML
+    assert "renderRightPanelAuxiliarySections(inference, artifacts);" in step_render
+    assert "renderRightPanelAuxiliarySections(inference, artifacts);" in group_render
+    assert "renderRightPanelAuxiliarySections(d.llmInference, d.artifacts);" in graph_node_selection
+    assert "hydrateBrowserStateButtons(browserStateSection);" in PANEL_HTML
+    assert "if (browserStateSection.open) loadBrowserStatePreviews(browserStateSection);" in PANEL_HTML
 
 
 def test_panel_removes_browser_state_tree_rendering():
@@ -881,7 +915,7 @@ def test_panel_right_additional_info_includes_reasoning_artifacts_and_llm_button
         "function renderTimelineActionStepInfo", 1
     )[0]
     assert "renderActionArtifacts(artifacts)" in step_render
-    assert "renderLlmInferenceButton(inference)" in step_render
+    assert "renderRightPanelAuxiliarySections(inference, artifacts)" in step_render
     assert "let artifactsByStep = new Map();" in PANEL_HTML
     assert "storeArtifactsForStep(ev.step_id, ev.artifacts);" in PANEL_HTML
 

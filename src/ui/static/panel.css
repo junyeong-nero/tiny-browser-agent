@@ -1023,6 +1023,9 @@
     width: 100%;
     min-height: 0;
   }
+  details.side-section[hidden] {
+    display: none;
+  }
   details.side-section[open] {
     display: grid;
     grid-template-rows: auto minmax(0, auto);
@@ -1208,32 +1211,7 @@
     display: none;
   }
 
-  .llm-raw-details {
-    margin-top: 8px;
-  }
-  .llm-raw-details > summary.llm-raw-button {
-    cursor: pointer;
-    list-style: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    border: 1px solid var(--md-sys-color-outline-variant);
-    border-radius: var(--md-sys-shape-corner-full);
-    background: color-mix(in srgb, var(--md-sys-color-primary-container) 34%, transparent);
-    color: var(--md-sys-color-on-surface);
-    font-size: 12px;
-    font-weight: 600;
-    padding: 8px 10px;
-  }
-  .llm-raw-details > summary.llm-raw-button::-webkit-details-marker {
-    display: none;
-  }
-  .llm-raw-details > summary.llm-raw-button:hover {
-    background: color-mix(in srgb, var(--md-sys-color-primary-container) 52%, transparent);
-  }
   .llm-raw-block {
-    margin-top: 8px;
     display: grid;
     gap: 6px;
   }
@@ -1258,6 +1236,12 @@
     font-size: 11px;
     line-height: 1.45;
     padding: 10px;
+  }
+  .browser-state-block .bullet {
+    margin-bottom: 2px;
+  }
+  .browser-state-preview {
+    min-height: 96px;
   }
 
   .artifact-compare, .artifact-gallery {

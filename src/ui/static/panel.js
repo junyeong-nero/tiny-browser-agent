@@ -303,6 +303,9 @@ function renderEmptyAdditionalInfo(message = 'no action step selected.') {
   }
   if (sideReplay) sideReplay.innerHTML = empty;
   if (sideSelection) sideSelection.innerHTML = empty;
+  if (typeof renderRightPanelAuxiliarySections === 'function') {
+    renderRightPanelAuxiliarySections(null, null);
+  }
 }
 
 function renderAdditionalInfoRow(label, value) {
@@ -357,7 +360,10 @@ function renderActionStepAdditionalInfo(stepId) {
     sideReplay.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
   }
   if (sideSelection) {
-    sideSelection.innerHTML = (rows.length ? rows.join('') : '<div class="side-empty">no info.</div>') + renderLlmInferenceButton(inference);
+    sideSelection.innerHTML = rows.length ? rows.join('') : '<div class="side-empty">no info.</div>';
+  }
+  if (typeof renderRightPanelAuxiliarySections === 'function') {
+    renderRightPanelAuxiliarySections(inference, artifacts);
   }
 }
 
@@ -420,7 +426,11 @@ function renderActionGroupAdditionalInfo(actionNode) {
     sideReplay.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
   }
   if (sideSelection) {
-    sideSelection.innerHTML = (rows.length ? rows.join('') : '<div class="side-empty">no info.</div>') + memberList + renderLlmInferenceButton(inference);
+    sideSelection.innerHTML = (rows.length ? rows.join('') : '<div class="side-empty">no info.</div>') +
+      memberList;
+    if (typeof renderRightPanelAuxiliarySections === 'function') {
+      renderRightPanelAuxiliarySections(inference, artifacts);
+    }
     sideSelection.querySelectorAll('[data-action-member-step]').forEach(button => {
       button.addEventListener('click', (event) => {
         event.stopPropagation();

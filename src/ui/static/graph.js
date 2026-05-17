@@ -249,18 +249,154 @@ function formatRawJson(value) {
   }
 }
 
-function renderLlmInferenceButton(inference) {
+function renderSidePanelSection(className, icon, title, body, bodyClass = 'side-body') {
+  if (!body) return '';
+  return `
+    <details class="side-section side-scroll-section ${escHtml(className)}">
+      <summary data-icon="${escHtml(icon)}">${escHtml(title)}</summary>
+      <div class="${escHtml(bodyClass)}">${body}</div>
+    </details>`;
+}
+
+function renderLlmInferenceBody(inference) {
   if (!inference) return '';
   return `
-    <details class="llm-raw-details">
-      <summary class="llm-raw-button">View LLM raw context / response</summary>
-      <div class="llm-raw-block">
-        <div class="llm-raw-title">Raw context</div>
-        <pre>${escHtml(formatRawJson(inference.rawContext))}</pre>
-        <div class="llm-raw-title">Output response</div>
-        <pre>${escHtml(formatRawJson(inference.rawResponse))}</pre>
-      </div>
-    </details>`;
+    <div class="llm-raw-title">Raw context</div>
+    <pre>${escHtml(formatRawJson(inference.rawContext))}</pre>
+    <div class="llm-raw-title">Output response</div>
+    <pre>${escHtml(formatRawJson(inference.rawResponse))}</pre>`;
+}
+
+function renderLlmInferenceButton(inference) {
+  return renderSidePanelSection(
+    'side-llm-raw-section',
+    'psychology',
+    'View LLM raw context / response',
+    renderLlmInferenceBody(inference),
+    'side-body llm-raw-block'
+  );
+}
+
+function browserStateArtifactInfo(artifacts) {
+  if (!artifacts) return null;
+  const domHref = replayArtifactHref(artifacts.html_path || artifacts.after_html_path, 'history');
+  const ariaHref = replayArtifactHref(artifacts.a11y_path || artifacts.after_a11y_path, 'history');
+  const metadataHref = replayArtifactHref(artifacts.metadata_path || artifacts.after_metadata_path, 'history');
+  if (!domHref && !ariaHref) return null;
+  return {
+    domHref,
+    ariaHref,
+    metadataHref,
+    a11ySource: artifacts.a11y_source || '',
+    a11yStatus: artifacts.a11y_capture_status || '',
+    a11yError: artifacts.a11y_capture_error || '',
+  };
+}
+
+function renderBrowserStatePreview(title, href, kind) {
+  if (!href) return '';
+  const safeHref = escHtml(href);
+  return `
+    <div class="llm-raw-title">${escHtml(title)} · <a class="artifact-link" target="_blank" rel="noreferrer" href="${safeHref}">open</a></div>
+    <pre class="browser-state-preview" data-browser-state-src="${safeHref}" data-browser-state-kind="${escHtml(kind)}">Open this section to load ${escHtml(kind)} state…</pre>`;
+}
+
+function renderBrowserStateMetaRow(label, value) {
+  return `<div class="bullet"><span class="dot">•</span><span><span class="k">${escHtml(label)}</span> <span class="v">${escHtml(value)}</span></span></div>`;
+}
+
+function renderBrowserStateBody(artifacts) {
+  const state = browserStateArtifactInfo(artifacts);
+  if (!state) return '';
+  const metaRows = [];
+  if (state.a11ySource) metaRows.push(renderBrowserStateMetaRow('ARIA source', state.a11ySource));
+  if (state.a11yStatus) metaRows.push(renderBrowserStateMetaRow('ARIA capture', state.a11yStatus));
+  if (state.a11yError) metaRows.push(renderBrowserStateMetaRow('ARIA error', state.a11yError));
+  if (state.metadataHref) {
+    metaRows.push(
+      `<div class="bullet"><span class="dot">•</span><span><span class="k">State metadata</span> <a class="artifact-link" target="_blank" rel="noreferrer" href="${escHtml(state.metadataHref)}">open JSON</a></span></div>`
+    );
+  }
+  const previews = [
+    renderBrowserStatePreview('DOM snapshot', state.domHref, 'DOM'),
+    renderBrowserStatePreview('ARIA snapshot', state.ariaHref, 'ARIA'),
+  ].filter(Boolean).join('');
+  return `
+    ${metaRows.join('')}
+    ${previews || '<div class="side-empty">No DOM or ARIA artifact for this action.</div>'}`;
+}
+
+function renderBrowserStateButton(artifacts) {
+  return renderSidePanelSection(
+    'side-browser-state-section browser-state-details',
+    'account_tree',
+    'View DOM/ARIA State',
+    renderBrowserStateBody(artifacts),
+    'side-body browser-state-block'
+  );
+}
+
+function setOptionalSideSection(section, body, content) {
+  if (!section || !body) return;
+  if (!content) {
+    body.innerHTML = '';
+    section.hidden = true;
+    section.open = false;
+    return;
+  }
+  body.innerHTML = content;
+  section.hidden = false;
+}
+
+function renderRightPanelAuxiliarySections(inference, artifacts) {
+  const llmSection = document.getElementById('side-llm-raw-section');
+  const llmBody = document.getElementById('side-llm-raw');
+  const browserStateSection = document.getElementById('side-browser-state-section');
+  const browserStateBody = document.getElementById('side-browser-state');
+
+  setOptionalSideSection(llmSection, llmBody, renderLlmInferenceBody(inference));
+  const browserStateContent = renderBrowserStateBody(artifacts);
+  setOptionalSideSection(browserStateSection, browserStateBody, browserStateContent);
+  if (browserStateContent && browserStateSection) {
+    hydrateBrowserStateButtons(browserStateSection);
+    if (browserStateSection.open) loadBrowserStatePreviews(browserStateSection);
+  }
+}
+
+async function loadBrowserStatePreviews(container) {
+  const previews = Array.from(container.querySelectorAll('pre[data-browser-state-src]'))
+    .filter(pre => pre.dataset.browserStateLoaded !== 'true');
+  await Promise.all(previews.map(async (pre) => {
+    const src = pre.dataset.browserStateSrc;
+    const kind = pre.dataset.browserStateKind || 'browser';
+    if (!src) return;
+    pre.dataset.browserStateLoaded = 'true';
+    pre.textContent = `Loading ${kind} state…`;
+    try {
+      const response = await fetch(src, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`.trim());
+      const text = await response.text();
+      pre.textContent = text || '(empty)';
+    } catch (error) {
+      pre.textContent = `Unable to load ${kind} state: ${error && error.message ? error.message : error}`;
+    }
+  }));
+}
+
+function hydrateBrowserStateButtons(root = document) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+  const detailsNodes = [];
+  if (typeof root.matches === 'function' && root.matches('details.browser-state-details')) {
+    detailsNodes.push(root);
+  }
+  detailsNodes.push(...root.querySelectorAll('details.browser-state-details'));
+  detailsNodes.forEach(details => {
+    if (details.dataset.browserStateBound === 'true') return;
+    details.dataset.browserStateBound = 'true';
+    details.addEventListener('toggle', () => {
+      if (details.open) loadBrowserStatePreviews(details);
+    });
+  });
 }
 
 function actionLabel(actionName, args) {
@@ -784,7 +920,10 @@ function renderGraphNodeSelection(d) {
   }
   const replayBody = renderActionArtifacts(d.artifacts) + renderActionPreviewGallery(d.actionPreviews);
   if (replayEl) replayEl.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
-  if (infoEl) infoEl.innerHTML = (rows.length ? rows.join('') : '<div class="side-empty">no info.</div>') + renderLlmInferenceButton(d.llmInference);
+  if (infoEl) {
+    infoEl.innerHTML = rows.length ? rows.join('') : '<div class="side-empty">no info.</div>';
+  }
+  renderRightPanelAuxiliarySections(d.llmInference, d.artifacts);
 }
 
 function renderSelection(d) {
@@ -798,6 +937,7 @@ function renderSelection(d) {
     }
     if (replayEl) replayEl.innerHTML = '<div class="side-empty">no action step selected.</div>';
     if (infoEl) infoEl.innerHTML = '<div class="side-empty">no action step selected.</div>';
+    renderRightPanelAuxiliarySections(null, null);
     return;
   }
   if (d.type === 'action') {

@@ -18,6 +18,8 @@ def test_synthesize_events_from_actions_and_step_metadata(tmp_path):
                 "what": "Opened Example",
                 "why": "Need page content",
                 "outcome": "Loaded",
+                "html_path": "step-0001.html",
+                "a11y_path": "step-0001.a11y.yaml",
                 "screenshot_path": "step-0001.png",
                 "metadata_path": "step-0001.json",
             }
@@ -39,6 +41,8 @@ def test_synthesize_events_from_actions_and_step_metadata(tmp_path):
     assert events[0]["query"] == "find docs"
     assert events[2]["function_calls"] == [{"name": "navigate", "args": {"url": "https://example.com"}}]
     assert events[4]["env_state"] == {"url": "https://example.com"}
+    assert events[4]["artifacts"]["html_path"] == "step-0001.html"
+    assert events[4]["artifacts"]["a11y_path"] == "step-0001.a11y.yaml"
     assert events[4]["artifacts"]["screenshot_path"] == "step-0001.png"
     assert events[4]["artifacts"]["after_screenshot_path"] == "step-0001.png"
 

@@ -204,6 +204,7 @@ def synthesize_events(session_dir: Path) -> list[dict[str, Any]]:
                 "action_gif_path": step_meta.get("action_gif_path"),
                 "action_clip_gif_path": step_meta.get("action_clip_gif_path"),
                 "action_capture_frame_count": step_meta.get("action_capture_frame_count"),
+                "html_path": step_meta.get("html_path"),
                 "metadata_path": step_meta.get("metadata_path") or step_file.name,
                 "before_metadata_path": step_meta.get("before_metadata_path"),
                 "after_metadata_path": step_meta.get("after_metadata_path") or step_meta.get("metadata_path") or step_file.name,
