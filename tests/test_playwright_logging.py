@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 
 from google.genai import types
 
-from agents.post_summary_agent import ActionMetadataWriter, ActionReviewService
+from agents.summarizer.agent import ActionMetadataWriter, ActionReviewService
 from browser.artifact_logger import ArtifactLogger
 from browser.playwright import PlaywrightBrowser, playwright
 from browser.recording import BrowserRecordingHelper

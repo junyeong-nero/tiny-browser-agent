@@ -3,7 +3,7 @@ import unittest
 from google.genai import types
 from pydantic import BaseModel
 
-from agents import model_trace
+from agents.actor import model_trace
 
 
 class _Payload(BaseModel):

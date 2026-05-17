@@ -6,7 +6,7 @@ from typing import Any
 
 from google.genai import types
 
-from agents.post_summary_agent import AmbiguityCandidate
+from agents.summarizer.agent import AmbiguityCandidate
 from tools.types import ExecutedCall, build_tool_error_payload
 
 

@@ -7,8 +7,8 @@ from typing import Any, Literal
 
 from google.genai.types import Content, Part
 
-from agents import subgoals as subgoal_helpers
 from agents.types import AgentRunResult, Subgoal
+from . import subgoals as subgoal_helpers
 
 SubgoalOutcome = tuple[Subgoal, Literal["done", "failed"], str]
 

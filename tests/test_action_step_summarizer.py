@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from google.genai import types
 
-from agents.post_summary_agent import ActionReviewService, ActionStepSummary, ActionStepSummarizer
+from agents.summarizer.agent import ActionReviewService, ActionStepSummary, ActionStepSummarizer
 from llm.provider.openai import OpenAIProvider
 from llm.provider.openrouter import OpenRouterProvider
 from tools.text_mode_tools import key_combination
@@ -389,8 +389,8 @@ class TestActionReviewServiceSummarizer(unittest.TestCase):
 
 
 class TestActionStepSummarizer(unittest.TestCase):
-    @patch("agents.post_summary_agent.OpenAIProvider.from_env")
-    @patch("agents.post_summary_agent.OpenRouterProvider.from_env")
+    @patch("agents.summarizer.agent.OpenAIProvider.from_env")
+    @patch("agents.summarizer.agent.OpenRouterProvider.from_env")
     def test_from_env_returns_none_when_disabled(
         self,
         mock_openrouter_provider_from_env,
@@ -403,8 +403,8 @@ class TestActionStepSummarizer(unittest.TestCase):
         mock_openrouter_provider_from_env.assert_not_called()
         mock_openai_provider_from_env.assert_not_called()
 
-    @patch("agents.post_summary_agent.OpenAIProvider.from_env")
-    @patch("agents.post_summary_agent.OpenRouterProvider.from_env")
+    @patch("agents.summarizer.agent.OpenAIProvider.from_env")
+    @patch("agents.summarizer.agent.OpenRouterProvider.from_env")
     def test_from_env_requires_supported_provider(
         self,
         mock_openrouter_provider_from_env,
@@ -421,7 +421,7 @@ class TestActionStepSummarizer(unittest.TestCase):
         mock_openrouter_provider_from_env.assert_not_called()
         mock_openai_provider_from_env.assert_not_called()
 
-    @patch("agents.post_summary_agent.OpenAIProvider.from_env")
+    @patch("agents.summarizer.agent.OpenAIProvider.from_env")
     def test_from_env_uses_openai_provider(self, mock_provider_from_env):
         provider = object()
         mock_provider_from_env.return_value = provider
@@ -443,8 +443,8 @@ class TestActionStepSummarizer(unittest.TestCase):
         self.assertEqual(summarizer._model, "gpt-4o-mini")
         mock_provider_from_env.assert_called_once_with()
 
-    @patch("agents.post_summary_agent.OpenAIProvider.from_env")
-    @patch("agents.post_summary_agent.OpenRouterProvider.from_env")
+    @patch("agents.summarizer.agent.OpenAIProvider.from_env")
+    @patch("agents.summarizer.agent.OpenRouterProvider.from_env")
     def test_from_env_uses_configured_openai_provider_when_credentials_exist(
         self,
         mock_openrouter_provider_from_env,
@@ -470,8 +470,8 @@ class TestActionStepSummarizer(unittest.TestCase):
         mock_openai_provider_from_env.assert_called_once_with()
         mock_openrouter_provider_from_env.assert_not_called()
 
-    @patch("agents.post_summary_agent.OpenAIProvider.from_env")
-    @patch("agents.post_summary_agent.OpenRouterProvider.from_env")
+    @patch("agents.summarizer.agent.OpenAIProvider.from_env")
+    @patch("agents.summarizer.agent.OpenRouterProvider.from_env")
     def test_from_env_uses_configured_provider_instead_of_other_available_credentials(
         self,
         mock_openrouter_provider_from_env,

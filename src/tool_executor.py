@@ -5,7 +5,7 @@ from typing import Any
 
 from google.genai import types
 
-from agents.task_scope import NavigationScope
+from agents.actor.task_scope import NavigationScope
 from agents.types import GroundingMode
 from browser import PlaywrightBrowser
 from tools.click_at import handle_click_at

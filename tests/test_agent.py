@@ -20,8 +20,8 @@ from typing import cast
 from unittest.mock import MagicMock, patch
 from google.genai import types
 import config as app_config
-from agents.actor_agent import AgentInterrupted, BrowserAgent
-from agents.post_summary_agent import ActionMetadataWriter, ActionReviewService
+from agents.actor.agent import AgentInterrupted, BrowserAgent
+from agents.summarizer.agent import ActionMetadataWriter, ActionReviewService
 from agents.types import Subgoal
 from browser import EnvState
 from llm.client import LLMClient
@@ -198,7 +198,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIn("check_by_ref", declaration_names)
         self.assertNotIn("search", declaration_names)
 
-    @patch("agents.actor_agent.LLMClient.from_provider_name")
+    @patch("agents.actor.agent.LLMClient.from_provider_name")
     def test_default_config_provider_is_compatible_with_text_grounding(
         self,
         mock_from_provider_name,
@@ -407,7 +407,7 @@ class TestBrowserAgent(unittest.TestCase):
             self.assertIsNotNone(model_turn.parts[0].function_call)
             self.assertIsNotNone(tool_turn.parts[0].function_response)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_no_function_calls(self, mock_get_model_response):
         mock_response = MagicMock()
         mock_candidate = MagicMock()
@@ -421,7 +421,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(len(self.agent._contents), 2)
         self.assertEqual(self.agent._contents[1], mock_candidate.content)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_retries_empty_model_turn(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -442,7 +442,7 @@ class TestBrowserAgent(unittest.TestCase):
         latest_message = agent.get_recent_messages(limit=1)[0]["text"] or ""
         self.assertIn("previous response was empty", latest_message)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_agent_loop_fails_after_repeated_empty_model_turns(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -482,8 +482,8 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIn("Exceeded max total steps", events[-1]["error_message"])
 
 
-    @patch("agents.actor_agent.time.sleep", return_value=None)
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.time.sleep", return_value=None)
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_model_request_final_failure_raises_instead_of_completing(
         self,
         mock_get_model_response,
@@ -508,7 +508,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertNotIn("step_complete", event_types)
         self.assertIsNone(agent.final_reasoning)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_retries_on_malformed_function_call(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -544,7 +544,7 @@ class TestBrowserAgent(unittest.TestCase):
         )
         self.assertEqual(events[-2]["error_message"], "Malformed function call.")
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_retries_malformed_function_call_with_reasoning(
         self,
         mock_get_model_response,
@@ -570,7 +570,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIn("malformed function call", agent._contents[-1].parts[0].text)
         self.assertEqual(events[-1]["status"], "retry")
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_retries_thought_only_turn(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -591,7 +591,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIn("visible final answer", agent._contents[-1].parts[0].text)
         self.assertEqual(events[-1]["status"], "retry")
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_with_function_call(self, mock_get_model_response):
         mock_response = MagicMock()
         mock_candidate = MagicMock()
@@ -607,7 +607,7 @@ class TestBrowserAgent(unittest.TestCase):
 
         self.assertEqual(result, "CONTINUE")
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_propagates_agent_interrupted_from_tool(self, mock_get_model_response):
         function_call = types.FunctionCall(name="navigate", args={"url": "https://example.com"})
         mock_get_model_response.return_value = self.make_response(
@@ -620,7 +620,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.mock_browser_computer.navigate.assert_called_once_with("https://example.com")
         self.assertEqual(len(self.agent._contents), 2)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_retries_unsupported_function_call(
         self,
         mock_get_model_response,
@@ -664,7 +664,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(events[-1]["status"], "retry")
         self.assertIn("Unsupported function", events[-2]["error_message"])
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_env_state_function_response(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -701,7 +701,7 @@ class TestBrowserAgent(unittest.TestCase):
         action_event = next(event for event in events if event["type"] == "action_executed")
         self.assertEqual(action_event["artifacts"], self.mock_browser_computer.latest_artifact_metadata.return_value)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_dict_function_response(self, mock_get_model_response):
         agent = BrowserAgent(
             browser_computer=self.mock_browser_computer,
@@ -728,7 +728,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(function_response.response, {"result": 6})
         self.assertIsNone(function_response.parts)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_skips_stale_browser_action_after_env_state(
         self,
         mock_get_model_response,
@@ -769,7 +769,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(responses[1].response["status"], "reobserve_required")
         self.assertEqual(responses[1].response["error_type"], "ReobserveRequired")
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_batches_dict_tools_before_browser_state(
         self,
         mock_get_model_response,
@@ -816,7 +816,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(responses[0].response, {"result": 6})
         self.assertEqual(responses[1].response, {"url": "https://example.com"})
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_tool_execution_errors(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -850,7 +850,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIn("Tool execution failed for navigate", step_error_message)
 
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_tab_action_errors(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -881,7 +881,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(len(step_errors), 1)
         self.assertIn("close_current_tab", step_errors[0]["error_message"])
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_serializes_malformed_tool_argument_errors(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -922,7 +922,7 @@ class TestBrowserAgent(unittest.TestCase):
         step_error_message = step_errors[0].get("error_message") or ""
         self.assertIn("Malformed tool arguments JSON", step_error_message)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_enriches_browser_metadata_with_reasoning(
         self,
         mock_get_model_response,
@@ -1087,7 +1087,7 @@ class TestBrowserAgent(unittest.TestCase):
             self.assertEqual(relative_path, history_dir / "step-0001.json")
             self.assertEqual(absolute_path, absolute_metadata_path)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_skips_metadata_for_stale_same_turn_browser_action(
         self,
         mock_get_model_response,
@@ -1159,7 +1159,7 @@ class TestBrowserAgent(unittest.TestCase):
             self.assertNotIn("model_step_id", second_metadata)
             self.assertEqual(self.mock_browser_computer.navigate.call_count, 1)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_custom_function_result_skips_metadata_enrichment(
         self,
         mock_get_model_response,
@@ -1189,7 +1189,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.mock_browser_computer.latest_artifact_metadata.assert_not_called()
         self.mock_browser_computer.history_dir.assert_not_called()
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_prunes_old_screenshots(self, mock_get_model_response):
         oldest_turn = self.make_screenshot_turn("navigate", b"oldest")
         middle_turn = self.make_screenshot_turn("navigate", b"middle")
@@ -1238,7 +1238,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIsNotNone(newest_response.parts)
         self.assertIsNotNone(latest_response.parts)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_terminates_when_safety_confirmation_rejected(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -1292,7 +1292,7 @@ class TestBrowserAgent(unittest.TestCase):
             "Terminated after safety confirmation rejection.",
         )
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_uses_non_interactive_safety_callback(self, mock_get_model_response):
         decisions = []
         events = []
@@ -1358,7 +1358,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIn("User previously asked for iPhone 17 Pro price.", initial_text)
         self.assertIn("Current user task:\n16 Pro price too", initial_text)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_emits_step_events(self, mock_get_model_response):
         events = []
         agent = BrowserAgent(
@@ -1562,7 +1562,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(events[-1]["type"], "step_error")
         self.assertIn("Exceeded max total steps", events[-1]["error_message"])
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_subgoal_loop_retries_missing_final_reasoning_before_failing(
         self,
         mock_get_model_response,
@@ -1593,7 +1593,7 @@ class TestBrowserAgent(unittest.TestCase):
             retry_message,
         )
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_subgoal_loop_retries_plain_final_text_for_required_marker(
         self,
         mock_get_model_response,
@@ -1619,7 +1619,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertEqual(reason, "SUBGOAL_DONE: the page is verified")
         self.assertEqual(mock_get_model_response.call_count, 2)
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_subgoal_loop_reports_empty_final_status_after_retry_budget(
         self,
         mock_get_model_response,
@@ -1647,7 +1647,7 @@ class TestBrowserAgent(unittest.TestCase):
             "Subgoal 3 did not produce a final status message after 2 step(s).",
         )
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_builds_final_result_summary_for_chat(self, mock_get_model_response):
         events = []
         step_summarizer = MagicMock()
@@ -1698,7 +1698,7 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertNotIn("Waiting again worked", events[-1]["final_reasoning"])
         step_summarizer.summarize_final_result.assert_called_once()
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_final_result_summary_falls_back_to_visible_text(
         self,
         mock_get_model_response,
@@ -1742,7 +1742,7 @@ class TestBrowserAgent(unittest.TestCase):
         )
         self.assertNotIn("Waiting again worked", events[-1]["final_reasoning"])
 
-    @patch("agents.actor_agent.BrowserAgent.get_model_response")
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_run_one_iteration_emits_runtime_phase_metadata_for_action_steps(
         self,
         mock_get_model_response,

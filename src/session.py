@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
-from agents.actor_agent import AgentInterrupted, BrowserAgent
+from agents.actor import AgentInterrupted, BrowserAgent
 from agents.types import GroundingMode
 from browser import ArtifactLogger, PlaywrightBrowser
 import config as app_config
@@ -143,7 +143,7 @@ class BrowserSession:
             subgoals = None
             replan_callback = None
             if self._use_planner:
-                from agents.planner_agent import PlannerAgent
+                from agents.planner import PlannerAgent
                 planner = PlannerAgent(query=query, event_sink=emit)
                 subgoals = planner.plan()
                 if is_task_interrupted():

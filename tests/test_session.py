@@ -1,7 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from agents.actor_agent import AgentInterrupted
+from agents.actor.agent import AgentInterrupted
 from agents.types import AgentRunResult
 import config as app_config
 from session import MAX_CONVERSATION_MEMORY_ITEMS, BrowserSession, TaskMemory
@@ -9,7 +9,7 @@ from session import MAX_CONVERSATION_MEMORY_ITEMS, BrowserSession, TaskMemory
 
 @patch("session.emit")
 @patch("session.BrowserAgent")
-@patch("agents.planner_agent.PlannerAgent")
+@patch("agents.planner.agent.PlannerAgent")
 def test_run_task_passes_planner_replan_callback(
     mock_planner_agent,
     mock_browser_agent,

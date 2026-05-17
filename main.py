@@ -11,8 +11,8 @@ SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from agents.actor_agent import BrowserAgent
-from agents.planner_agent import PlannerAgent
+from agents.actor import BrowserAgent
+from agents.planner import PlannerAgent
 from agents.types import GroundingMode, Subgoal
 from browser import ArtifactLogger, PlaywrightBrowser
 import config as app_config

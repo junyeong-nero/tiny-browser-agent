@@ -2,7 +2,7 @@ import unittest
 
 from google.genai import types
 
-from agents.context_compaction import build_effective_contents, summarize_old_contents
+from agents.actor.context_compaction import build_effective_contents, summarize_old_contents
 
 
 class TestContextCompaction(unittest.TestCase):

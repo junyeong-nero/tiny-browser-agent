@@ -25,25 +25,23 @@ from rich.console import Console
 from rich.table import Table
 
 import config as app_config
-from agents import model_turn
-from agents import model_trace
-from agents import subgoal_runner
-from agents.context_compaction import build_effective_contents
-from agents.review_events import build_review_metadata_event_payload
-from agents.post_summary_agent import (
+from agents.summarizer import (
     ActionMetadataWriter,
     ActionReviewService,
     ActionStepSummarizer,
 )
-from agents.task_scope import NavigationScope
-from agents.safety import (
+from agents.types import AgentRunResult, AgentRunStatus, GroundingMode, Subgoal
+from . import model_trace, model_turn, tool_orchestration
+from .context_compaction import build_effective_contents
+from .review_events import build_review_metadata_event_payload
+from .safety import (
     SafetyConfirmationCallback,
     SafetyDecision,
     prompt_for_safety_confirmation,
 )
-from agents import subgoals as subgoal_helpers
-from agents import tool_orchestration
-from agents.types import AgentRunResult, AgentRunStatus, GroundingMode, Subgoal
+from .task_scope import NavigationScope
+from ..planner import subgoal_runner
+from ..planner import subgoals as subgoal_helpers
 from browser import (
     ArtifactLogger,
     BrowserActionName,
