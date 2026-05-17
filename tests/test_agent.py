@@ -1563,6 +1563,57 @@ class TestBrowserAgent(unittest.TestCase):
         self.assertIn("Exceeded max total steps", events[-1]["error_message"])
 
     @patch("agents.actor.agent.BrowserAgent.get_model_response")
+    def test_subgoal_loop_classifies_raw_marker_before_final_summary(
+        self,
+        mock_get_model_response,
+    ):
+        step_summarizer = MagicMock()
+        step_summarizer.summarize_final_result.return_value = (
+            "서울역에서 부산역까지 도보 이동은 불가능합니다."
+        )
+        agent = BrowserAgent(
+            browser_computer=self.mock_browser_computer,
+            query="서울역에서 부산역까지 도보로 시간이 걸리는지 검색해줘.",
+            model_name="test_model",
+            llm_client=self.mock_llm_client,
+            step_summarizer=step_summarizer,
+            max_steps_per_subgoal=3,
+        )
+        mock_get_model_response.return_value = self.make_response(
+            [
+                types.Part(
+                    text=(
+                        "SUBGOAL_DONE: 네이버 지도에 도보 길찾기 불가 메시지가 "
+                        "표시되어 서울역에서 부산역까지 도보 이동이 불가능함을 확인했습니다."
+                    )
+                )
+            ]
+        )
+
+        result, reason = agent._run_subgoal_loop(
+            Subgoal(
+                id=3,
+                description="도보 이동 불가 메시지 확인",
+                success_criteria="도보 이동 불가 메시지가 표시됨",
+            )
+        )
+
+        self.assertEqual(result, "done")
+        self.assertIn("SUBGOAL_DONE", reason)
+        self.assertEqual(
+            agent.final_reasoning,
+            "서울역에서 부산역까지 도보 이동은 불가능합니다.",
+        )
+        self.assertEqual(mock_get_model_response.call_count, 1)
+        self.assertNotIn(
+            "without the required SUBGOAL_DONE",
+            " ".join(
+                message["text"] or ""
+                for message in agent.get_recent_messages(limit=3)
+            ),
+        )
+
+    @patch("agents.actor.agent.BrowserAgent.get_model_response")
     def test_subgoal_loop_retries_missing_final_reasoning_before_failing(
         self,
         mock_get_model_response,

@@ -54,6 +54,7 @@ def run_subgoal_loop(
     """Run one planner subgoal using the BrowserAgent iteration contract."""
     prior_outcomes = prior_outcomes or []
     agent.final_reasoning = None
+    agent._last_final_response = None
     agent._current_subgoal_id = subgoal.id
     agent._contents = [
         Content(
@@ -74,7 +75,11 @@ def run_subgoal_loop(
             status = agent.run_one_iteration()
             steps += 1
             agent._total_steps_used += 1
-            final_text = (agent.final_reasoning or "").strip()
+            final_text = (
+                getattr(agent, "_last_final_response", None)
+                or agent.final_reasoning
+                or ""
+            ).strip()
             if status == "COMPLETE" and not subgoal_helpers.has_subgoal_marker(final_text):
                 if steps >= agent._max_steps_per_subgoal:
                     break
@@ -87,13 +92,18 @@ def run_subgoal_loop(
                     "retry the subgoal decision now."
                 )
                 agent.final_reasoning = None
+                agent._last_final_response = None
                 status = "CONTINUE"
     finally:
         agent._current_subgoal_id = None
 
     return subgoal_helpers.classify_subgoal_final_text(
         subgoal_id=subgoal.id,
-        final_text=agent.final_reasoning or "",
+        final_text=(
+            getattr(agent, "_last_final_response", None)
+            or agent.final_reasoning
+            or ""
+        ),
         steps=steps,
     )
 
@@ -166,4 +176,3 @@ def run_subgoal_plan(agent: Any) -> AgentRunResult:
         index += 1
     status = "complete" if all(result == "done" for _, result, _ in outcomes) else "partial_failure"
     return agent._finalize_subgoal_plan(outcomes, status=status, reason=blocked_reason)
-

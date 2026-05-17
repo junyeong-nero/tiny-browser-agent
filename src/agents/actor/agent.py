@@ -147,6 +147,7 @@ class BrowserAgent:
         ]
         self._step_review_metadata: dict[int, dict[str, Any]] = {}
         self._last_model_request_context: dict[str, Any] | None = None
+        self._last_final_response: str | None = None
         self._latest_url: str | None = None
         self._current_subgoal_id: int | None = None
         self._empty_model_turn_retries = 0
@@ -602,11 +603,13 @@ class BrowserAgent:
         reasoning: Optional[str],
         visible_text: Optional[str],
     ) -> Literal["COMPLETE"]:
+        raw_final_response = visible_text or reasoning
+        self._last_final_response = raw_final_response
         final_result_summary = self._review_service.build_final_result_summary(
-            final_response=visible_text or reasoning,
+            final_response=raw_final_response,
             current_url=self._latest_url,
         )
-        final_reasoning = final_result_summary or visible_text or reasoning
+        final_reasoning = final_result_summary or raw_final_response
         print(f"Agent Loop Complete: {final_reasoning or '<empty model response>'}")
         self.final_reasoning = final_reasoning
         self._emit_review_metadata(
