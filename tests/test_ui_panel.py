@@ -270,6 +270,9 @@ def test_panel_graph_action_artifacts_do_not_render_flat_three_card_compare():
     assert "renderArtifactCard('action GIF', actionGif)" not in artifact_renderer
     assert "renderArtifactCard('before', beforeShot)" not in artifact_renderer
     assert "renderArtifactCard('after', afterShot)" not in artifact_renderer
+    assert "renderActionReplayCard('Action replay', actionClip)" in artifact_renderer
+    assert "renderActionReplayCard('Action replay', fallbackActionGif)" not in artifact_renderer
+    assert "renderArtifactCard('Before/after GIF', fallbackActionGif)" in artifact_renderer
 
 
 def test_panel_graph_selection_can_show_llm_raw_context_and_response():
@@ -979,7 +982,7 @@ def test_panel_graph_selection_renders_action_before_after_artifacts():
     assert "afterScreenshotPath: ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path)" in PANEL_HTML
     assert "actionGifPath: ev.artifacts && (ev.artifacts.action_clip_gif_path || ev.artifacts.action_gif_path)" in PANEL_HTML
     assert "videoPath: ev.artifacts && ev.artifacts.video_path" in PANEL_HTML
-    assert "renderActionReplayCard('Action replay', actionGif)" in PANEL_HTML
+    assert "renderActionReplayCard('Action replay', actionClip)" in PANEL_HTML
     assert "renderBeforeAfterCompare(beforeShot, afterShot)" in PANEL_HTML
     assert "renderArtifactCard('session video', video, 'video')" in PANEL_HTML
     assert "renderActionArtifacts(d.artifacts)" in PANEL_HTML
@@ -1188,7 +1191,13 @@ def test_panel_aggregates_child_action_gif_previews_for_url_and_viewport_nodes()
 
 
 def test_panel_prefers_action_clip_gif_over_two_frame_fallback():
-    assert "artifacts.action_clip_gif_path || artifacts.action_gif_path" in PANEL_HTML
+    artifact_renderer = PANEL_HTML.split("function renderActionArtifacts(artifacts)", 1)[1].split(
+        "function actionPreviewArtifactsFor(action)", 1
+    )[0]
+    assert "const actionClip = replayArtifactHref(artifacts.action_clip_gif_path, 'history');" in artifact_renderer
+    assert "const fallbackActionGif = replayArtifactHref(artifacts.action_gif_path, 'history');" in artifact_renderer
+    assert "renderActionReplayCard('Action replay', actionClip)" in artifact_renderer
+    assert "!actionClip && fallbackActionGif ? renderArtifactCard('Before/after GIF', fallbackActionGif) : ''" in artifact_renderer
     assert "action_clip_gif_path" in PANEL_HTML
 
 def test_panel_submit_task_handles_ok_false_and_preserves_input():

@@ -182,17 +182,20 @@ function renderBeforeAfterCompare(beforeHref, afterHref) {
 
 function renderActionArtifacts(artifacts) {
   if (!artifacts) return '';
-  const actionGif = replayArtifactHref(artifacts.action_clip_gif_path || artifacts.action_gif_path, 'history');
+  const actionClip = replayArtifactHref(artifacts.action_clip_gif_path, 'history');
+  const fallbackActionGif = replayArtifactHref(artifacts.action_gif_path, 'history');
   const beforeShot = replayArtifactHref(artifacts.before_screenshot_path, 'history');
   const afterShot = replayArtifactHref(artifacts.after_screenshot_path || artifacts.screenshot_path, 'history');
   const video = replayArtifactHref(artifacts.video_path, 'video');
   const cards = [
-    renderActionReplayCard('Action replay', actionGif),
+    renderActionReplayCard('Action replay', actionClip),
+    !actionClip && fallbackActionGif ? renderArtifactCard('Before/after GIF', fallbackActionGif) : '',
     renderBeforeAfterCompare(beforeShot, afterShot),
   ].filter(Boolean);
   const videoCard = renderArtifactCard('session video', video, 'video');
   const names = [];
-  if (artifacts.action_clip_gif_path || artifacts.action_gif_path) names.push(`gif=${escHtml(artifacts.action_clip_gif_path || artifacts.action_gif_path)}`);
+  if (artifacts.action_clip_gif_path) names.push(`clip=${escHtml(artifacts.action_clip_gif_path)}`);
+  if (artifacts.action_gif_path) names.push(`before_after_gif=${escHtml(artifacts.action_gif_path)}`);
   if (artifacts.before_screenshot_path) names.push(`before=${escHtml(artifacts.before_screenshot_path)}`);
   if (artifacts.after_screenshot_path || artifacts.screenshot_path) names.push(`after=${escHtml(artifacts.after_screenshot_path || artifacts.screenshot_path)}`);
   if (artifacts.video_path) names.push(`video=${escHtml(artifacts.video_path)}`);
