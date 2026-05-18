@@ -45,6 +45,7 @@ class TestClickByRef:
 
         browser.resolve_ref.assert_called_once_with(1)
         browser._mark_last_action.assert_called_once_with("click_by_ref")
+        browser.highlight_locator.assert_called_once_with(mock_locator, kind="click")
         mock_locator.click.assert_called_once_with(timeout=5000)
         assert result == browser.current_state.return_value
 

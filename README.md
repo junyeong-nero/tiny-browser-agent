@@ -160,7 +160,7 @@ scripts/run.sh
 | `--env` | Browser backend. Currently only `playwright`. | `playwright` |
 | `--initial_url` | Initial page loaded in the browser. | `https://www.duckduckgo.com` |
 | `--search_engine_url` | URL used by the `search` tool. | `https://www.duckduckgo.com` |
-| `--highlight_mouse` | Draw pointer/click highlights in screenshots. | `False` |
+| `--highlight_mouse` | Draw clicked-element and pointer-location highlights in screenshots. | `False` |
 | `--headless` | Launch Playwright headless (`True`/`False`). | `False` |
 | `--screen-size` | Browser size as `WIDTHxHEIGHT`, or `auto`. | `auto`, fallback `1600x900` |
 | `--log` | Save per-step screenshots, DOM, ARIA, events, GIFs, and action JSONL. | `False` |

@@ -149,7 +149,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--highlight_mouse",
         action="store_true",
         default=False,
-        help="If possible, highlight the location of the mouse.",
+        help="If possible, highlight clicked targets and pointer locations.",
     )
     parser.add_argument(
         "--headless",

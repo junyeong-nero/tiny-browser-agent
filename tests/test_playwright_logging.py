@@ -52,16 +52,66 @@ class TestPlaywrightLogging(unittest.TestCase):
         computer._page.evaluate.assert_not_called()
 
     @patch("browser.playwright.time.sleep", return_value=None)
-    def test_highlight_locator_draws_marker_at_locator_center(self, _mock_sleep):
+    def test_highlight_click_target_draws_actionable_element_at_point(self, _mock_sleep):
         computer = PlaywrightBrowser(screen_size=(1440, 900), highlight_mouse=True)
         computer._page = MagicMock()
+        computer._page.evaluate.side_effect = [
+            {"x": 8.4, "y": 18.6, "width": 101.2, "height": 33.7},
+            True,
+        ]
+
+        computer.highlight_click_target(10, 20, kind="click")
+
+        element_lookup_script, element_lookup_payload = computer._page.evaluate.call_args_list[
+            0
+        ].args
+        highlight_script, highlight_payload = computer._page.evaluate.call_args_list[1].args
+        self.assertIn("elementFromPoint", element_lookup_script)
+        self.assertEqual(element_lookup_payload, {"x": 10, "y": 20})
+        self.assertIn("tiny-browser-agent-element-highlight", highlight_script)
+        self.assertEqual(
+            highlight_payload,
+            {"x": 8, "y": 19, "width": 101, "height": 34, "kind": "click"},
+        )
+        _mock_sleep.assert_called_once_with(0.28)
+
+    def test_highlight_click_target_falls_back_to_pointer_marker(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900), highlight_mouse=True)
+        computer._page = MagicMock()
+        computer._page.evaluate.return_value = None
+        computer.highlight_mouse = MagicMock()
+
+        computer.highlight_click_target(10, 20, kind="click")
+
+        computer.highlight_mouse.assert_called_once_with(10, 20, kind="click")
+
+    @patch("browser.playwright.time.sleep", return_value=None)
+    def test_highlight_locator_draws_element_box(self, _mock_sleep):
+        computer = PlaywrightBrowser(screen_size=(1440, 900), highlight_mouse=True)
+        computer._page = MagicMock()
+        computer._page.evaluate.return_value = True
         locator = MagicMock()
         locator.bounding_box.return_value = {"x": 10, "y": 20, "width": 40, "height": 20}
 
         computer.highlight_locator(locator, kind="click")
 
-        _, payload = computer._page.evaluate.call_args.args
-        self.assertEqual(payload, {"x": 30, "y": 30, "kind": "click"})
+        script, payload = computer._page.evaluate.call_args.args
+        self.assertIn("tiny-browser-agent-element-highlight", script)
+        self.assertEqual(payload, {"x": 10, "y": 20, "width": 40, "height": 20, "kind": "click"})
+        locator.scroll_into_view_if_needed.assert_called_once_with(timeout=1_000)
+
+    def test_click_at_highlights_click_target_before_clicking(self):
+        computer = PlaywrightBrowser(screen_size=(1440, 900), highlight_mouse=True)
+        computer._page = MagicMock()
+        computer.highlight_click_target = MagicMock()
+        expected_state = MagicMock()
+        computer._state_after_load = MagicMock(return_value=expected_state)
+
+        result = computer.click_at(10, 20)
+
+        computer.highlight_click_target.assert_called_once_with(10, 20, kind="click")
+        computer._page.mouse.click.assert_called_once_with(10, 20)
+        self.assertEqual(result, expected_state)
 
     def test_search_uses_duckduckgo_by_default(self):
         computer = PlaywrightBrowser(screen_size=(1440, 900))
@@ -703,6 +753,10 @@ class TestPlaywrightLogging(unittest.TestCase):
 
             self.assertEqual(captured_cmd["cmd"][captured_cmd["cmd"].index("-framerate") + 1], "0.500")
             filter_complex = captured_cmd["cmd"][captured_cmd["cmd"].index("-filter_complex") + 1]
+            self.assertIn(
+                "tpad=start_mode=clone:start_duration=0.35:stop_mode=clone:stop_duration=0.85",
+                filter_complex,
+            )
             self.assertIn("scale=w='min(iw\\,1920)':h='min(ih\\,1080)'", filter_complex)
             self.assertIn("force_original_aspect_ratio=decrease", filter_complex)
             self.assertIn("force_divisible_by=2", filter_complex)
@@ -717,6 +771,67 @@ class TestPlaywrightLogging(unittest.TestCase):
                 artifact_logger.latest_artifact_metadata()["action_clip_gif_path"],
                 "step-0001-action.gif",
             )
+
+    def test_action_capture_seeds_previous_observation_frame(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            artifact_logger = ArtifactLogger(log_dir=tmp_dir)
+            fake_shutil = MagicMock()
+            fake_shutil.which.return_value = "/usr/bin/ffmpeg"
+            fake_subprocess = MagicMock()
+            recording = BrowserRecordingHelper(
+                artifact_logger=artifact_logger,
+                subprocess_module=fake_subprocess,
+                shutil_module=fake_shutil,
+            )
+            recording.update_frame_buffer(b"before-action")
+            cdp_session = MagicMock()
+            context = MagicMock()
+            context.new_cdp_session.return_value = cdp_session
+
+            recording.begin_action_capture(page=MagicMock(), context=context)
+
+            self.assertIsNotNone(recording._action_capture_frames)
+            if recording._action_capture_frames is None:
+                self.fail("Expected action capture frames")
+            self.assertEqual(recording._action_capture_frames[0][1], b"before-action")
+            cdp_session.send.assert_called_with(
+                "Page.startScreencast",
+                {"format": "png", "quality": 80, "everyNthFrame": 1},
+            )
+
+    def test_action_capture_appends_final_observation_frame_before_writing_gif(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            artifact_logger = ArtifactLogger(log_dir=tmp_dir)
+            fake_shutil = MagicMock()
+            fake_shutil.which.return_value = "/usr/bin/ffmpeg"
+            fake_subprocess = MagicMock()
+            recording = BrowserRecordingHelper(
+                artifact_logger=artifact_logger,
+                subprocess_module=fake_subprocess,
+                shutil_module=fake_shutil,
+            )
+            history_dir = Path(tmp_dir) / "history"
+            history_dir.mkdir(parents=True)
+            metadata_path = history_dir / "step-0001.json"
+            metadata_path.write_text(
+                json.dumps({"step": 1, "metadata_path": "step-0001.json"}) + "\n",
+                encoding="utf-8",
+            )
+            artifact_logger._latest_artifact_metadata = {
+                "step": 1,
+                "metadata_path": "step-0001.json",
+            }
+            recording._action_capture_started_at = 10.0
+            recording._action_capture_frames = [(10.0, b"before"), (10.5, b"during")]
+            recording.update_frame_buffer(b"after")
+            recording.write_action_clip_gif = MagicMock(return_value="step-0001-action.gif")
+
+            updates = recording.end_action_capture(persist=True)
+
+            frames_arg = recording.write_action_clip_gif.call_args.args[0]
+            self.assertEqual([frame for _ts, frame in frames_arg], [b"before", b"during", b"after"])
+            self.assertEqual(updates["action_capture_frame_count"], 3)
+            self.assertEqual(updates["action_clip_gif_path"], "step-0001-action.gif")
 
     def test_action_capture_discard_does_not_mutate_latest_metadata(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

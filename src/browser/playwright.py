@@ -362,7 +362,7 @@ class PlaywrightBrowser:
 
     def click_at(self, x: int, y: int) -> EnvState:
         self._mark_last_action("click_at")
-        self.highlight_mouse(x, y, kind="click")
+        self.highlight_click_target(x, y, kind="click")
         self._page.mouse.click(x, y)
         return self._state_after_load()
 
@@ -381,7 +381,7 @@ class PlaywrightBrowser:
         clear_before_typing: bool = True,
     ) -> EnvState:
         self._mark_last_action("type_text_at")
-        self.highlight_mouse(x, y, kind="type")
+        self.highlight_click_target(x, y, kind="type")
         self._page.mouse.click(x, y)
         self._page.wait_for_load_state()
 
@@ -586,7 +586,7 @@ class PlaywrightBrowser:
             )
 
         with self._page.expect_file_chooser() as file_chooser_info:
-            self.highlight_mouse(x, y, kind="upload")
+            self.highlight_click_target(x, y, kind="upload")
             self._page.mouse.click(x, y)
         file_chooser_info.value.set_files(str(resolved_path))
         return self.current_state()
@@ -877,23 +877,260 @@ class PlaywrightBrowser:
         )
         time.sleep(MOUSE_HIGHLIGHT_CAPTURE_DELAY_SECONDS)
 
-    def highlight_locator(self, locator: Any, *, kind: str = "click") -> None:
-        """Highlight the center of a resolved locator when mouse highlighting is enabled."""
+    def highlight_click_target(self, x: int, y: int, *, kind: str = "click") -> None:
+        """Highlight the actionable element under a click point, falling back to a point marker."""
         if not self._highlight_mouse:
             return
+        box = self._element_box_at_point(x, y)
+        if box is not None and self._highlight_element_box(box, kind=kind):
+            return
+        self.highlight_mouse(x, y, kind=kind)
+
+    def highlight_locator(self, locator: Any, *, kind: str = "click") -> None:
+        """Highlight the bounds of a resolved locator when mouse highlighting is enabled."""
+        if not self._highlight_mouse:
+            return
+        try:
+            locator.scroll_into_view_if_needed(timeout=1_000)
+        except TypeError:
+            try:
+                locator.scroll_into_view_if_needed()
+            except Exception:
+                pass
+        except Exception:
+            pass
         try:
             box = locator.bounding_box(timeout=1_000)
         except TypeError:
             box = locator.bounding_box()
         except Exception:
             return
-        if not box:
+        normalized_box = self._normalize_highlight_box(box)
+        if normalized_box is None:
+            return
+        if self._highlight_element_box(normalized_box, kind=kind):
             return
         self.highlight_mouse(
-            int(box["x"] + box["width"] / 2),
-            int(box["y"] + box["height"] / 2),
+            int(normalized_box["x"] + normalized_box["width"] / 2),
+            int(normalized_box["y"] + normalized_box["height"] / 2),
             kind=kind,
         )
+
+    def _element_box_at_point(self, x: int, y: int) -> dict[str, int] | None:
+        try:
+            box = self._page.evaluate(
+                """
+                ({ x, y }) => {
+                    const pointX = Number(x);
+                    const pointY = Number(y);
+                    if (!Number.isFinite(pointX) || !Number.isFinite(pointY)) return null;
+
+                    const leaf = document.elementFromPoint(pointX, pointY);
+                    if (!leaf || !(leaf instanceof Element)) return null;
+
+                    const actionableSelector = [
+                        "button",
+                        "a[href]",
+                        "input",
+                        "select",
+                        "textarea",
+                        "summary",
+                        "label",
+                        "[onclick]",
+                        "[role='button']",
+                        "[role='link']",
+                        "[role='tab']",
+                        "[role='checkbox']",
+                        "[role='radio']",
+                        "[role='menuitem']",
+                        "[role='option']",
+                        "[tabindex]:not([tabindex='-1'])"
+                    ].join(",");
+                    const target = leaf.closest(actionableSelector);
+                    if (!target || target === document.body || target === document.documentElement) {
+                        return null;
+                    }
+
+                    const style = window.getComputedStyle(target);
+                    if (style.display === "none" || style.visibility === "hidden") return null;
+
+                    const rect = target.getBoundingClientRect();
+                    if (rect.width < 2 || rect.height < 2) return null;
+                    return {
+                        x: rect.left,
+                        y: rect.top,
+                        width: rect.width,
+                        height: rect.height
+                    };
+                }
+                """,
+                {"x": int(x), "y": int(y)},
+            )
+        except Exception:
+            return None
+        return self._normalize_highlight_box(box)
+
+    def _normalize_highlight_box(self, box: Any) -> dict[str, int] | None:
+        if not isinstance(box, dict):
+            return None
+        try:
+            x = float(box["x"])
+            y = float(box["y"])
+            width = float(box["width"])
+            height = float(box["height"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if width <= 0 or height <= 0:
+            return None
+        return {
+            "x": int(round(x)),
+            "y": int(round(y)),
+            "width": max(1, int(round(width))),
+            "height": max(1, int(round(height))),
+        }
+
+    def _highlight_element_box(self, box: dict[str, int], *, kind: str = "click") -> bool:
+        if not self._highlight_mouse:
+            return False
+        try:
+            highlighted = self._page.evaluate(
+                """
+                ({ x, y, width, height, kind }) => {
+                    const rect = {
+                        x: Number(x),
+                        y: Number(y),
+                        width: Number(width),
+                        height: Number(height)
+                    };
+                    if (
+                        !Number.isFinite(rect.x) ||
+                        !Number.isFinite(rect.y) ||
+                        !Number.isFinite(rect.width) ||
+                        !Number.isFinite(rect.height) ||
+                        rect.width <= 0 ||
+                        rect.height <= 0
+                    ) {
+                        return false;
+                    }
+
+                    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+                    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+                    const pad = Math.max(
+                        6,
+                        Math.min(18, Math.round(Math.min(rect.width, rect.height) * .16))
+                    );
+                    const left = Math.max(0, Math.round(rect.x - pad));
+                    const top = Math.max(0, Math.round(rect.y - pad));
+                    const right = Math.min(viewportWidth, Math.round(rect.x + rect.width + pad));
+                    const bottom = Math.min(viewportHeight, Math.round(rect.y + rect.height + pad));
+                    if (right <= 0 || bottom <= 0 || left >= viewportWidth || top >= viewportHeight) {
+                        return false;
+                    }
+
+                    const rawKind = String(kind || "target");
+                    const palette = rawKind === "hover"
+                        ? { border: "#f9ab00", fill: "rgba(249, 171, 0, .16)", label: "#8a5b00" }
+                        : (rawKind === "type" || rawKind === "upload")
+                            ? { border: "#9334e6", fill: "rgba(147, 52, 230, .14)", label: "#681da8" }
+                            : { border: "#ff1744", fill: "rgba(255, 23, 68, .14)", label: "#b00020" };
+                    const overlayWidth = Math.max(24, right - left);
+                    const overlayHeight = Math.max(24, bottom - top);
+                    const marker = document.createElement("div");
+                    marker.className = "tiny-browser-agent-element-highlight";
+                    marker.dataset.kind = rawKind;
+                    Object.assign(marker.style, {
+                        position: "fixed",
+                        left: `${left}px`,
+                        top: `${top}px`,
+                        width: `${overlayWidth}px`,
+                        height: `${overlayHeight}px`,
+                        minWidth: "24px",
+                        minHeight: "24px",
+                        border: `5px solid ${palette.border}`,
+                        borderRadius: "14px",
+                        background: palette.fill,
+                        boxShadow: [
+                            "0 0 0 9999px rgba(0, 0, 0, .10)",
+                            "0 0 0 7px rgba(255, 255, 255, .88)",
+                            `0 0 0 12px ${palette.fill}`,
+                            `0 0 36px ${palette.border}`
+                        ].join(", "),
+                        boxSizing: "border-box",
+                        pointerEvents: "none",
+                        zIndex: "2147483647",
+                        opacity: "0",
+                        transform: "scale(.98)"
+                    });
+
+                    const inner = document.createElement("div");
+                    Object.assign(inner.style, {
+                        position: "absolute",
+                        inset: "4px",
+                        border: "2px dashed rgba(255, 255, 255, .92)",
+                        borderRadius: "9px",
+                        pointerEvents: "none"
+                    });
+
+                    const labelKind = rawKind.replace(/[-_]/g, " ").toUpperCase();
+                    const label = document.createElement("div");
+                    label.textContent = `${labelKind} TARGET`;
+                    Object.assign(label.style, {
+                        position: "absolute",
+                        left: "50%",
+                        top: "calc(100% + 12px)",
+                        transform: "translateX(-50%)",
+                        minWidth: "max-content",
+                        padding: "5px 9px",
+                        border: "2px solid rgba(255, 255, 255, .95)",
+                        borderRadius: "999px",
+                        background: palette.label,
+                        color: "#fff",
+                        font: "800 12px/1.15 system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+                        letterSpacing: ".04em",
+                        textShadow: "0 1px 2px rgba(0, 0, 0, .45)",
+                        boxShadow: "0 5px 16px rgba(0, 0, 0, .32)",
+                        whiteSpace: "nowrap",
+                        pointerEvents: "none"
+                    });
+
+                    marker.appendChild(inner);
+                    marker.appendChild(label);
+                    document.documentElement.appendChild(marker);
+                    if (typeof marker.animate === "function") {
+                        marker.animate(
+                            [
+                                { opacity: 0, transform: "scale(.98)" },
+                                { opacity: 1, transform: "scale(1)", offset: .10 },
+                                { opacity: 1, transform: "scale(1.015)", offset: .70 },
+                                { opacity: 0, transform: "scale(1.055)" }
+                            ],
+                            { duration: 2200, easing: "ease-out", fill: "forwards" }
+                        );
+                    } else {
+                        marker.style.transition = "opacity 2200ms ease-out, transform 2200ms ease-out";
+                        requestAnimationFrame(() => {
+                            marker.style.opacity = "1";
+                            marker.style.transform = "scale(1.015)";
+                        });
+                    }
+                    setTimeout(() => marker.remove(), 2250);
+                    return true;
+                }
+                """,
+                {
+                    "x": box["x"],
+                    "y": box["y"],
+                    "width": box["width"],
+                    "height": box["height"],
+                    "kind": kind,
+                },
+            )
+        except Exception:
+            return False
+        if highlighted:
+            time.sleep(MOUSE_HIGHLIGHT_CAPTURE_DELAY_SECONDS)
+        return bool(highlighted)
+
 
     def _start_frame_stream(self) -> None:
         try:
