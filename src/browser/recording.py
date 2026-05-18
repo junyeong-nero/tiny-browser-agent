@@ -13,6 +13,9 @@ from typing import Any, Optional
 from .artifact_logger import ArtifactLogger
 from .gif import build_high_quality_gif_filter
 
+ACTION_CLIP_START_HOLD_SECONDS = 0.35
+ACTION_CLIP_END_HOLD_SECONDS = 0.85
+
 
 class BrowserRecordingHelper:
     """Owns frame streaming and per-action recording state.
@@ -53,6 +56,10 @@ class BrowserRecordingHelper:
     def update_frame_buffer(self, frame: bytes) -> None:
         with self.frame_lock:
             self.frame_buffer = frame
+
+    def _latest_frame_buffer(self) -> bytes | None:
+        with self.frame_lock:
+            return self.frame_buffer
 
     def start_frame_stream(self, *, fps: int) -> None:
         video_dir = self.video_dir()
@@ -128,9 +135,13 @@ class BrowserRecordingHelper:
         ffmpeg_cmd = os.getenv("COMPUTER_USE_FFMPEG_COMMAND") or self._shutil.which("ffmpeg")
         if not ffmpeg_cmd or page is None or context is None:
             return
+        started_at = time.time()
+        stable_before_frame = self._latest_frame_buffer()
         with self._action_capture_lock:
-            self._action_capture_frames = []
-            self._action_capture_started_at = time.time()
+            self._action_capture_frames = (
+                [(started_at, stable_before_frame)] if stable_before_frame is not None else []
+            )
+            self._action_capture_started_at = started_at
         try:
             cdp_session = context.new_cdp_session(page)
 
@@ -183,6 +194,15 @@ class BrowserRecordingHelper:
 
         if not persist:
             return None
+
+        final_frame = self._latest_frame_buffer()
+        if final_frame is not None and (
+            not captured_frames or captured_frames[-1][1] != final_frame
+        ):
+            final_ts = time.time()
+            if captured_frames:
+                final_ts = max(final_ts, captured_frames[-1][0] + 0.001)
+            captured_frames.append((final_ts, final_frame))
 
         metadata = self.latest_artifact_metadata()
         history_dir = self.history_dir()
@@ -259,7 +279,11 @@ class BrowserRecordingHelper:
             "-i",
             "pipe:0",
             "-filter_complex",
-            build_high_quality_gif_filter("[0:v]"),
+            build_high_quality_gif_filter(
+                "[0:v]"
+                f"tpad=start_mode=clone:start_duration={ACTION_CLIP_START_HOLD_SECONDS}"
+                f":stop_mode=clone:stop_duration={ACTION_CLIP_END_HOLD_SECONDS}"
+            ),
             str(output_path),
         ]
         try:
