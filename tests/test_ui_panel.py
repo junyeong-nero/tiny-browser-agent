@@ -702,9 +702,9 @@ def test_panel_cards_use_symmetric_compact_divider_gap():
     right_sidebar_css = PANEL_HTML.split("aside#right-sidebar {", 1)[1].split("}", 1)[0]
     footer_css = PANEL_HTML.split("\n  footer {", 1)[1].split("}", 1)[0]
 
-    assert "margin: 16px 8px 12px;" in main_css
-    assert "margin: 16px 8px 16px 12px;" in left_sidebar_css
-    assert "margin: 16px 12px 16px 8px;" in right_sidebar_css
+    assert "margin: 16px 8px;" in main_css
+    assert "margin: 16px 8px 16px 16px;" in left_sidebar_css
+    assert "margin: 16px 16px 16px 8px;" in right_sidebar_css
     assert "padding: 4px 8px 16px;" in footer_css
 
 
@@ -755,7 +755,7 @@ def test_panel_sidebar_itself_is_viewport_constrained_and_scrollable():
     # The scrollable region is the sheet-body, not the aside itself.
     assert "overflow-y: auto;" in sheet_body_css
     assert "overscroll-behavior: contain;" in sheet_body_css
-    assert "scrollbar-gutter: stable;" in sheet_body_css
+    assert "scrollbar-gutter: stable both-edges;" in sheet_body_css
     assert "overflow: visible;" in side_section_css
     assert "display: grid;" in PANEL_HTML.split("details.side-section[open] {", 1)[1].split("}", 1)[0]
     assert "grid-template-rows: auto minmax(0, auto);" in PANEL_HTML
