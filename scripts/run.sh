@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-uv run main.py --simple-ui --highlight_mouse --planner --log \
+uv run main.py --ui --highlight_mouse --planner --log \
 	--stealth \
 	--locale ko-KR \
 	--timezone Asia/Seoul \
