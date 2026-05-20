@@ -1,4 +1,5 @@
 import unittest
+import argparse
 from unittest.mock import ANY, MagicMock, patch
 import main
 
@@ -239,6 +240,63 @@ class TestMain(unittest.TestCase):
     @patch("main.detect_screen_size", return_value=None)
     def test_resolve_screen_size_falls_back_when_detection_fails(self, _mock_detect):
         self.assertEqual(main.resolve_screen_size(None), main.PLAYWRIGHT_SCREEN_SIZE)
+
+    def test_validate_args_allows_simple_ui_without_query(self):
+        parser = MagicMock()
+        args = argparse.Namespace(ui=False, simple_ui=True, query=None)
+
+        main._validate_args(args, parser)
+
+        parser.error.assert_not_called()
+
+    def test_validate_args_rejects_simple_ui_with_query(self):
+        parser = MagicMock()
+        args = argparse.Namespace(ui=False, simple_ui=True, query="test_query")
+
+        main._validate_args(args, parser)
+
+        parser.error.assert_called_once_with(
+            "--ui/--simple-ui and a positional query are mutually exclusive."
+        )
+
+    def test_validate_args_rejects_full_and_simple_ui_together(self):
+        parser = MagicMock()
+        args = argparse.Namespace(ui=True, simple_ui=True, query=None)
+
+        main._validate_args(args, parser)
+
+        parser.error.assert_called_once_with("--ui and --simple-ui are mutually exclusive.")
+
+    @patch("main.webbrowser.open")
+    @patch("main.threading.Thread")
+    @patch("main.threading.Event")
+    @patch("session.BrowserSession")
+    def test_run_ui_mode_uses_simple_ui_server_when_requested(
+        self,
+        mock_browser_session,
+        mock_event,
+        mock_thread,
+        _mock_open,
+    ):
+        import simple_ui.server as simple_server
+
+        ready = MagicMock()
+        ready.wait.return_value = True
+        mock_event.return_value = ready
+        args = argparse.Namespace(
+            simple_ui=True,
+            model="test_model",
+            log=False,
+            video=False,
+            grounding="text",
+            planner=False,
+        )
+
+        main._run_ui_mode(MagicMock(), args)
+
+        self.assertIs(mock_thread.call_args.kwargs["target"], simple_server.start)
+        mock_thread.return_value.start.assert_called_once()
+        mock_browser_session.return_value.run.assert_called_once()
 
 
 if __name__ == '__main__':
