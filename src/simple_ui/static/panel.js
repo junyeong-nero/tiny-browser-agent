@@ -28,6 +28,7 @@ const sidePlan       = document.getElementById('side-plan');
 const sideSelection  = document.getElementById('side-selection');
 const sideReplay     = document.getElementById('side-replay');
 const sideStepTitle  = document.getElementById('side-step-title');
+const simpleActionDetails = document.getElementById('simple-action-details');
 const metaStep       = document.getElementById('meta-step');
 const metaUrl        = document.getElementById('meta-url');
 const metaState      = document.getElementById('meta-state');
@@ -302,6 +303,7 @@ function renderEmptyAdditionalInfo(message = 'no action step selected.') {
     sideStepTitle.textContent = message;
   }
   if (sideReplay) sideReplay.innerHTML = empty;
+  renderSimpleActionDetails([]);
   if (sideSelection) sideSelection.innerHTML = empty;
   if (typeof renderRightPanelAuxiliarySections === 'function') {
     renderRightPanelAuxiliarySections(null, null);
@@ -324,6 +326,24 @@ function functionCallArguments(calls) {
     const args = call && call.args && Object.keys(call.args).length ? formatArgs(call.args) : '—';
     return `${name}: ${args}`;
   }).join('; ');
+}
+
+function renderSimpleActionDetails(calls) {
+  if (!simpleActionDetails) return;
+  const items = Array.isArray(calls) ? calls : [];
+  if (!items.length) {
+    simpleActionDetails.innerHTML = '<div class="side-empty">no tool call selected.</div>';
+    return;
+  }
+  simpleActionDetails.innerHTML = items.map((call, index) => {
+    const name = call && call.name ? call.name : `call ${index + 1}`;
+    const args = call && call.args && Object.keys(call.args).length ? formatArgs(call.args) : '—';
+    return `
+      <div class="simple-tool-card">
+        <div class="simple-tool-row"><span class="simple-tool-label">tool</span><code>${escHtml(name)}</code></div>
+        <div class="simple-tool-row simple-tool-args"><span class="simple-tool-label">arguments</span><pre>${escHtml(args)}</pre></div>
+      </div>`;
+  }).join('');
 }
 
 function renderActionStepAdditionalInfo(stepId) {
@@ -354,11 +374,12 @@ function renderActionStepAdditionalInfo(stepId) {
 
   if (sideStepTitle) {
     sideStepTitle.className = 'side-step-title';
-    sideStepTitle.textContent = `Step #${key}`;
+    sideStepTitle.textContent = `Action step #${key}`;
   }
   if (sideReplay) {
-    sideReplay.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
+    sideReplay.innerHTML = replayBody || '<div class="side-empty">no screenshot available.</div>';
   }
+  renderSimpleActionDetails(calls);
   if (sideSelection) {
     sideSelection.innerHTML = rows.length ? rows.join('') : '<div class="side-empty">no info.</div>';
   }
@@ -420,11 +441,12 @@ function renderActionGroupAdditionalInfo(actionNode) {
 
   if (sideStepTitle) {
     sideStepTitle.className = 'side-step-title';
-    sideStepTitle.textContent = representative;
+    sideStepTitle.textContent = latestStepId != null ? `Action step #${latestStepId}` : representative;
   }
   if (sideReplay) {
-    sideReplay.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
+    sideReplay.innerHTML = replayBody || '<div class="side-empty">no screenshot available.</div>';
   }
+  renderSimpleActionDetails(calls);
   if (sideSelection) {
     sideSelection.innerHTML = (rows.length ? rows.join('') : '<div class="side-empty">no info.</div>') +
       memberList;
@@ -671,6 +693,9 @@ function storeFunctionCalls(stepId, calls) {
   if (key == null) return;
   functionCallsByStep.set(key, Array.isArray(calls) ? calls : []);
   refreshActionSummaryForStep(stepId);
+  if (selectedTimelineStepId == null && artifactsByStep.has(key)) {
+    renderActionStepAdditionalInfo(key);
+  }
 }
 
 function storeObservedUrl(stepId, url) {
@@ -692,7 +717,11 @@ function storeArtifactsForStep(stepId, artifacts) {
   if (key == null || !artifacts) return;
   const prev = artifactsByStep.get(key) || {};
   artifactsByStep.set(key, { ...prev, ...artifacts });
-  refreshAdditionalInfoForStep(stepId);
+  if (selectedTimelineStepId == null) {
+    renderActionStepAdditionalInfo(key);
+  } else {
+    refreshAdditionalInfoForStep(stepId);
+  }
 }
 
 function upsertActionSummary(item) {

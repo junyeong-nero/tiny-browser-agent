@@ -35,11 +35,11 @@ function renderArtifactCard(label, href, kind = 'image') {
   return `<div class="artifact-card"><div class="artifact-label">${safeLabel} · <a class="artifact-link" target="_blank" rel="noreferrer" href="${safeHref}">open</a></div>${media}</div>`;
 }
 
-function renderActionReplayCard(label, href) {
+function renderActionScreenshotCard(label, href) {
   if (!href) return '';
-  const safeLabel = escHtml(label || 'Action replay');
+  const safeLabel = escHtml(label || 'Screenshot');
   const safeHref = escHtml(href);
-  return `<div class="artifact-card artifact-primary"><div class="artifact-label">${safeLabel} · <a class="artifact-link" target="_blank" rel="noreferrer" href="${safeHref}">open</a></div><img src="${safeHref}" alt="${safeLabel}"></div>`;
+  return `<a class="simple-screenshot-link" target="_blank" rel="noreferrer" href="${safeHref}"><img src="${safeHref}" alt="${safeLabel}"></a>`;
 }
 
 function renderBeforeAfterCompare(beforeHref, afterHref) {
@@ -51,18 +51,9 @@ function renderBeforeAfterCompare(beforeHref, afterHref) {
 
 function renderActionArtifacts(artifacts) {
   if (!artifacts) return '';
-  const actionClip = replayArtifactHref(artifacts.action_clip_gif_path, 'history');
-  const fallbackActionGif = replayArtifactHref(artifacts.action_gif_path, 'history');
-  const beforeShot = replayArtifactHref(artifacts.before_screenshot_path, 'history');
   const afterShot = replayArtifactHref(artifacts.after_screenshot_path || artifacts.screenshot_path, 'history');
-  const video = replayArtifactHref(artifacts.video_path, 'video');
-  const cards = [
-    renderActionReplayCard('Action replay', actionClip),
-    !actionClip && fallbackActionGif ? renderArtifactCard('Before/after GIF', fallbackActionGif) : '',
-    renderBeforeAfterCompare(beforeShot, afterShot),
-    renderArtifactCard('session video', video, 'video'),
-  ].filter(Boolean);
-  return cards.join('');
+  const fallbackShot = replayArtifactHref(artifacts.before_screenshot_path, 'history');
+  return renderActionScreenshotCard('Screenshot', afterShot || fallbackShot);
 }
 
 function renderRightPanelAuxiliarySections(_inference, _artifacts) {}

@@ -40,9 +40,13 @@ def test_simple_panel_keeps_full_ui_chrome_and_timeline_surface():
     assert "Timeline" in SIMPLE_PANEL_HTML_ONLY
 
     assert 'id="left-sidebar"' not in SIMPLE_PANEL_HTML_ONLY
-    assert 'id="right-sidebar"' not in SIMPLE_PANEL_HTML_ONLY
     assert 'id="left-resizer"' not in SIMPLE_PANEL_HTML_ONLY
-    assert 'id="right-resizer"' not in SIMPLE_PANEL_HTML_ONLY
+    assert 'id="right-sidebar"' in SIMPLE_PANEL_HTML_ONLY
+    assert 'class="side-panel simple-screenshot-panel"' in SIMPLE_PANEL_HTML_ONLY
+    assert 'id="right-resizer"' in SIMPLE_PANEL_HTML_ONLY
+    assert 'id="side-step-title"' in SIMPLE_PANEL_HTML_ONLY
+    assert 'id="side-replay"' in SIMPLE_PANEL_HTML_ONLY
+    assert 'id="simple-action-details"' in SIMPLE_PANEL_HTML_ONLY
     assert 'data-view="graph"' not in SIMPLE_PANEL_HTML_ONLY
     assert 'id="graph-wrap"' not in SIMPLE_PANEL_HTML_ONLY
     assert 'id="graph-svg"' not in SIMPLE_PANEL_HTML_ONLY
@@ -57,9 +61,55 @@ def test_simple_panel_uses_full_panel_assets_with_simple_layout_overrides():
     assert "function renderRightPanelAuxiliarySections(_inference, _artifacts)" in SIMPLE_GRAPH_JS
     assert "function recordActionExecution(_event) {}" in SIMPLE_GRAPH_JS
     assert "body.simple-ui" in SIMPLE_PANEL_CSS
-    assert 'grid-template-areas:\n    "header"\n    "main"\n    "footer";' in SIMPLE_PANEL_CSS
-    assert "body.simple-ui aside.side-panel" in SIMPLE_PANEL_CSS
+    assert 'grid-template-areas:\n    "header header        header"\n    "right-aside right-resizer main"\n    "right-aside right-resizer footer";' in SIMPLE_PANEL_CSS
+    assert "--right-aside-w: 360px;" in SIMPLE_PANEL_CSS
+    assert "body.simple-ui #right-resizer" in SIMPLE_PANEL_CSS
+    assert "body.simple-ui aside#right-sidebar" in SIMPLE_PANEL_CSS
+    assert "margin: 16px 8px 16px 16px;" in SIMPLE_PANEL_CSS
+    assert "body.simple-ui #left-sidebar" in SIMPLE_PANEL_CSS
     assert "body.simple-ui [data-view=\"graph\"]" in SIMPLE_PANEL_CSS
+
+
+def test_simple_panel_right_panel_shows_only_step_screenshot():
+    assert "function renderActionScreenshotCard(label, href)" in SIMPLE_GRAPH_JS
+    artifact_renderer = SIMPLE_GRAPH_JS.split("function renderActionArtifacts(artifacts)", 1)[1].split(
+        "function renderRightPanelAuxiliarySections", 1
+    )[0]
+
+    assert "after_screenshot_path || artifacts.screenshot_path" in artifact_renderer
+    assert "before_screenshot_path" in artifact_renderer
+    assert "simple-screenshot-link" in SIMPLE_GRAPH_JS
+    assert "action_clip_gif_path" not in artifact_renderer
+    assert "action_gif_path" not in artifact_renderer
+    assert "video_path" not in artifact_renderer
+    assert "renderBeforeAfterCompare" not in artifact_renderer
+    assert "artifact-label" not in artifact_renderer
+
+    store_artifacts = SIMPLE_PANEL_JS.split("function storeArtifactsForStep(stepId, artifacts)", 1)[1].split(
+        "function upsertActionSummary", 1
+    )[0]
+    assert "if (selectedTimelineStepId == null)" in store_artifacts
+    assert "renderActionStepAdditionalInfo(key);" in store_artifacts
+    assert "Action step #${key}" in SIMPLE_PANEL_JS
+    assert "const simpleActionDetails = document.getElementById('simple-action-details');" in SIMPLE_PANEL_JS
+    assert "function renderSimpleActionDetails(calls)" in SIMPLE_PANEL_JS
+    assert "renderSimpleActionDetails(calls);" in SIMPLE_PANEL_JS
+    assert "simple-tool-label\">tool" in SIMPLE_PANEL_JS
+    assert "simple-tool-label\">arguments" in SIMPLE_PANEL_JS
+    assert "body.simple-ui .simple-screenshot-panel .side-step-title" in SIMPLE_PANEL_CSS
+    assert "text-align: left;" in SIMPLE_PANEL_CSS
+    assert ".simple-screenshot-link img" in SIMPLE_PANEL_CSS
+    assert "object-position: center center;" in SIMPLE_PANEL_CSS
+    sheet_body_css = SIMPLE_PANEL_CSS.split(
+        "body.simple-ui .simple-screenshot-panel .sheet-body {", 1
+    )[1].split("}", 1)[0]
+    assert "grid-template-rows: auto minmax(0, 1fr) auto;" in sheet_body_css
+    assert "scrollbar-gutter: stable both-edges;" in sheet_body_css
+    screenshot_body_css = SIMPLE_PANEL_CSS.split(
+        "body.simple-ui .simple-screenshot-body {", 1
+    )[1].split("}", 1)[0]
+    assert "padding: 6px 16px;" in screenshot_body_css
+    assert "body.simple-ui .simple-action-details" in SIMPLE_PANEL_CSS
 
 
 def test_simple_panel_static_assets_are_served():

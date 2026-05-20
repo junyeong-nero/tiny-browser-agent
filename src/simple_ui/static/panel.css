@@ -464,7 +464,7 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    margin: 16px 8px 12px;
+    margin: 16px 8px;
     background:
       linear-gradient(180deg,
         color-mix(in srgb, var(--md-sys-color-primary) 4%, transparent),
@@ -992,18 +992,18 @@
   }
   aside#left-sidebar {
     grid-area: left-aside;
-    margin: 16px 8px 16px 12px;
+    margin: 16px 8px 16px 16px;
   }
   aside#right-sidebar {
     grid-area: right-aside;
-    margin: 16px 12px 16px 8px;
+    margin: 16px 16px 16px 8px;
   }
 
   .sheet-body {
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-gutter: stable;
+    scrollbar-gutter: stable both-edges;
     padding: 12px 8px 16px;
     display: flex;
     flex-direction: column;
@@ -1790,29 +1790,162 @@
     font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 32;
   }
 
-/* ── Simple UI variant: keep full UI visual language, remove side panels. ── */
+/* ── Simple UI variant: keep full UI visual language, show screenshot panel only. ── */
 body.simple-ui {
   --left-aside-w: 0px;
-  --right-aside-w: 0px;
-  grid-template-columns: minmax(0, 1fr);
+  --right-aside-w: 360px;
+  grid-template-columns: minmax(0, 1fr) 8px var(--right-aside-w);
   grid-template-areas:
-    "header"
-    "main"
-    "footer";
+    "header header        header"
+    "right-aside right-resizer main"
+    "right-aside right-resizer footer";
 }
 
 body.simple-ui main#main {
-  margin: 16px 16px 12px;
+  margin: 16px 16px 16px 8px;
 }
 
 body.simple-ui footer {
-  padding: 4px 16px 16px;
+  padding: 4px 16px 16px 8px;
 }
 
 body.simple-ui #simple-ui-support,
-body.simple-ui .resizer,
-body.simple-ui aside.side-panel,
+body.simple-ui #left-resizer,
+body.simple-ui #left-sidebar,
 body.simple-ui [data-view="graph"],
 body.simple-ui #graph-wrap {
   display: none !important;
+}
+
+body.simple-ui #right-resizer {
+  display: block;
+}
+
+body.simple-ui aside#right-sidebar {
+  display: grid;
+  margin: 16px 8px 16px 16px;
+}
+
+body.simple-ui .simple-screenshot-panel .sheet-body {
+  display: grid;
+  gap: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: 0;
+  scrollbar-gutter: stable both-edges;
+}
+
+body.simple-ui .simple-screenshot-panel .side-step-title {
+  align-self: start;
+  color: var(--md-sys-color-on-surface);
+  display: block;
+  font-size: var(--md-sys-typescale-title-small-size);
+  font-weight: 700;
+  line-height: var(--md-sys-typescale-title-small-line-height);
+  padding: 16px 16px 6px;
+  text-align: left;
+}
+
+body.simple-ui .simple-screenshot-panel .side-step-title.side-empty {
+  color: var(--fg-mute);
+  font-style: italic;
+  font-weight: 600;
+}
+
+body.simple-ui .simple-screenshot-body {
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 6px 16px;
+  overflow: hidden;
+}
+
+body.simple-ui .simple-screenshot-link {
+  align-items: center;
+  background: #000;
+  border-radius: calc(var(--md-sys-shape-corner-xl) - 4px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--md-sys-color-outline-variant) 48%, transparent);
+  display: flex;
+  height: 100%;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+body.simple-ui .simple-screenshot-link img {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  object-position: center center;
+  width: 100%;
+}
+
+body.simple-ui .simple-action-details {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 16px 16px;
+}
+
+body.simple-ui .simple-tool-card {
+  background: color-mix(in srgb, var(--md-sys-color-surface-container-high) 86%, transparent);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-sys-shape-corner-lg);
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 16px;
+}
+
+body.simple-ui .simple-tool-row {
+  align-items: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 84px minmax(0, 1fr);
+  min-width: 0;
+}
+
+body.simple-ui .simple-tool-label {
+  color: var(--fg-mute);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+body.simple-ui .simple-tool-row code,
+body.simple-ui .simple-tool-row pre {
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  body.simple-ui {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "header"
+      "main"
+      "footer";
+  }
+
+  body.simple-ui #right-resizer,
+  body.simple-ui aside#right-sidebar {
+    display: none !important;
+  }
+
+  body.simple-ui main#main {
+    margin: 8px 12px;
+  }
+
+  body.simple-ui footer {
+    padding: 4px 12px 12px;
+  }
 }
