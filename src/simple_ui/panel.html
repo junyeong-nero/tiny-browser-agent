@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>browser-agent</title>
+<link rel="stylesheet" href="/static/panel.css">
+</head>
+<body class="simple-ui">
+
+<header>
+  <span class="brand-mark" aria-hidden="true">
+    <svg viewBox="0 0 24 24" focusable="false">
+      <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v7A2.5 2.5 0 0 1 17.5 15h-2.7l-2.25 3.37a.66.66 0 0 1-1.1 0L9.2 15H6.5A2.5 2.5 0 0 1 4 12.5v-7Zm3 1v2h10v-2H7Zm0 4v1.5h6v-1.5H7Z"></path>
+    </svg>
+  </span>
+  <span class="title" id="hdr-title">browser-agent</span>
+  <span class="spacer"></span>
+  <span class="status">
+    <span class="status-dot" id="dot">●</span>
+    <span class="loading-indicator" id="status-loading" aria-hidden="true"></span>
+    <span id="status-label">connecting…</span>
+  </span>
+  <button id="live-btn" class="icon-label" type="button" aria-label="Start new live view" title="Start new live view" hidden>
+    <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path>
+    </svg>
+    <span>New</span>
+  </button>
+  <button id="sessions-btn" class="icon-label" type="button" aria-label="Open history" title="Open history">
+    <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path d="M13 3a9 9 0 1 0 8.95 10h-2.02A7 7 0 1 1 17.9 8.1L15 11h7V4l-2.67 2.67A8.96 8.96 0 0 0 13 3zm-1 5v5l4.25 2.52.75-1.23-3.5-2.08V8H12z"></path>
+    </svg>
+    <span>History</span>
+  </button>
+  <button id="theme-toggle" class="icon-only" type="button" aria-label="Switch to dark theme" aria-pressed="false" title="Switch to dark theme">
+    <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+      <path id="theme-toggle-path" d="M12 4.5A7.5 7.5 0 1 0 19.5 12 5.8 5.8 0 0 1 12 4.5z"></path>
+    </svg>
+  </button>
+</header>
+
+<div id="sessions-panel" class="hidden" aria-label="saved sessions">
+  <div class="sessions-head">
+    <span>Saved sessions</span>
+    <button id="sessions-close" class="icon-only" type="button" aria-label="Close saved sessions" title="Close saved sessions">
+      <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+        <path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.41L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.29-6.3 1.42 1.42z"></path>
+      </svg>
+    </button>
+  </div>
+  <div id="sessions-list"><div class="session-item"><span class="meta">loading…</span></div></div>
+</div>
+
+<main id="main">
+  <div id="replay-controls">
+    <button id="replay-prev" class="icon-only" type="button" aria-label="Previous replay step" title="Previous replay step">
+      <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+        <path d="M6 6h2v12H6V6zm3.5 6 8.5 6V6l-8.5 6z"></path>
+      </svg>
+    </button>
+    <button id="replay-play" class="icon-only" type="button" aria-label="Play or pause replay" title="Play or pause replay">
+      <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+        <path d="M8 5v14l7-7-7-7zm8 0h2v14h-2V5z"></path>
+      </svg>
+    </button>
+    <button id="replay-next" class="icon-only" type="button" aria-label="Next replay step" title="Next replay step">
+      <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+        <path d="M16 6h2v12h-2V6zM6 18l8.5-6L6 6v12z"></path>
+      </svg>
+    </button>
+    <select id="replay-speed" aria-label="replay speed">
+      <option value="1">1×</option>
+      <option value="4">4×</option>
+      <option value="16">16×</option>
+      <option value="instant">instant</option>
+    </select>
+    <input id="replay-slider" type="range" min="0" max="0" value="0" aria-label="replay progress">
+    <span id="replay-progress">0/0</span>
+  </div>
+  <div class="view-tabs">
+    <button type="button" class="view-tab icon-label active" data-view="timeline">
+      <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+        <path d="M4 5h11v2H4V5zm0 6h16v2H4v-2zm0 6h11v2H4v-2z"></path>
+      </svg>
+      <span>Timeline</span>
+    </button>
+  </div>
+  <div class="view-pane active" data-view="timeline" id="timeline-wrap">
+    <div id="timeline">
+      <div id="empty-state">waiting for a task…</div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="input-shell" id="input-shell">
+    <div class="input-row">
+      <textarea id="input" placeholder="Describe what you want the agent to do…" rows="1" disabled></textarea>
+    </div>
+    <div class="input-controls">
+      <div class="input-agent">
+        <span id="agent-model">—</span>
+      </div>
+      <div class="input-actions">
+        <button id="btn" class="icon-only" type="button" aria-label="Run task" title="Run task" disabled>
+          <svg class="btn-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+            <path id="btn-icon-path" d="M8 5v14l11-7z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<div id="simple-ui-support" hidden>
+  <div id="side-task" class="side-empty">no active task.</div>
+  <div id="side-plan"><div class="side-empty">no plan yet.</div></div>
+  <div id="side-step-title" class="side-step-title side-empty">no action step selected.</div>
+  <div id="side-replay"><div class="side-empty">no action step selected.</div></div>
+  <div id="side-selection"><div class="side-empty">no action step selected.</div></div>
+  <span id="meta-step">—</span>
+  <span id="meta-url">—</span>
+  <span id="meta-state">idle</span>
+  <details id="side-llm-raw-section" hidden><summary>LLM raw</summary><div id="side-llm-raw"></div></details>
+  <details id="side-browser-state-section" hidden><summary>Browser state</summary><div id="side-browser-state"></div></details>
+</div>
+
+<script src="/static/graph.js"></script>
+<script src="/static/panel.js"></script>
+</body>
+</html>
+

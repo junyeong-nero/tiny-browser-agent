@@ -127,6 +127,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Start the web control panel at http://127.0.0.1:8765.",
     )
     parser.add_argument(
+        "--simple-ui",
+        action="store_true",
+        default=False,
+        help="Start the simplified web control panel at http://127.0.0.1:8765.",
+    )
+    parser.add_argument(
         "--env",
         type=str,
         choices=("playwright",),
@@ -242,10 +248,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
-    if args.ui and args.query:
-        parser.error("--ui and a positional query are mutually exclusive.")
-    if not args.ui and not args.query:
-        parser.error("A query is required when --ui is not used.")
+    ui_enabled = getattr(args, "ui", False) is True
+    simple_ui_enabled = getattr(args, "simple_ui", False) is True
+    if ui_enabled and simple_ui_enabled:
+        parser.error("--ui and --simple-ui are mutually exclusive.")
+    if (ui_enabled or simple_ui_enabled) and args.query:
+        parser.error("--ui/--simple-ui and a positional query are mutually exclusive.")
+    if not (ui_enabled or simple_ui_enabled) and not args.query:
+        parser.error("A query is required when --ui or --simple-ui is not used.")
 
 
 def _create_artifact_logger(*, log_enabled: bool, video_enabled: bool) -> ArtifactLogger:
@@ -387,7 +397,7 @@ def main() -> int:
     env = _create_playwright_browser(args, artifact_logger)
 
     with env as browser_computer:
-        if args.ui:
+        if getattr(args, "ui", False) is True or getattr(args, "simple_ui", False) is True:
             _run_ui_mode(browser_computer, args)
         else:
             _run_cli_mode(browser_computer, args, artifact_logger)
@@ -396,7 +406,10 @@ def main() -> int:
 
 def _run_ui_mode(browser_computer: PlaywrightBrowser, args: argparse.Namespace) -> None:
     from session import BrowserSession
-    import ui.server as _ui_server
+    if getattr(args, "simple_ui", False) is True:
+        import simple_ui.server as _ui_server
+    else:
+        import ui.server as _ui_server
 
     ready = threading.Event()
     server_thread = threading.Thread(
