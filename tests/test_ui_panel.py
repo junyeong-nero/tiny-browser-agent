@@ -518,6 +518,24 @@ def test_panel_graph_tracks_global_url_sequence():
     assert "urlSequence.length = 0;" in reset_fn or "urlSequence = [];" in reset_fn
 
 
+def test_panel_graph_compute_own_cues_handles_all_three_layers():
+    assert "function computeOwnCues(type, node, sequence)" in PANEL_HTML
+    body = PANEL_HTML.split("function computeOwnCues(type, node, sequence)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    # All three cue keys present in returned shape
+    assert "loop:" in body
+    assert "revisit:" in body
+    assert "deadEnd:" in body
+    # Severity logic: red wins over gray; none when no cues
+    assert "loop || revisit" in body
+    assert "'red'" in body
+    assert "'gray'" in body
+    assert "'none'" in body
+    # Sequence helpers used (consecutive dup for loop, non-consecutive occurrence for revisit)
+    assert "sequence[i - 1] === node.id" in body or "seq[i - 1] === node.id" in body
+
+
 def test_panel_left_sidebar_always_shows_task_status_and_plan():
     left_html = PANEL_HTML_ONLY.split('<aside id="left-sidebar"', 1)[1].split("</aside>", 1)[0]
     right_html = PANEL_HTML_ONLY.split('<aside id="right-sidebar"', 1)[1].split("</aside>", 1)[0]
