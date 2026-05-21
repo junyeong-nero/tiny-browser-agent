@@ -536,6 +536,20 @@ def test_panel_graph_compute_own_cues_handles_all_three_layers():
     assert "sequence[i - 1] === node.id" in body or "seq[i - 1] === node.id" in body
 
 
+def test_panel_graph_rollup_excludes_dead_end():
+    assert "function buildCueContext()" in PANEL_HTML
+    assert "function rollupCueFor(type, scope, context)" in PANEL_HTML
+    body = PANEL_HTML.split("function rollupCueFor(type, scope, context)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    # rollup counts loop/revisit only; deadEnd is intentionally not added
+    assert "cues.loop || cues.revisit" in body
+    assert "cues.deadEnd" not in body  # dead-end never contributes to rollup
+    # rollupSeverity is binary: 'red' or 'none'
+    assert "'red'" in body
+    assert "'none'" in body
+
+
 def test_panel_left_sidebar_always_shows_task_status_and_plan():
     left_html = PANEL_HTML_ONLY.split('<aside id="left-sidebar"', 1)[1].split("</aside>", 1)[0]
     right_html = PANEL_HTML_ONLY.split('<aside id="right-sidebar"', 1)[1].split("</aside>", 1)[0]

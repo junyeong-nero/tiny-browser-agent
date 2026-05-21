@@ -446,6 +446,54 @@ function computeOwnCues(type, node, sequence) {
   return { loop: loop, revisit: revisit, deadEnd: deadEnd, severity: severity };
 }
 
+function buildCueContext() {
+  const viewportSequenceByUrl = new Map();
+  for (const url of trajectoryNodes.values()) {
+    viewportSequenceByUrl.set(url.id, url.viewportSequence || []);
+  }
+  const actionSequenceByViewport = new Map();
+  for (const vp of trajectoryViewports.values()) {
+    actionSequenceByViewport.set(vp.id, vp.actionSequence || []);
+  }
+  const ownCuesById = new Map();
+  for (const url of trajectoryNodes.values()) {
+    ownCuesById.set(url.id, computeOwnCues('url', url, urlSequence));
+  }
+  for (const vp of trajectoryViewports.values()) {
+    ownCuesById.set(vp.id, computeOwnCues('viewport', vp, viewportSequenceByUrl.get(vp.urlId)));
+  }
+  for (const action of trajectoryActions.values()) {
+    ownCuesById.set(action.id, computeOwnCues('action', action, actionSequenceByViewport.get(action.viewportId)));
+  }
+  return { ownCuesById: ownCuesById };
+}
+
+function rollupCueFor(type, scope, context) {
+  let count = 0;
+  let hasRed = false;
+  const breakdown = { loop: 0, revisit: 0 };
+  const tally = (id) => {
+    const cues = context.ownCuesById.get(id);
+    if (!cues) return;
+    if (cues.loop || cues.revisit) {
+      count += 1;
+      hasRed = true;
+      if (cues.loop) breakdown.loop += 1;
+      if (cues.revisit) breakdown.revisit += 1;
+    }
+  };
+  if (type === 'url') {
+    for (const vpId of scope.viewportIds || []) {
+      tally(vpId);
+      const vp = trajectoryViewports.get(vpId);
+      if (vp) for (const actId of vp.actionIds || []) tally(actId);
+    }
+  } else if (type === 'viewport') {
+    for (const actId of scope.actionIds || []) tally(actId);
+  }
+  return { rollupCount: count, rollupSeverity: hasRed ? 'red' : 'none', rollupBreakdown: breakdown };
+}
+
 function recordNavigation(url, stepId) {
   if (!url || url === 'about:blank') return null;
   const { key, host, path, full } = parseUrlParts(url);
