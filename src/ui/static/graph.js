@@ -1205,7 +1205,21 @@ const graph = (() => {
     if (d.actionCount != null) rows.push(`<div class="tt-row"><span>unique actions</span><span class="v">${d.actionCount}</span></div>`);
     if (d.visits != null) rows.push(`<div class="tt-row"><span>visits</span><span class="v">${d.visits}</span></div>`);
     if (d.drillable) rows.push(`<div class="tt-row"><span>double-click</span><span class="v">drill in</span></div>`);
-    tooltip.innerHTML = `<div class="tt-url">${escHtml(title)}</div>` + rows.join('');
+    const cueRows = [];
+    if (d && d.ownCues) {
+      const own = d.ownCues;
+      const inside = d.rollupBreakdown || { loop: 0, revisit: 0 };
+      const loopOwn = own.loop ? 1 : 0;
+      const revisitOwn = own.revisit ? 1 : 0;
+      const deadEndOwn = own.deadEnd ? 1 : 0;
+      if (loopOwn || inside.loop) cueRows.push(`<div class="tt-row"><span>loop</span><span class="v">${loopOwn} own / ${inside.loop} inside</span></div>`);
+      if (revisitOwn || inside.revisit) cueRows.push(`<div class="tt-row"><span>revisit</span><span class="v">${revisitOwn} own / ${inside.revisit} inside</span></div>`);
+      if (deadEndOwn) cueRows.push(`<div class="tt-row"><span>dead-end</span><span class="v">${deadEndOwn} own / 0 inside</span></div>`);
+    }
+    const cueSection = cueRows.length
+      ? `<div class="tt-section">Cues</div>` + cueRows.join('')
+      : '';
+    tooltip.innerHTML = `<div class="tt-url">${escHtml(title)}</div>` + rows.join('') + cueSection;
     tooltip.classList.remove('hidden');
     moveTooltip(event);
   }
@@ -1302,6 +1316,14 @@ const graph = (() => {
   }
 
   function update(payload) {
+    function cueBadgeClass(d) {
+      if (!d || !(d.badgeCount > 0)) return { circleClass: null, textClass: null, hidden: true };
+      if (d.ownSeverity === 'red') return { circleClass: 'own-red', textClass: 'on-fill', hidden: false };
+      if (d.rollupSeverity === 'red') return { circleClass: 'rollup-red', textClass: 'on-stroke', hidden: false };
+      if (d.ownSeverity === 'gray') return { circleClass: 'own-gray', textClass: 'on-fill', hidden: false };
+      return { circleClass: null, textClass: null, hidden: true };
+    }
+
     graphMode = payload.mode || 'url';
     emptyEl.textContent = payload.mode === 'url' ? 'no navigation yet.' : 'no child nodes yet.';
     renderBreadcrumb(payload);
@@ -1354,6 +1376,9 @@ const graph = (() => {
       .on('mouseleave', hideTooltip);
     enter.append('circle').attr('r', 8);
     enter.append('text').attr('class', 'graph-node-label').attr('dx', 12).attr('dy', 4);
+    const badgeEnter = enter.append('g').attr('class', 'node-cue-badge');
+    badgeEnter.append('circle').attr('r', 8);
+    badgeEnter.append('text');
     nodeSel = enter.merge(nodeSel);
     nodeSel
       .classed('root', d => d.isRoot)
@@ -1367,6 +1392,24 @@ const graph = (() => {
       .style('--graph-node-fill', d => graphNodeFill(d, maxWorkCount));
     nodeSel.select('circle').attr('r', d => graphNodeRadius(d));
     nodeSel.select('text.graph-node-label').text(displayGraphNodeLabel);
+    const badgeSel = nodeSel.select('g.node-cue-badge');
+    badgeSel.each(function(d) {
+      const sel = d3.select(this);
+      const meta = cueBadgeClass(d);
+      if (meta.hidden) {
+        sel.style('display', 'none');
+        return;
+      }
+      sel.style('display', null);
+      const r = graphNodeRadius(d);
+      sel.attr('transform', `translate(${r + 4},${-(r + 4)})`);
+      sel.select('circle')
+        .attr('class', meta.circleClass)
+        .attr('r', d.badgeCount >= 10 ? 10 : 8);
+      sel.select('text')
+        .attr('class', meta.textClass)
+        .text(String(d.badgeCount));
+    });
 
     simulation.nodes(nodesData);
     simulation.force('link').links(linksData);

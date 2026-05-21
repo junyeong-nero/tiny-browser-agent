@@ -562,6 +562,49 @@ def test_panel_graph_builders_attach_cue_fields():
     assert "(ownSeverity !== 'none' ? 1 : 0) + rollupCount" in PANEL_HTML
 
 
+def test_panel_graph_cue_badge_css_present():
+    assert ".node-cue-badge circle.own-red" in PANEL_HTML
+    assert ".node-cue-badge circle.own-gray" in PANEL_HTML
+    assert ".node-cue-badge circle.rollup-red" in PANEL_HTML
+    # dead-end is excluded from rollup → no rollup-gray class
+    assert ".node-cue-badge circle.rollup-gray" not in PANEL_HTML
+    assert ".node-cue-badge text" in PANEL_HTML
+
+
+def test_panel_graph_renders_cue_badge_with_severity_matrix():
+    update_body = PANEL_HTML.split("function update(payload) {", 1)[1].split(
+        "function reset()", 1
+    )[0]
+    # Badge group is attached on enter
+    assert ".node-cue-badge" in update_body
+    assert "g').attr('class', 'node-cue-badge'" in update_body or 'class\', \'node-cue-badge\'' in update_body
+    # Badge visibility gated on badgeCount > 0
+    assert "d.badgeCount > 0" in update_body or "d.badgeCount >= 1" in update_body
+    # Severity matrix: own-red > rollup-red > own-gray, plus hidden state
+    assert "own-red" in update_body
+    assert "own-gray" in update_body
+    assert "rollup-red" in update_body
+    # Text class toggles between on-fill (filled badge) and on-stroke (outlined)
+    assert "on-fill" in update_body
+    assert "on-stroke" in update_body
+
+
+def test_panel_graph_tooltip_includes_cue_breakdown():
+    tooltip_block = PANEL_HTML.split("function showTooltip(event, d) {", 1)[1].split(
+        "function moveTooltip(event)", 1
+    )[0]
+    # Section header + per-type rows
+    assert "Cues" in tooltip_block
+    assert "loop" in tooltip_block
+    assert "revisit" in tooltip_block
+    assert "dead-end" in tooltip_block
+    # own / inside split
+    assert "own" in tooltip_block
+    assert "inside" in tooltip_block
+    # Guarded: only renders when something to show
+    assert "d.badgeCount" in tooltip_block or "d.ownCues" in tooltip_block
+
+
 def test_panel_left_sidebar_always_shows_task_status_and_plan():
     left_html = PANEL_HTML_ONLY.split('<aside id="left-sidebar"', 1)[1].split("</aside>", 1)[0]
     right_html = PANEL_HTML_ONLY.split('<aside id="right-sidebar"', 1)[1].split("</aside>", 1)[0]

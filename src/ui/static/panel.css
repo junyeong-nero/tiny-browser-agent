@@ -778,6 +778,24 @@
     line-height: 1.45;
   }
   .graph-tooltip .tt-row .v { color: var(--fg); }
+  .node-cue-badge { cursor: pointer; }
+  .node-cue-badge circle.own-red    { fill: var(--md-sys-color-error); stroke: none; }
+  .node-cue-badge circle.own-gray   { fill: var(--fg-mute);            stroke: none; }
+  .node-cue-badge circle.rollup-red {
+    fill: var(--surface-1);
+    stroke: var(--md-sys-color-error);
+    stroke-width: 1.5;
+  }
+  .node-cue-badge text {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    text-anchor: middle;
+    dominant-baseline: central;
+    pointer-events: none;
+  }
+  .node-cue-badge text.on-fill   { fill: white; }
+  .node-cue-badge text.on-stroke { fill: var(--md-sys-color-error); }
 
   #timeline::-webkit-scrollbar,
   aside.side-panel::-webkit-scrollbar,
