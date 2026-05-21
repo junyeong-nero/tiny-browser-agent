@@ -505,6 +505,19 @@ def test_panel_secondary_controls_use_svg_icons_with_accessible_labels():
     assert "`▶ ${escHtml(session.id)}" not in PANEL_HTML
 
 
+def test_panel_graph_tracks_global_url_sequence():
+    # Global URL nav order is needed for layer-1 cue detection.
+    assert "let urlSequence = [];" in PANEL_HTML
+    record_nav = PANEL_HTML.split("function recordNavigation(url, stepId)", 1)[1].split(
+        "function recordActionExecution", 1
+    )[0]
+    assert "urlSequence.push(key);" in record_nav
+    reset_fn = PANEL_HTML.split("function resetTrajectoryGraphState()", 1)[1].split(
+        "function ", 1
+    )[0]
+    assert "urlSequence.length = 0;" in reset_fn or "urlSequence = [];" in reset_fn
+
+
 def test_panel_left_sidebar_always_shows_task_status_and_plan():
     left_html = PANEL_HTML_ONLY.split('<aside id="left-sidebar"', 1)[1].split("</aside>", 1)[0]
     right_html = PANEL_HTML_ONLY.split('<aside id="right-sidebar"', 1)[1].split("</aside>", 1)[0]

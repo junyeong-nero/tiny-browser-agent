@@ -16,6 +16,7 @@ const trajectoryEdges = new Map(); // key: "src|dst" → {source, target, count}
 const trajectoryViewports = new Map(); // id → viewport node
 const trajectoryActions = new Map(); // id → action node
 let actionNodeIdByStep = new Map();
+let urlSequence = [];
 let graphDrilldown = { level: 'url', urlId: null, viewportId: null };
 let graphDrillAnchor = null;
 let actionSequence = 0;
@@ -32,6 +33,7 @@ function resetTrajectoryGraphState() {
   trajectoryViewports.clear();
   trajectoryActions.clear();
   actionNodeIdByStep.clear();
+  urlSequence.length = 0;
   graphDrilldown = { level: 'url', urlId: null, viewportId: null };
   graphDrillAnchor = null;
   actionSequence = 0;
@@ -461,6 +463,7 @@ function recordNavigation(url, stepId) {
   }
 
   trajectoryLastKey = key;
+  urlSequence.push(key);
   trajectoryCurrentKey = key;
   return node;
 }
