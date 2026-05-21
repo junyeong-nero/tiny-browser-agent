@@ -438,10 +438,10 @@ function computeOwnCues(type, node, sequence) {
   for (let i = 0; i < seq.length; i++) {
     if (seq[i] !== node.id) continue;
     if (i > 0 && seq[i - 1] === node.id) loop = true;
+    if (i > 0 && i < seq.length - 1 && seq[i + 1] === seq[i - 1] && seq[i] !== seq[i - 1]) deadEnd = true;
     if (seen && (i === 0 || seq[i - 1] !== node.id)) revisit = true;
     seen = true;
   }
-  if (seq.length > 0 && seq[seq.length - 1] === node.id) deadEnd = true;
   const severity = (loop || revisit) ? 'red' : (deadEnd ? 'gray' : 'none');
   return { loop: loop, revisit: revisit, deadEnd: deadEnd, severity: severity };
 }

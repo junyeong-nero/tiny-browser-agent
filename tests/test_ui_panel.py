@@ -536,6 +536,18 @@ def test_panel_graph_compute_own_cues_handles_all_three_layers():
     assert "sequence[i - 1] === node.id" in body or "seq[i - 1] === node.id" in body
 
 
+def test_panel_graph_dead_end_uses_bounce_back_not_terminal():
+    body = PANEL_HTML.split("function computeOwnCues(type, node, sequence)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    # Dead-end means A -> node -> A, so the node is the branch that got backed out of.
+    assert "seq[i + 1] === seq[i - 1]" in body
+    assert "seq[i] !== seq[i - 1]" in body
+    assert "i < seq.length - 1" in body
+    # The old terminal-node marker must not set deadEnd anymore.
+    assert "seq[seq.length - 1] === node.id" not in body
+
+
 def test_panel_graph_rollup_excludes_dead_end():
     assert "function buildCueContext()" in PANEL_HTML
     assert "function rollupCueFor(type, scope, context)" in PANEL_HTML
