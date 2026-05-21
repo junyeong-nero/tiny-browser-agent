@@ -699,6 +699,22 @@ function detectCycleEdges(links) {
   });
 }
 
+function attachCueFields(type, src, sequence, context) {
+  const own = computeOwnCues(type, src, sequence);
+  const rollup = rollupCueFor(type, src, context);
+  const ownSeverity = own.severity;
+  const rollupCount = rollup.rollupCount;
+  const badgeCount = (ownSeverity !== 'none' ? 1 : 0) + rollupCount;
+  return {
+    ownCues: own,
+    ownSeverity: ownSeverity,
+    rollupCount: rollupCount,
+    rollupSeverity: rollup.rollupSeverity,
+    rollupBreakdown: rollup.rollupBreakdown,
+    badgeCount: badgeCount,
+  };
+}
+
 function buildTrajectoryGraphData() {
   if (graphDrilldown.level === 'viewport' && graphDrilldown.urlId) {
     return buildViewportGraphData(graphDrilldown.urlId);
@@ -710,6 +726,7 @@ function buildTrajectoryGraphData() {
 }
 
 function buildUrlGraphData() {
+  const cueContext = buildCueContext();
   const nodes = Array.from(trajectoryNodes.values()).map(src => ({
     id: src.id,
     label: trajectoryLabelFor(src),
@@ -728,6 +745,7 @@ function buildUrlGraphData() {
     isRoot: trajectoryRoots.includes(src.id),
     isCurrent: src.id === trajectoryCurrentKey,
     drillable: !!(src.viewportIds && src.viewportIds.size),
+    ...attachCueFields('url', src, urlSequence, cueContext), // computeOwnCues + rollupCueFor → badgeCount
   }));
   const idSet = new Set(nodes.map(n => n.id));
   const links = detectCycleEdges(Array.from(trajectoryEdges.values())
@@ -742,6 +760,7 @@ function buildViewportGraphData(urlId) {
     graphDrilldown = { level: 'url', urlId: null, viewportId: null };
     return buildUrlGraphData();
   }
+  const cueContext = buildCueContext();
   const root = {
     id: urlNode.id,
     label: trajectoryLabelFor(urlNode),
@@ -758,6 +777,7 @@ function buildViewportGraphData(urlId) {
     actionPreviews: collectActionPreviewArtifacts(urlNode.actionIds),
     isRoot: true,
     isCurrent: urlNode.id === trajectoryCurrentKey,
+    ...attachCueFields('url', urlNode, urlSequence, cueContext), // computeOwnCues + rollupCueFor → badgeCount
   };
   const viewports = Array.from(urlNode.viewportIds || [])
     .map(id => trajectoryViewports.get(id))
@@ -779,6 +799,7 @@ function buildViewportGraphData(urlId) {
       llmInference: llmInferenceForStep(vp.lastStep),
       isCurrent: vp.id === trajectoryCurrentViewportId,
       drillable: !!vp.actionIds.size,
+      ...attachCueFields('viewport', vp, urlNode.viewportSequence, cueContext), // computeOwnCues + rollupCueFor → badgeCount
     }));
   const viewportIds = new Set(viewports.map(vp => vp.id));
   const links = detectCycleEdges(buildSequentialLinks(urlNode.viewportSequence, viewportIds, root.id));
@@ -797,6 +818,7 @@ function buildActionGraphData(viewportId) {
     return buildUrlGraphData();
   }
   const urlNode = trajectoryNodes.get(viewportNode.urlId);
+  const cueContext = buildCueContext();
   const root = {
     id: viewportNode.id,
     label: viewportNode.label,
@@ -814,6 +836,7 @@ function buildActionGraphData(viewportId) {
     llmInference: llmInferenceForStep(viewportNode.lastStep),
     isRoot: true,
     isCurrent: viewportNode.id === trajectoryCurrentViewportId,
+    ...attachCueFields('viewport', viewportNode, viewportNode.actionSequence, cueContext), // computeOwnCues + rollupCueFor → badgeCount
   };
   const actions = Array.from(viewportNode.actionIds || [])
     .map(id => trajectoryActions.get(id))
@@ -825,6 +848,7 @@ function buildActionGraphData(viewportId) {
       argsText: formatArgs(action.args || {}),
       llmInference: action.llmInference || llmInferenceForStep(action.lastStep || action.step),
       isCurrent: action.id === trajectoryCurrentActionId,
+      ...attachCueFields('action', action, viewportNode.actionSequence, cueContext), // computeOwnCues + rollupCueFor → badgeCount
     }));
   const actionIds = new Set(actions.map(action => action.id));
   const links = detectCycleEdges(buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true));

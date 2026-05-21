@@ -550,6 +550,18 @@ def test_panel_graph_rollup_excludes_dead_end():
     assert "'none'" in body
 
 
+def test_panel_graph_builders_attach_cue_fields():
+    for fn in ("buildUrlGraphData", "buildViewportGraphData", "buildActionGraphData"):
+        body = PANEL_HTML.split(f"function {fn}", 1)[1].split(
+            "\nfunction ", 1
+        )[0]
+        assert "computeOwnCues" in body, f"{fn} must compute own cues"
+        assert "rollupCueFor" in body, f"{fn} must compute rollup"
+        assert "badgeCount" in body, f"{fn} must derive badgeCount"
+    # badgeCount formula: own contributes 1 when not 'none', plus rollupCount
+    assert "(ownSeverity !== 'none' ? 1 : 0) + rollupCount" in PANEL_HTML
+
+
 def test_panel_left_sidebar_always_shows_task_status_and_plan():
     left_html = PANEL_HTML_ONLY.split('<aside id="left-sidebar"', 1)[1].split("</aside>", 1)[0]
     right_html = PANEL_HTML_ONLY.split('<aside id="right-sidebar"', 1)[1].split("</aside>", 1)[0]
