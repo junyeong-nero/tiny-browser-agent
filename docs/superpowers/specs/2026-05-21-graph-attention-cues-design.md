@@ -21,21 +21,27 @@ Non-goals:
 
 ## 3. Definitions
 
-For a given node `n` at a given layer, the three cue flags are computed from data the renderer already records (`trajectoryEdges`, `trajectoryNodes[].viewportSequence`, `trajectoryViewports[].actionSequence`).
+For a given node `n` at a given layer, the three cue flags are computed from the ordered sequence for that layer:
+
+- URL layer: global URL visit sequence.
+- Viewport layer: parent URL's `viewportSequence`.
+- Action layer: parent viewport's `actionSequence`.
 
 | Layer | Loop (own) | Revisit (own) | Dead-end (own) |
 |---|---|---|---|
-| URL | `trajectoryEdges` contains a self-edge `src === dst === n.id` | `n.visits > 1` AND `n.id` appears non-consecutively in the global URL sequence | the last URL in the trajectory |
-| Viewport | parent URL's `viewportSequence` has `n.id` appearing in two consecutive positions | `n.visits > 1` AND non-consecutive in parent's `viewportSequence` | last id in parent URL's `viewportSequence` |
-| Action | parent viewport's `actionSequence` has `n.id` in two consecutive positions | `n.visits > 1` AND non-consecutive in parent viewport's `actionSequence` | last id in parent viewport's `actionSequence` |
+| URL | global URL sequence has `n.id` appearing in two consecutive positions | `n.id` appears more than once with at least one different URL between occurrences | `n.id` is the middle node in a bounce-back pattern: `A -> n -> A`, where `A !== n` |
+| Viewport | parent URL's `viewportSequence` has `n.id` appearing in two consecutive positions | `n.id` appears more than once with at least one different viewport between occurrences | `n.id` is the middle node in a bounce-back pattern inside the parent URL: `A -> n -> A`, where `A !== n` |
+| Action | parent viewport's `actionSequence` has `n.id` appearing in two consecutive positions | `n.id` appears more than once with at least one different action between occurrences | `n.id` is the middle node in a bounce-back pattern inside the parent viewport: `A -> n -> A`, where `A !== n` |
 
 A node that has *only* a self-loop is **not** counted as a revisit. This keeps the same physical event from being double-counted across two cue types.
 
-Dead-end is by definition exactly one node per scope. It is a marker, not an anomaly.
+Dead-end is no longer the terminal node in a sequence. It marks the branch that the agent entered and immediately backed out of. In `A -> B -> A`, `B` is the dead-end and `A` is not.
+
+The current final node in a sequence is not a dead-end by itself. If reviewers need that marker later, it should be introduced as a separate `terminal` or `current-end` cue instead of overloading `dead-end`.
 
 ### 3.1 Rollup
 
-`rollupCount(n)` = number of *distinct descendant nodes* (across all deeper layers) whose own-cue set contains **loop or revisit**. Dead-end is intentionally excluded from rollup because every scope has exactly one dead-end by definition (its last sequence element), so propagating it would mark every parent with descendants and defeat the attention-cue intent.
+`rollupCount(n)` = number of *distinct descendant nodes* (across all deeper layers) whose own-cue set contains **loop or revisit**. Dead-end remains excluded from rollup because it is a local branch-shape clue; propagating it upward would make parent nodes look suspicious even when the only issue is a small bounced subpath that the reviewer can inspect after drilling in.
 
 Action nodes are leaves and have rollup = 0.
 
@@ -66,7 +72,7 @@ This is the number of *nodes* the reviewer would need to inspect — including `
 
 - One badge per node, attached to the node's `<g class="graph-node">` as a sibling `<g class="node-cue-badge">`.
 - Placement: top-right of the node circle. Translate by `(r + 4, -(r + 4))` where `r` is the rendered node radius.
-- Shape: circle, radius ≈ 8px. Polygon scales with badge text width when count ≥ 10 (rect with rounded corners).
+- Shape: circle, radius 8px by default and 10px when count ≥ 10.
 - Text inside: monospace, 9px, count as integer. No cap; if the number is large the badge widens to fit.
 
 ### 4.2 Color rules
@@ -85,7 +91,7 @@ Badge color = the *strongest* severity present at the node (own or rollup). Fill
 
 `red` uses `var(--md-sys-color-error)`. `gray` uses `var(--fg-mute)`.
 
-Rationale: loop/revisit signal "something might be wrong here" and earn red. Dead-end is structural marking (every scope has one) and earns muted gray so reviewers can deprioritize it.
+Rationale: loop/revisit signal "something might be wrong here" and earn red. Dead-end is a local bounced-branch marker and earns muted gray so reviewers can spot it without letting it compete with stronger loop/revisit alarms.
 
 ### 4.3 Tooltip extension
 
@@ -120,15 +126,16 @@ All changes are confined to two source files plus tests.
 
 ### 5.1 `src/ui/static/graph.js`
 
-1. **New helper `computeNodeCues(scope, type)`** — given a graph data object (URL / viewport / action) and its layer type, returns `{ ownCues: { loop, revisit, deadEnd }, ownSeverity, rollupCount, rollupSeverity, rollupBreakdown }`.
-   - Pure function over the existing `trajectoryNodes` / `trajectoryViewports` / `trajectoryActions` / sequences. No new state.
-   - Called from `buildUrlGraphData`, `buildViewportGraphData`, `buildActionGraphData` and attached to each output node object.
-2. **Cue rollup walker** — for URL nodes, iterate `viewportIds → actionIds` and accumulate descendant cue counts and severities. For viewport nodes, iterate `actionIds`. Pre-compute the *per-scope* sequence positions once per render to avoid re-scanning for each cue type.
-3. **Renderer** — in the `update(payload)` function:
+1. **Helper `computeOwnCues(type, node, sequence)`** — given a graph data object and the ordered sequence for its layer, returns `{ loop, revisit, deadEnd, severity }`.
+   - Pure function over the passed sequence and node id. No new persistent state beyond the existing sequence tracking.
+   - Dead-end detection scans the sequence for `seq[i - 1] === seq[i + 1] && seq[i] !== seq[i - 1] && seq[i] === node.id`.
+2. **Cue context + rollup walker** — `buildCueContext()` computes own cues for URLs, viewports, and actions. `rollupCueFor(type, scope, context)` then scans descendants for loop/revisit cues. For URL nodes, iterate `viewportIds → actionIds` and accumulate descendant cue counts and severities. For viewport nodes, iterate `actionIds`.
+3. **Node attachment helper** — `attachCueFields(type, src, sequence, context)` attaches `{ ownCues, ownSeverity, rollupCount, rollupSeverity, rollupBreakdown, badgeCount }` to every node returned from `buildUrlGraphData`, `buildViewportGraphData`, and `buildActionGraphData`.
+4. **Renderer** — in the `update(payload)` function:
    - Enter selection appends `<g class="node-cue-badge">` containing `<circle>` and `<text>`.
    - Update step toggles visibility based on `badgeCount > 0`, sets fill/stroke class according to the severity matrix, writes the count text, and translates by `(r + 4, -(r + 4))`.
    - Exit removes the badge group.
-4. **Tooltip extension** — `showTooltip` gains a cue-section block guarded by `if (d.ownCues || d.rollupBreakdown)`.
+5. **Tooltip extension** — `showTooltip` gains a cue-section block guarded by `if (d.ownCues)`.
 
 ### 5.2 `src/ui/static/panel.css`
 
@@ -157,7 +164,7 @@ event → recordActionExecution
        ↓
 buildXxxGraphData()
   ├─ existing node assembly
-  └─ computeNodeCues(scope, type)  ← new, render-time only
+  └─ attachCueFields(type, src, sequence, context)  ← render-time only
        ↓ each node gains { ownCues, ownSeverity, rollupCount, rollupSeverity, rollupBreakdown }
        ↓
 graph.update(payload)
@@ -170,19 +177,21 @@ No new fields on the persistent trajectory maps. All cue computation is render-t
 
 New contract tests in `tests/test_ui_panel.py`:
 
-1. **`test_panel_graph_computes_cue_flags_per_layer`** — asserts `computeNodeCues` exists and the function body references the three sequence sources (`trajectoryEdges`, `viewportSequence`, `actionSequence`). Verifies the loop/revisit/deadEnd flag keys exist in the output shape.
-2. **`test_panel_graph_renders_cue_badge_with_severity_color`** — `.node-cue-badge` group present in the render path; the three CSS class names (`own-red`, `own-gray`, `rollup-red`) exist in the stylesheet (and `rollup-gray` does **not**, since rollup excludes dead-end); severity matrix logic present in the renderer (e.g., assert ownSeverity/rollupSeverity branching in the badge-class selection code).
-3. **`test_panel_graph_cue_badge_hidden_when_no_cues`** — verifies the renderer guards badge creation behind a non-zero count (e.g., asserts that the badge enter/update is gated on `badgeCount > 0` or an equivalent check).
-4. **`test_panel_graph_cue_tooltip_shows_breakdown`** — `showTooltip` body contains the cue section markup (literal text "loop", "revisit", "dead-end") and a per-cue own/inside split. Negative: the section must not render when both counts are zero.
+1. **`test_panel_graph_compute_own_cues_handles_all_three_layers`** — asserts `computeOwnCues` exists and verifies the loop/revisit/deadEnd flag keys exist in the output shape.
+2. **`test_panel_graph_dead_end_uses_bounce_back_not_terminal`** — asserts dead-end is detected from a `seq[i - 1] === seq[i + 1]` style bounce-back check and that the old terminal-only condition (`seq[seq.length - 1] === node.id`) is not used to set `deadEnd`.
+3. **`test_panel_graph_renders_cue_badge_with_severity_color`** — `.node-cue-badge` group present in the render path; the three CSS class names (`own-red`, `own-gray`, `rollup-red`) exist in the stylesheet (and `rollup-gray` does **not**, since rollup excludes dead-end); severity matrix logic present in the renderer (e.g., assert ownSeverity/rollupSeverity branching in the badge-class selection code).
+4. **`test_panel_graph_cue_badge_hidden_when_no_cues`** — verifies the renderer guards badge creation behind a non-zero count (e.g., asserts that the badge enter/update is gated on `badgeCount > 0` or an equivalent check).
+5. **`test_panel_graph_cue_tooltip_shows_breakdown`** — `showTooltip` body contains the cue section markup (literal text "loop", "revisit", "dead-end") and a per-cue own/inside split. Negative: the section must not render when both counts are zero.
 
 No new test data fixtures needed; the existing trajectory-recording assertions already cover the data sources.
 
 ## 7. Risks and trade-offs
 
 - **Visual density**: every URL node may carry a badge once a session is long enough that loops/revisits show up. Mitigation: gray badges fade visually so dead-end-only nodes don't compete with cycle alarms; rollup-only badges (outlined) are visually lighter than own (filled).
-- **No `rollup-gray` state**: dead-end is structurally present in every scope (exactly one per sequence), so propagating it via rollup would put a gray badge on every URL with any descendant. The chosen trade-off is to suppress dead-end from rollup entirely — the reviewer still sees the dead-end marker on the actual terminal node when they drill in. The cost is that a URL whose only "internal interesting thing" is its descendants' terminals shows no badge; in practice that's the desired behavior because dead-ends inside a scope are not actionable from the parent layer.
+- **No `rollup-gray` state**: dead-end is local to the immediate sequence shape, so propagating it via rollup would put gray badges on parent nodes for small bounced branches that may not matter at the parent layer. The chosen trade-off is to suppress dead-end from rollup entirely — the reviewer still sees the dead-end marker on the actual bounced node when they drill in.
+- **Only immediate bounce-backs count**: `A -> B -> C -> A` does not mark `B` or `C` as dead-end. This avoids broad false positives from normal exploration paths. If longer backtracking becomes important, add a separate, stricter design for path-level backtrack spans.
 - **Stroke conflict at small zoom**: outlined badges may be hard to distinguish from filled at < 0.5x zoom. Acceptable — at that zoom the reviewer is scanning for any badge, not classifying.
-- **No new layout**: keeps the existing drill-down semantics. A future change (e.g., unified hierarchy view) can reuse `computeNodeCues` unchanged.
+- **No new layout**: keeps the existing drill-down semantics. A future change (e.g., unified hierarchy view) can reuse `computeOwnCues` and `attachCueFields` unchanged.
 - **Sequence scan cost**: each `buildXxxGraphData` call now walks the sequence arrays once per layer. Trajectories rarely exceed a few hundred events; cost is negligible compared to the existing render pass.
 
 ## 8. Out of scope
