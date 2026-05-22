@@ -1507,7 +1507,11 @@ const graph = (() => {
     linkSel = linkSel.enter().append('path').attr('class', 'graph-link').merge(linkSel);
     linkSel
       .classed('cycle', d => !!d.isCycleEdge)
-      .attr('stroke-width', d => d.isCycleEdge ? Math.min(4.5, 2 + Math.log2((d.count || 1) + 1)) : Math.min(3, 1 + Math.log2((d.count || 1) + 1)));
+      .attr('stroke-width', d => {
+        const count = d.count || 1;
+        const extra = 1.5 * Math.log2(count);
+        return d.isCycleEdge ? Math.min(8, 2 + extra) : Math.min(6, 1 + extra);
+      });
 
     nodeSel = nodeG.selectAll('g.graph-node').data(nodesData, d => d.id);
     nodeSel.exit().remove();
