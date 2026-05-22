@@ -437,7 +437,6 @@ function computeOwnCues(type, node, sequence) {
   let seen = false;
   for (let i = 0; i < seq.length; i++) {
     if (seq[i] !== node.id) continue;
-    if (i > 0 && seq[i - 1] === node.id) loop = true;
     if (i > 0 && i < seq.length - 1 && seq[i + 1] === seq[i - 1] && seq[i] !== seq[i - 1]) loop = true;
     if (seen && (i === 0 || seq[i - 1] !== node.id)) revisit = true;
     seen = true;
@@ -475,19 +474,15 @@ function rollupCueFor(type, scope, context) {
   const tally = (id) => {
     const cues = context.ownCuesById.get(id);
     if (!cues) return;
-    if (cues.loop || cues.revisit) {
+    if (cues.loop) {
       count += 1;
       hasRed = true;
-      if (cues.loop) breakdown.loop += 1;
-      if (cues.revisit) breakdown.revisit += 1;
+      breakdown.loop += 1;
     }
+    if (cues.revisit) breakdown.revisit += 1;
   };
   if (type === 'url') {
-    for (const vpId of scope.viewportIds || []) {
-      tally(vpId);
-      const vp = trajectoryViewports.get(vpId);
-      if (vp) for (const actId of vp.actionIds || []) tally(actId);
-    }
+    for (const vpId of scope.viewportIds || []) tally(vpId);
   } else if (type === 'viewport') {
     for (const actId of scope.actionIds || []) tally(actId);
   }
@@ -734,7 +729,7 @@ function attachCueFields(type, src, sequence, context) {
   const rollup = rollupCueFor(type, src, context);
   const rollupCount = rollup.rollupCount;
   const ownSeverity = own.severity;
-  const badgeCount = (own.loop || own.revisit ? 1 : 0) + rollupCount;
+  const badgeCount = rollupCount;
   return {
     ownCues: own,
     ownSeverity: ownSeverity,
@@ -1058,11 +1053,10 @@ const graph = (() => {
   svg.call(zoomBehavior);
 
   const simulation = d3.forceSimulation()
-    .force('link', d3.forceLink().id(d => d.id).distance(GRAPH_TREE_LAYER_SPACING).strength(0.45))
-    .force('charge', d3.forceManyBody().strength(-90))
-    .force('x', d3.forceX(d => targetX(d)).strength(0.45))
-    .force('y', d3.forceY(d => targetY(d)).strength(0.42))
-    .force('collide', d3.forceCollide(22))
+    .force('link', d3.forceLink().id(d => d.id).distance(90).strength(1).iterations(4))
+    .force('charge', d3.forceManyBody().strength(-160).distanceMax(360))
+    .force('center', d3.forceCenter(0, 0).strength(0.05))
+    .force('collide', d3.forceCollide(34).strength(1).iterations(2))
     .on('tick', ticked);
 
   let nodeSel = nodeG.selectAll('g');
@@ -1098,10 +1092,10 @@ const graph = (() => {
     const bounds = root.node().getBBox();
     const boundsWidth = bounds.width || 1;
     const boundsHeight = bounds.height || 1;
-    const padding = 140;
+    const padding = 80;
     const scale = Math.max(
       0.3,
-      Math.min(3, 0.7 / Math.max(boundsWidth / Math.max(1, width - padding), boundsHeight / Math.max(1, height - padding)))
+      Math.min(3, 0.95 / Math.max(boundsWidth / Math.max(1, width - padding), boundsHeight / Math.max(1, height - padding)))
     );
     const centerX = bounds.x + boundsWidth / 2;
     const centerY = bounds.y + boundsHeight / 2;
@@ -1303,7 +1297,18 @@ const graph = (() => {
       const r = 22 + Math.min(14, Math.log2((d.count || 1) + 1) * 4);
       return `M ${sx} ${sy - 8} C ${sx + r} ${sy - r * 1.6}, ${sx + r * 1.8} ${sy + r * 1.2}, ${sx + 4} ${sy + 8}`;
     }
-    return `M ${sx} ${sy} L ${tx} ${ty}`;
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const dist = Math.hypot(dx, dy) || 1;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const sourceR = (typeof source === 'object' && source) ? graphNodeRadius(source) : 7;
+    const targetR = (typeof target === 'object' && target) ? graphNodeRadius(target) : 7;
+    const x1 = sx + ux * sourceR;
+    const y1 = sy + uy * sourceR;
+    const x2 = tx - ux * targetR;
+    const y2 = ty - uy * targetR;
+    return `M ${x1} ${y1} L ${x2} ${y2}`;
   }
 
   function showTooltip(event, d) {
@@ -1559,8 +1564,6 @@ const graph = (() => {
 
     simulation.nodes(nodesData);
     simulation.force('link').links(linksData);
-    simulation.force('x').x(d => targetX(d)).strength(0.45);
-    simulation.force('y').y(d => targetY(d)).strength(0.42);
     if (structureChanged) {
       simulation.alpha(Math.max(simulation.alpha(), 0.28)).restart();
     } else {
