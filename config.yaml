@@ -9,8 +9,8 @@ models:
     provider: openrouter
     model: poolside/laguna-m.1:free
   summary:
-    provider: openai
-    model: gpt-4o-mini
+    provider: openrouter
+    model: openai/gpt-oss-120b:free
 
 # Execution constraints used by BrowserAgent.
 # - max_steps_per_subgoal: per-planner-subgoal step budget.
