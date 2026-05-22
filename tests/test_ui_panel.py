@@ -533,8 +533,8 @@ def test_panel_graph_compute_own_cues_handles_all_three_layers():
     assert "loop || revisit" in body
     assert "'red'" in body
     assert "'none'" in body
-    # Sequence helpers used (consecutive dup for loop, non-consecutive occurrence for revisit)
-    assert "sequence[i - 1] === node.id" in body or "seq[i - 1] === node.id" in body
+    # Sequence helpers used (revisit detected by non-consecutive re-occurrence)
+    assert "seq[i - 1] !== node.id" in body
 
 
 def test_panel_graph_bounce_back_counts_as_loop_not_dead_end():
@@ -557,8 +557,8 @@ def test_panel_graph_rollup_excludes_dead_end():
     body = PANEL_HTML.split("function rollupCueFor(type, scope, context)", 1)[1].split(
         "\nfunction ", 1
     )[0]
-    # rollup counts loop/revisit only; deadEnd is intentionally not added
-    assert "cues.loop || cues.revisit" in body
+    # rollup counts loops only; revisit and deadEnd are intentionally not added
+    assert "if (cues.loop) {" in body
     assert "cues.deadEnd" not in body  # dead-end never contributes to rollup
     # rollupSeverity is binary: 'red' or 'none'
     assert "'red'" in body
@@ -573,8 +573,8 @@ def test_panel_graph_builders_attach_cue_fields():
         assert "computeOwnCues" in body, f"{fn} must compute own cues"
         assert "rollupCueFor" in body, f"{fn} must compute rollup"
         assert "badgeCount" in body, f"{fn} must derive badgeCount"
-    # badgeCount formula: own contributes only loop/revisit motifs, not dead-end.
-    assert "(own.loop || own.revisit ? 1 : 0) + rollupCount" in PANEL_HTML
+    # badgeCount formula: only descendant rollup contributes, own-layer motifs are excluded.
+    assert "const badgeCount = rollupCount;" in PANEL_HTML
 
 
 def test_panel_graph_cue_badge_css_present():
@@ -694,8 +694,8 @@ def test_panel_graph_uses_top_down_tree_targets():
     assert "const target = layoutTargets.get(node.id) || { x: 0, y: 90 };" in graph_renderer
     assert "node._targetX = target.x;" in graph_renderer
     assert "node._targetY = target.y;" in graph_renderer
-    assert "simulation.force('x').x(d => targetX(d)).strength(0.45);" in graph_renderer
-    assert "simulation.force('y').y(d => targetY(d)).strength(0.42);" in graph_renderer
+    assert "d3.forceCollide(34).strength(1)" in graph_renderer
+    assert "d3.forceManyBody().strength(-160)" in graph_renderer
 
 
 def test_panel_graph_linear_acyclic_trajectory_targets_single_vertical_column():
@@ -730,8 +730,8 @@ def test_panel_graph_root_pin_stays_available_for_root_nodes():
     assert "node.fx = pinned.x;" in graph_renderer
     assert "node.fy = pinned.y;" in graph_renderer
     assert "if (d && Number.isFinite(d._targetY)) return d._targetY;" in graph_renderer
-    assert "simulation.force('x').x(d => targetX(d)).strength(0.45);" in graph_renderer
-    assert "simulation.force('y').y(d => targetY(d)).strength(0.42);" in graph_renderer
+    assert "d3.forceCollide(34).strength(1)" in graph_renderer
+    assert "d3.forceManyBody().strength(-160)" in graph_renderer
     assert "if (d.isRoot) {" in graph_renderer
 
 
