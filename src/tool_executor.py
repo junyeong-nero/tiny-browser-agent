@@ -85,6 +85,8 @@ class BrowserToolExecutor:
             name: partial(handler, browser_computer)
             for name, handler in TOOL_HANDLERS.items()
         }
+        self._cached_aria_snapshot_text: str | None = None
+        self._cached_aria_metadata: dict[str, Any] | None = None
 
     def build_tools(
         self,
@@ -180,12 +182,34 @@ class BrowserToolExecutor:
                 capture_updates = self._end_action_capture(persist=persist_capture)
             if not persist_capture:
                 self._clear_pending_action()
-        artifacts = None
+        self._cached_aria_snapshot_text = None
+        self._cached_aria_metadata = None
+        artifacts: dict[str, Any] | None = None
         if is_env_state_result(result):
-            artifacts = self._latest_artifact_metadata()
-            if isinstance(capture_updates, dict) and artifacts is not None:
-                artifacts = {**artifacts, **capture_updates}
+            base_artifacts = self._latest_artifact_metadata()
+            artifacts = dict(base_artifacts) if base_artifacts else {}
+            if isinstance(capture_updates, dict):
+                artifacts.update(capture_updates)
+            if self._grounding in {"text", "mixed"}:
+                aria_text, aria_metadata = self._capture_and_cache_aria_snapshot()
+                if aria_text:
+                    artifacts["aria_snapshot"] = aria_text
+                    artifacts.update(aria_metadata)
+            if not artifacts:
+                artifacts = None
         return ExecutedCall(function_call=action, result=result, artifacts=artifacts)
+
+    def _capture_and_cache_aria_snapshot(self) -> tuple[str, dict[str, Any]]:
+        try:
+            snapshot = self._browser_computer.take_aria_snapshot()
+        except Exception:  # noqa: BLE001
+            self._cached_aria_snapshot_text = ""
+            self._cached_aria_metadata = {}
+            return "", {}
+        aria_text, aria_metadata = compact_aria_snapshot_text(snapshot.text)
+        self._cached_aria_snapshot_text = aria_text
+        self._cached_aria_metadata = aria_metadata
+        return aria_text, aria_metadata
 
     def _end_action_capture(self, *, persist: bool) -> dict[str, Any] | None:
         end_capture = getattr(self._browser_computer, "end_action_capture", None)
@@ -261,8 +285,10 @@ class BrowserToolExecutor:
         if tab_metadata:
             response.update(tab_metadata)
         if self._grounding in {"text", "mixed"}:
-            snapshot = self._browser_computer.take_aria_snapshot()
-            aria_snapshot, aria_metadata = compact_aria_snapshot_text(snapshot.text)
+            if self._cached_aria_snapshot_text is None:
+                self._capture_and_cache_aria_snapshot()
+            aria_snapshot = self._cached_aria_snapshot_text or ""
+            aria_metadata = self._cached_aria_metadata or {}
             response.update(
                 {
                     "aria_snapshot": aria_snapshot,

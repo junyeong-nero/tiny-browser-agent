@@ -694,7 +694,12 @@ class BrowserAgent:
         if node is None:
             return None
         name = (node.name or "").strip()
-        return name or None
+        if name:
+            return name
+        role = (getattr(node, "role", "") or "").strip()
+        if role:
+            return f"<{role}>"
+        return None
 
     def _execute_single_function_call(
         self,
