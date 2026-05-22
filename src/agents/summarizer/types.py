@@ -45,6 +45,7 @@ class ActionStepSummarizerProtocol(Protocol):
         reasoning: str | None,
         current_url: str | None,
         previous_url: str | None = None,
+        aria_diff: str | None = None,
     ) -> ActionStepSummary | None: ...
 
     def summarize_final_result(

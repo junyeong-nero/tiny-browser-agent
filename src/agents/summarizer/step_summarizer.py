@@ -72,6 +72,7 @@ class ActionStepSummarizer:
         reasoning: str | None,
         current_url: str | None,
         previous_url: str | None = None,
+        aria_diff: str | None = None,
     ) -> ActionStepSummary | None:
         prompt_payload = {
             "user_request": query,
@@ -82,6 +83,7 @@ class ActionStepSummarizer:
             "model_reasoning": reasoning,
             "previous_url": previous_url,
             "current_url": current_url,
+            "aria_diff": aria_diff,
         }
 
         try:
@@ -98,7 +100,8 @@ class ActionStepSummarizer:
                     "Return JSON with keys what, why, outcome.\n"
                     "- what: a short Korean label (≤ 24 chars) describing the executed action.\n"
                     "- why: one concise Korean sentence explaining why this step was needed, grounded in the user request.\n"
-                    "- outcome: one concise Korean sentence describing the concrete result observed (e.g. URL change, form filled). "
+                    "- outcome: one concise Korean sentence describing the concrete result observed. "
+                    "Prefer evidence from `aria_diff` (added '+' / removed '-' ARIA nodes) and URL change. "
                     "If the outcome cannot be inferred, return '—'.\n"
                     "Never invent page details that are not present in the inputs.\n\n"
                     f"{json.dumps(prompt_payload, ensure_ascii=False)}"

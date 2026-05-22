@@ -10,6 +10,7 @@ from .ambiguity import (
     AmbiguityCandidate,
     detect_ambiguity_candidate,
 )
+from .aria_diff import compute_aria_diff
 from .formatters import (
     DEFAULT_PHASE,
     NAVIGATION_ACTION_NAMES,
@@ -158,6 +159,8 @@ class ActionReviewService:
         reasoning: Optional[str],
         current_url: str | None,
         previous_url: str | None = None,
+        previous_aria: str | None = None,
+        current_aria: str | None = None,
     ) -> ActionStepSummary:
         cache_key = (step_id, function_call_index)
         cached_summary = self._step_summary_cache.get(cache_key)
@@ -176,12 +179,14 @@ class ActionReviewService:
             self._step_summary_cache[cache_key] = fallback_summary
             return fallback_summary
 
+        aria_diff = compute_aria_diff(previous_aria, current_aria)
         summarized = self._step_summarizer.summarize_action(
             query=self._query,
             function_call=function_call,
             reasoning=reasoning,
             current_url=current_url,
             previous_url=previous_url,
+            aria_diff=aria_diff,
         )
         resolved_summary = summarized or fallback_summary
         self._step_summary_cache[cache_key] = resolved_summary
@@ -197,10 +202,14 @@ class ActionReviewService:
         subgoal_id: int | None = None,
     ) -> dict[str, Any]:
         current_url = artifacts.get("url") if artifacts else None
+        current_aria = artifacts.get("aria_snapshot") if artifacts else None
         previous_context_for_url = (
             self._action_review_history[-1] if self._action_review_history else None
         )
         previous_url = previous_context_for_url.current_url if previous_context_for_url else None
+        previous_aria = (
+            previous_context_for_url.aria_snapshot if previous_context_for_url else None
+        )
         action_step_summary = self._get_action_step_summary(
             step_id=step_id,
             function_call_index=function_call_index,
@@ -208,11 +217,14 @@ class ActionReviewService:
             reasoning=reasoning,
             current_url=current_url,
             previous_url=previous_url,
+            previous_aria=previous_aria,
+            current_aria=current_aria,
         )
         current_context = ActionReviewContext(
             action_name=function_call.name or "action",
             action_args=dict(function_call.args or {}),
             current_url=current_url,
+            aria_snapshot=current_aria,
         )
         previous_context = self._action_review_history[-1] if self._action_review_history else None
         ambiguity_candidate = detect_ambiguity_candidate(

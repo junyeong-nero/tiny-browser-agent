@@ -11,6 +11,7 @@ class ActionReviewContext:
     action_name: str
     action_args: dict[str, Any]
     current_url: str | None
+    aria_snapshot: str | None = None
 
 
 @dataclass(frozen=True)
