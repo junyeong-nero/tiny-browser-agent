@@ -1107,16 +1107,30 @@ const graph = (() => {
     }
     const { width, height } = wrapEl.getBoundingClientRect();
     if (!width || !height) return;
-    const bounds = root.node().getBBox();
-    const boundsWidth = bounds.width || 1;
-    const boundsHeight = bounds.height || 1;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodesData.forEach(n => {
+      const x = Number.isFinite(n._targetX) ? n._targetX : n.x;
+      const y = Number.isFinite(n._targetY) ? n._targetY : n.y;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      const r = graphNodeRadius(n) + 24;
+      if (x - r < minX) minX = x - r;
+      if (x + r > maxX) maxX = x + r;
+      if (y - r < minY) minY = y - r;
+      if (y + r > maxY) maxY = y + r;
+    });
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+      graphTransition().call(zoomBehavior.transform, d3.zoomIdentity);
+      return;
+    }
+    const boundsWidth = Math.max(1, maxX - minX);
+    const boundsHeight = Math.max(1, maxY - minY);
     const padding = 80;
     const scale = Math.max(
       0.3,
       Math.min(3, 0.95 / Math.max(boundsWidth / Math.max(1, width - padding), boundsHeight / Math.max(1, height - padding)))
     );
-    const centerX = bounds.x + boundsWidth / 2;
-    const centerY = bounds.y + boundsHeight / 2;
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
     const transform = d3.zoomIdentity
       .translate(-centerX * scale, -centerY * scale)
       .scale(scale);
