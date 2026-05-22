@@ -438,11 +438,11 @@ function computeOwnCues(type, node, sequence) {
   for (let i = 0; i < seq.length; i++) {
     if (seq[i] !== node.id) continue;
     if (i > 0 && seq[i - 1] === node.id) loop = true;
-    if (i > 0 && i < seq.length - 1 && seq[i + 1] === seq[i - 1] && seq[i] !== seq[i - 1]) deadEnd = true;
+    if (i > 0 && i < seq.length - 1 && seq[i + 1] === seq[i - 1] && seq[i] !== seq[i - 1]) loop = true;
     if (seen && (i === 0 || seq[i - 1] !== node.id)) revisit = true;
     seen = true;
   }
-  const severity = (loop || revisit) ? 'red' : (deadEnd ? 'gray' : 'none');
+  const severity = (loop || revisit) ? 'red' : 'none';
   return { loop: loop, revisit: revisit, deadEnd: deadEnd, severity: severity };
 }
 
@@ -619,6 +619,36 @@ function recordActionExecution(ev) {
   scheduleGraphUpdate();
 }
 
+function firstAllowedInSequence(sequence, allowedIds) {
+  for (const id of sequence || []) {
+    if (allowedIds.has(id)) return id;
+  }
+  return null;
+}
+
+function lastAllowedInSequence(sequence, allowedIds) {
+  const seq = sequence || [];
+  for (let i = seq.length - 1; i >= 0; i--) {
+    if (allowedIds.has(seq[i])) return seq[i];
+  }
+  return null;
+}
+
+function annotateLevelEndpoints(childNodes, sequence) {
+  const ids = new Set(childNodes.map(n => n.id));
+  const firstIndexById = new Map();
+  (sequence || []).forEach((id, index) => {
+    if (ids.has(id) && !firstIndexById.has(id)) firstIndexById.set(id, index);
+  });
+  const startId = firstAllowedInSequence(sequence, ids);
+  const endId = lastAllowedInSequence(sequence, ids);
+  childNodes.forEach(n => {
+    n.isStart = n.id === startId;
+    n.isEnd = n.id === endId;
+    n._sequenceIndex = firstIndexById.has(n.id) ? firstIndexById.get(n.id) : Number.MAX_SAFE_INTEGER;
+  });
+}
+
 function buildSequentialLinks(sequence, allowedIds, rootId = null, allowSelfLoops = false) {
   const edges = new Map();
   let previous = rootId;
@@ -702,9 +732,9 @@ function detectCycleEdges(links) {
 function attachCueFields(type, src, sequence, context) {
   const own = computeOwnCues(type, src, sequence);
   const rollup = rollupCueFor(type, src, context);
-  const ownSeverity = own.severity;
   const rollupCount = rollup.rollupCount;
-  const badgeCount = (ownSeverity !== 'none' ? 1 : 0) + rollupCount;
+  const ownSeverity = own.severity;
+  const badgeCount = (own.loop || own.revisit ? 1 : 0) + rollupCount;
   return {
     ownCues: own,
     ownSeverity: ownSeverity,
@@ -748,6 +778,7 @@ function buildUrlGraphData() {
     ...attachCueFields('url', src, urlSequence, cueContext), // computeOwnCues + rollupCueFor → badgeCount
   }));
   const idSet = new Set(nodes.map(n => n.id));
+  annotateLevelEndpoints(nodes, urlSequence);
   const links = detectCycleEdges(Array.from(trajectoryEdges.values())
     .filter(e => idSet.has(e.source) && idSet.has(e.target))
     .map(e => ({ source: e.source, target: e.target, count: e.count })));
@@ -761,24 +792,7 @@ function buildViewportGraphData(urlId) {
     return buildUrlGraphData();
   }
   const cueContext = buildCueContext();
-  const root = {
-    id: urlNode.id,
-    label: trajectoryLabelFor(urlNode),
-    type: 'url',
-    fullUrl: urlNode.fullUrl,
-    host: urlNode.host,
-    path: urlNode.path,
-    visits: urlNode.visits,
-    firstStep: urlNode.firstStep,
-    lastStep: urlNode.lastStep,
-    viewportCount: urlNode.viewportIds.size,
-    actionStepCount: actionStepCountForActionIds(urlNode.actionIds),
-    actionCount: urlNode.actionIds.size,
-    actionPreviews: collectActionPreviewArtifacts(urlNode.actionIds),
-    isRoot: true,
-    isCurrent: urlNode.id === trajectoryCurrentKey,
-    ...attachCueFields('url', urlNode, urlSequence, cueContext), // computeOwnCues + rollupCueFor → badgeCount
-  };
+  const parentLabel = trajectoryLabelFor(urlNode);
   const viewports = Array.from(urlNode.viewportIds || [])
     .map(id => trajectoryViewports.get(id))
     .filter(Boolean)
@@ -802,12 +816,14 @@ function buildViewportGraphData(urlId) {
       ...attachCueFields('viewport', vp, urlNode.viewportSequence, cueContext), // computeOwnCues + rollupCueFor → badgeCount
     }));
   const viewportIds = new Set(viewports.map(vp => vp.id));
-  const links = detectCycleEdges(buildSequentialLinks(urlNode.viewportSequence, viewportIds, root.id));
+  annotateLevelEndpoints(viewports, urlNode.viewportSequence);
+  const links = detectCycleEdges(buildSequentialLinks(urlNode.viewportSequence, viewportIds, null));
   return {
-    nodes: [root, ...viewports],
+    nodes: viewports,
     links,
     mode: 'viewport',
     breadcrumb: [{ label: 'URLs', level: 'url' }],
+    parentLabel,
   };
 }
 
@@ -819,25 +835,7 @@ function buildActionGraphData(viewportId) {
   }
   const urlNode = trajectoryNodes.get(viewportNode.urlId);
   const cueContext = buildCueContext();
-  const root = {
-    id: viewportNode.id,
-    label: viewportNode.label,
-    type: 'viewport',
-    urlId: viewportNode.urlId,
-    size: viewportNode.size,
-    scroll: viewportNode.scroll,
-    screenshot: viewportNode.screenshot,
-    visits: viewportNode.visits,
-    firstStep: viewportNode.firstStep,
-    lastStep: viewportNode.lastStep,
-    actionStepCount: actionStepCountForActionIds(viewportNode.actionIds),
-    actionCount: viewportNode.actionIds.size,
-    actionPreviews: collectActionPreviewArtifacts(viewportNode.actionIds),
-    llmInference: llmInferenceForStep(viewportNode.lastStep),
-    isRoot: true,
-    isCurrent: viewportNode.id === trajectoryCurrentViewportId,
-    ...attachCueFields('viewport', viewportNode, viewportNode.actionSequence, cueContext), // computeOwnCues + rollupCueFor → badgeCount
-  };
+  const parentLabel = viewportNode.label;
   const actions = Array.from(viewportNode.actionIds || [])
     .map(id => trajectoryActions.get(id))
     .filter(Boolean)
@@ -851,10 +849,11 @@ function buildActionGraphData(viewportId) {
       ...attachCueFields('action', action, viewportNode.actionSequence, cueContext), // computeOwnCues + rollupCueFor → badgeCount
     }));
   const actionIds = new Set(actions.map(action => action.id));
-  const links = detectCycleEdges(buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true));
+  annotateLevelEndpoints(actions, viewportNode.actionSequence);
+  const links = detectCycleEdges(buildSequentialLinks(viewportNode.actionSequence, actionIds, null, true));
   const crumbs = [{ label: 'URLs', level: 'url' }];
   if (urlNode) crumbs.push({ label: trajectoryLabelFor(urlNode), level: 'viewport', urlId: urlNode.id });
-  return { nodes: [root, ...actions], links, mode: 'action', breadcrumb: crumbs };
+  return { nodes: actions, links, mode: 'action', breadcrumb: crumbs, parentLabel };
 }
 
 function trajectoryLabelFor(n) {
@@ -886,12 +885,13 @@ function drillGraphNode(d) {
     nextDrilldown = { level: 'action', urlId: d.urlId, viewportId: d.id };
   }
   if (!nextDrilldown) return;
-  rememberGraphDrillAnchor(d, nextDrilldown);
+  clearGraphDrillAnchor();
   graphDrilldown = nextDrilldown;
   selectedNodeId = null;
   selectedNodeData = null;
   renderSelection(null);
   updateGraph();
+  scheduleGraphFit();
 }
 
 let selectedNodeId = null;
@@ -1016,10 +1016,19 @@ function renderSelection(d) {
   renderGraphNodeSelection(d);
 }
 
+function scheduleGraphFit(delay = 320) {
+  if (typeof graph === 'undefined' || !graph || !graph.fitToNodes) return;
+  setTimeout(() => {
+    if (!isGraphViewActive()) return;
+    graph.fitToNodes();
+  }, delay);
+}
+
 function setGraphDrilldown(next) {
   clearGraphDrillAnchor();
   graphDrilldown = next;
   updateGraph();
+  scheduleGraphFit();
 }
 
 // ── d3 graph renderer ──────────────────────────────────
@@ -1038,6 +1047,8 @@ const graph = (() => {
   const root = svg.append('g').attr('class', 'graph-root');
   const linkG = root.append('g').attr('class', 'links');
   const nodeG = root.append('g').attr('class', 'nodes');
+  const GRAPH_TREE_LAYER_SPACING = 96;
+  const GRAPH_TREE_SIBLING_SPACING = 118;
   const zoomBehavior = d3.zoom()
     .scaleExtent([0.3, 3])
     .on('zoom', (event) => {
@@ -1047,10 +1058,10 @@ const graph = (() => {
   svg.call(zoomBehavior);
 
   const simulation = d3.forceSimulation()
-    .force('link', d3.forceLink().id(d => d.id).distance(80).strength(0.7))
-    .force('charge', d3.forceManyBody().strength(-260))
-    .force('x', d3.forceX(d => targetX(d)).strength(0.12))
-    .force('y', d3.forceY(d => targetY(d)).strength(0.05))
+    .force('link', d3.forceLink().id(d => d.id).distance(GRAPH_TREE_LAYER_SPACING).strength(0.45))
+    .force('charge', d3.forceManyBody().strength(-90))
+    .force('x', d3.forceX(d => targetX(d)).strength(0.45))
+    .force('y', d3.forceY(d => targetY(d)).strength(0.42))
     .force('collide', d3.forceCollide(22))
     .on('tick', ticked);
 
@@ -1087,10 +1098,10 @@ const graph = (() => {
     const bounds = root.node().getBBox();
     const boundsWidth = bounds.width || 1;
     const boundsHeight = bounds.height || 1;
-    const padding = 72;
+    const padding = 140;
     const scale = Math.max(
       0.3,
-      Math.min(3, 0.92 / Math.max(boundsWidth / Math.max(1, width - padding), boundsHeight / Math.max(1, height - padding)))
+      Math.min(3, 0.7 / Math.max(boundsWidth / Math.max(1, width - padding), boundsHeight / Math.max(1, height - padding)))
     );
     const centerX = bounds.x + boundsWidth / 2;
     const centerY = bounds.y + boundsHeight / 2;
@@ -1118,14 +1129,12 @@ const graph = (() => {
 
   function targetX(d) {
     if (d && d.isRoot && d._rootPin) return d._rootPin.x;
-    if (d && d.isRoot) return rootPosition().x;
     if (d && Number.isFinite(d._targetX)) return d._targetX;
     return 0;
   }
 
   function targetY(d) {
     if (d && d.isRoot && d._rootPin) return d._rootPin.y;
-    if (d && d.isRoot) return rootPosition().y;
     if (d && Number.isFinite(d._targetY)) return d._targetY;
     return 90;
   }
@@ -1147,39 +1156,139 @@ const graph = (() => {
     return { x: graphDrillAnchor.x, y: graphDrillAnchor.y };
   }
 
+  function linkEndpointId(endpoint) {
+    if (endpoint && typeof endpoint === 'object') return endpoint.id;
+    return endpoint;
+  }
+
+  function isLinearAcyclicGraph(nodes, acyclicLinks) {
+    if (linksData.some(e => e.isCycleEdge)) return false;
+    if (nodes.length <= 1) return true;
+    if (acyclicLinks.length !== nodes.length - 1) return false;
+    const ids = new Set(nodes.map(n => n.id));
+    const incoming = new Map(nodes.map(n => [n.id, 0]));
+    const outgoing = new Map(nodes.map(n => [n.id, 0]));
+    acyclicLinks.forEach(link => {
+      const sourceId = linkEndpointId(link.source);
+      const targetId = linkEndpointId(link.target);
+      if (!ids.has(sourceId) || !ids.has(targetId)) return;
+      outgoing.set(sourceId, (outgoing.get(sourceId) || 0) + 1);
+      incoming.set(targetId, (incoming.get(targetId) || 0) + 1);
+    });
+    let startCount = 0;
+    let endCount = 0;
+    for (const node of nodes) {
+      const inCount = incoming.get(node.id) || 0;
+      const outCount = outgoing.get(node.id) || 0;
+      if (inCount > 1 || outCount > 1) return false;
+      if (inCount === 0) startCount += 1;
+      if (outCount === 0) endCount += 1;
+    }
+    return startCount === 1 && endCount === 1;
+  }
+
+  function buildTopDownLayoutTargets(nodes) {
+    const orderedNodes = [...nodes].sort((a, b) => {
+      const bySequence = (a._sequenceIndex || 0) - (b._sequenceIndex || 0);
+      if (bySequence) return bySequence;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    const topY = graphMode === 'url' ? -180 : -220;
+    const acyclicLinks = linksData.filter(e => !e.isCycleEdge);
+    if (isLinearAcyclicGraph(orderedNodes, acyclicLinks)) {
+      return new Map(orderedNodes.map((node, index) => [node.id, { x: 0, y: topY + index * GRAPH_TREE_LAYER_SPACING }]));
+    }
+
+    const nodesById = new Map(orderedNodes.map(node => [node.id, node]));
+    const childrenById = new Map(orderedNodes.map(node => [node.id, []]));
+    const incomingCount = new Map(orderedNodes.map(node => [node.id, 0]));
+    acyclicLinks.forEach(link => {
+      const sourceId = linkEndpointId(link.source);
+      const targetId = linkEndpointId(link.target);
+      if (!nodesById.has(sourceId) || !nodesById.has(targetId) || sourceId === targetId) return;
+      childrenById.get(sourceId).push(targetId);
+      incomingCount.set(targetId, (incomingCount.get(targetId) || 0) + 1);
+    });
+    childrenById.forEach(children => {
+      children.sort((a, b) => {
+        const left = nodesById.get(a);
+        const right = nodesById.get(b);
+        return (left._sequenceIndex || 0) - (right._sequenceIndex || 0);
+      });
+    });
+
+    const roots = orderedNodes.filter(node => (incomingCount.get(node.id) || 0) === 0);
+    const queue = (roots.length ? roots : orderedNodes.slice(0, 1)).map(node => ({ id: node.id, depth: 0 }));
+    const depthById = new Map();
+    while (queue.length) {
+      const current = queue.shift();
+      if (depthById.has(current.id) && depthById.get(current.id) <= current.depth) continue;
+      depthById.set(current.id, current.depth);
+      for (const childId of childrenById.get(current.id) || []) {
+        queue.push({ id: childId, depth: current.depth + 1 });
+      }
+    }
+    orderedNodes.forEach((node, index) => {
+      if (!depthById.has(node.id)) depthById.set(node.id, index);
+    });
+
+    const levels = new Map();
+    orderedNodes.forEach(node => {
+      const depth = depthById.get(node.id) || 0;
+      if (!levels.has(depth)) levels.set(depth, []);
+      levels.get(depth).push(node);
+    });
+
+    const targets = new Map();
+    Array.from(levels.keys()).sort((a, b) => a - b).forEach(depth => {
+      const levelNodes = levels.get(depth).sort((a, b) => {
+        const bySequence = (a._sequenceIndex || 0) - (b._sequenceIndex || 0);
+        if (bySequence) return bySequence;
+        return String(a.id).localeCompare(String(b.id));
+      });
+      levelNodes.forEach((node, index) => {
+        targets.set(node.id, {
+          x: (index - (levelNodes.length - 1) / 2) * GRAPH_TREE_SIBLING_SPACING,
+          y: topY + depth * GRAPH_TREE_LAYER_SPACING,
+        });
+      });
+    });
+    return targets;
+  }
+
   function arrangeGraphNodes(nodes, previousById) {
     const rootNodes = nodes.filter(n => n.isRoot);
+    const layoutTargets = buildTopDownLayoutTargets(nodes);
+    const pinRoots = graphMode !== 'url';
     const rootsById = new Map(rootNodes.map((node, index) => {
       const pinned = drillAnchorForNode(node) || rootPosition(index, rootNodes.length);
-      node._rootPin = pinned;
-      node.fx = pinned.x;
-      node.fy = pinned.y;
-      node.x = pinned.x;
-      node.y = pinned.y;
+      const target = layoutTargets.get(node.id) || pinned;
+      node._targetX = target.x;
+      node._targetY = target.y;
+      if (pinRoots) {
+        node._rootPin = pinned;
+        node.fx = pinned.x;
+        node.fy = pinned.y;
+      } else {
+        node._rootPin = null;
+        node.fx = null;
+        node.fy = null;
+      }
+      if (!previousById.has(node.id) || !Number.isFinite(node.x) || !Number.isFinite(node.y)) {
+        node.x = target.x;
+        node.y = target.y;
+      }
       return [node.id, node];
     }));
-    const parentRoot = rootNodes[0] || null;
-    const childNodes = nodes.filter(n => !n.isRoot);
-    childNodes.forEach((node, index) => {
+    nodes.filter(n => !n.isRoot).forEach((node) => {
       node.fx = null;
       node.fy = null;
-      const parent = parentRoot || rootsById.get(node.urlId);
-      const baseX = parent ? parent.fx : -80;
-      const baseY = parent ? parent.fy : 0;
-      const columns = graphMode === 'action' ? 4 : 3;
-      const col = index % columns;
-      const row = Math.floor(index / columns);
-      const rowCount = Math.max(1, Math.ceil(childNodes.length / columns));
-      const visibleColumns = Math.min(columns, childNodes.length);
-      const spacingX = graphMode === 'action' ? 88 : 118;
-      const spacingY = graphMode === 'action' ? 68 : 86;
-      const targetXPos = baseX + (col - (visibleColumns - 1) / 2) * spacingX;
-      const targetYPos = baseY + 126 + (row - (rowCount - 1) / 2) * spacingY;
-      node._targetX = targetXPos;
-      node._targetY = targetYPos;
+      const target = layoutTargets.get(node.id) || { x: 0, y: 90 };
+      node._targetX = target.x;
+      node._targetY = target.y;
       if (previousById.has(node.id) && Number.isFinite(node.x) && Number.isFinite(node.y)) return;
-      node.x = targetXPos;
-      node.y = targetYPos;
+      node.x = target.x;
+      node.y = target.y;
     });
   }
 
@@ -1201,6 +1310,9 @@ const graph = (() => {
     const rows = [];
     const title = d.label || d.host || d.actionName || d.id;
     rows.push(`<div class="tt-row"><span>level</span><span class="v">${escHtml(d.type || '—')}</span></div>`);
+    if (d.isStart && d.isEnd) rows.push(`<div class="tt-row"><span>flow</span><span class="v">start & end</span></div>`);
+    else if (d.isStart) rows.push(`<div class="tt-row"><span>flow</span><span class="v">start ▶</span></div>`);
+    else if (d.isEnd) rows.push(`<div class="tt-row"><span>flow</span><span class="v">end ■</span></div>`);
     if (d.actionStepCount != null) rows.push(`<div class="tt-row"><span>total steps</span><span class="v">${d.actionStepCount}</span></div>`);
     if (d.actionCount != null) rows.push(`<div class="tt-row"><span>unique actions</span><span class="v">${d.actionCount}</span></div>`);
     if (d.visits != null) rows.push(`<div class="tt-row"><span>visits</span><span class="v">${d.visits}</span></div>`);
@@ -1211,10 +1323,8 @@ const graph = (() => {
       const inside = d.rollupBreakdown || { loop: 0, revisit: 0 };
       const loopOwn = own.loop ? 1 : 0;
       const revisitOwn = own.revisit ? 1 : 0;
-      const deadEndOwn = own.deadEnd ? 1 : 0;
       if (loopOwn || inside.loop) cueRows.push(`<div class="tt-row"><span>loop</span><span class="v">${loopOwn} own / ${inside.loop} inside</span></div>`);
       if (revisitOwn || inside.revisit) cueRows.push(`<div class="tt-row"><span>revisit</span><span class="v">${revisitOwn} own / ${inside.revisit} inside</span></div>`);
-      if (deadEndOwn) cueRows.push(`<div class="tt-row"><span>dead-end</span><span class="v">${deadEndOwn} own / 0 inside</span></div>`);
     }
     const cueSection = cueRows.length
       ? `<div class="tt-section">Cues</div>` + cueRows.join('')
@@ -1242,9 +1352,35 @@ const graph = (() => {
     return Number.isFinite(d.visits) ? d.visits : 0;
   }
 
+  function trajectoryMaxWorkCount() {
+    let max = 0;
+    trajectoryNodes.forEach(url => {
+      const count = actionStepCountForActionIds(url.actionIds);
+      if (count > max) max = count;
+    });
+    return max;
+  }
+
   function graphNodeRadius(d) {
-    const base = d && d.type === 'url' ? 11 : (d && d.type === 'viewport' ? 9 : 7);
-    return base + Math.min(7, Math.log2(((d && d.visits) || 1) + 1) * 1.8);
+    const base = 7;
+    const count = graphNodeWorkCount(d);
+    return base + Math.min(9, Math.log2((count || 1) + 1) * 1.8);
+  }
+
+  function levelEndpointShape(d) {
+    if (!d || (!d.isStart && !d.isEnd)) return '';
+    const r = graphNodeRadius(d);
+    if (d.isStart && d.isEnd) {
+      const s = r * 1.25;
+      return `M 0 ${-s} L ${s} 0 L 0 ${s} L ${-s} 0 Z`;
+    }
+    if (d.isStart) {
+      const w = r * 1.35;
+      const h = r * 1.15;
+      return `M ${-w * 0.65} ${-h} L ${w} 0 L ${-w * 0.65} ${h} Z`;
+    }
+    const s = r * 1.05;
+    return `M ${-s} ${-s} L ${s} ${-s} L ${s} ${s} L ${-s} ${s} Z`;
   }
 
   function graphNodeFill(d, maxWorkCount) {
@@ -1277,9 +1413,13 @@ const graph = (() => {
       .on('end', (event, d) => {
         if (!event.active) simulation.alphaTarget(0);
         if (d.isRoot) {
-          const pinned = d._rootPin || rootPosition();
-          d.fx = pinned.x;
-          d.fy = pinned.y;
+          if (d._rootPin) {
+            d.fx = d._rootPin.x;
+            d.fy = d._rootPin.y;
+          } else {
+            d.fx = null;
+            d.fy = null;
+          }
           return;
         }
         d.fx = null; d.fy = null;
@@ -1299,9 +1439,9 @@ const graph = (() => {
       parts.push(`<button type="button" data-idx="${idx}">${escHtml(layerName(crumb.level))}</button>`);
       parts.push('<span class="sep">›</span>');
     });
-    const parentLabel = payload && payload.nodes && payload.nodes.find(n => n.isRoot && payload.mode !== 'url');
+    const parentLabel = payload && payload.parentLabel && payload.mode !== 'url' ? payload.parentLabel : null;
     parts.push(`<span class="current-layer">${escHtml(layerName(payload.mode))}</span>`);
-    if (parentLabel) parts.push(`<span class="parent-label">inside ${escHtml(parentLabel.label || parentLabel.id)}</span>`);
+    if (parentLabel) parts.push(`<span class="parent-label">inside ${escHtml(parentLabel)}</span>`);
     breadcrumbEl.innerHTML = parts.join('');
     breadcrumbEl.querySelectorAll('button').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -1318,9 +1458,9 @@ const graph = (() => {
   function update(payload) {
     function cueBadgeClass(d) {
       if (!d || !(d.badgeCount > 0)) return { circleClass: null, textClass: null, hidden: true };
+      if (d.type === 'action') return { circleClass: null, textClass: null, hidden: true };
       if (d.ownSeverity === 'red') return { circleClass: 'own-red', textClass: 'on-fill', hidden: false };
       if (d.rollupSeverity === 'red') return { circleClass: 'rollup-red', textClass: 'on-stroke', hidden: false };
-      if (d.ownSeverity === 'gray') return { circleClass: 'own-gray', textClass: 'on-fill', hidden: false };
       return { circleClass: null, textClass: null, hidden: true };
     }
 
@@ -1348,9 +1488,9 @@ const graph = (() => {
       const prev = prevById.get(src.id);
       return Object.assign(prev || {}, normalizeGraphNode(src));
     });
-    arrangeGraphNodes(nodesData, prevById);
     linksData = incomingLinks.map(e => ({ ...e }));
-    const maxWorkCount = Math.max(1, ...nodesData.map(graphNodeWorkCount));
+    arrangeGraphNodes(nodesData, prevById);
+    const maxWorkCount = Math.max(1, trajectoryMaxWorkCount(), ...nodesData.map(graphNodeWorkCount));
     updateGraphLegend(maxWorkCount, nodesData.length > 0);
 
     emptyEl.style.display = nodesData.length ? 'none' : 'flex';
@@ -1370,11 +1510,12 @@ const graph = (() => {
       .attr('class', 'graph-node')
       .call(drag())
       .on('click', (event, d) => { event.stopPropagation(); selectGraphNode(d); })
-      .on('dblclick', (event, d) => { event.stopPropagation(); drillGraphNode(d); })
+      .on('dblclick', (event, d) => { event.stopPropagation(); hideTooltip(); drillGraphNode(d); })
       .on('mouseenter', showTooltip)
       .on('mousemove', moveTooltip)
       .on('mouseleave', hideTooltip);
     enter.append('circle').attr('r', 8);
+    enter.append('path').attr('class', 'graph-node-shape');
     enter.append('text').attr('class', 'graph-node-label').attr('dx', 12).attr('dy', 4);
     const badgeEnter = enter.append('g').attr('class', 'node-cue-badge');
     badgeEnter.append('circle').attr('r', 8);
@@ -1389,8 +1530,13 @@ const graph = (() => {
       .classed('current', d => !!d.isCurrent)
       .classed('running', d => isRunningGraphNode(d))
       .classed('selected', d => d.id === selectedNodeId)
+      .classed('start', d => !!d.isStart)
+      .classed('end', d => !!d.isEnd)
       .style('--graph-node-fill', d => graphNodeFill(d, maxWorkCount));
     nodeSel.select('circle').attr('r', d => graphNodeRadius(d));
+    nodeSel.select('path.graph-node-shape')
+      .attr('d', d => levelEndpointShape(d))
+      .style('display', d => (d.isStart || d.isEnd) ? null : 'none');
     nodeSel.select('text.graph-node-label').text(displayGraphNodeLabel);
     const badgeSel = nodeSel.select('g.node-cue-badge');
     badgeSel.each(function(d) {
@@ -1413,8 +1559,8 @@ const graph = (() => {
 
     simulation.nodes(nodesData);
     simulation.force('link').links(linksData);
-    simulation.force('x').x(d => targetX(d));
-    simulation.force('y').y(d => targetY(d));
+    simulation.force('x').x(d => targetX(d)).strength(0.45);
+    simulation.force('y').y(d => targetY(d)).strength(0.42);
     if (structureChanged) {
       simulation.alpha(Math.max(simulation.alpha(), 0.28)).restart();
     } else {
@@ -1448,7 +1594,7 @@ const graph = (() => {
 
   svg.on('click', () => clearGraphSelection());
 
-  return { update, reset, resize, refreshSelection, refreshRunning };
+  return { update, reset, resize, refreshSelection, refreshRunning, fitToNodes };
 })();
 
 function isGraphViewActive() {

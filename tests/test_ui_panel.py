@@ -179,14 +179,16 @@ def test_panel_viewport_and_action_drilldowns_use_step_dag_edges():
     viewport_builder = PANEL_HTML.split("function buildViewportGraphData(urlId)", 1)[1].split(
         "function buildActionGraphData(viewportId)", 1
     )[0]
-    assert "buildSequentialLinks(urlNode.viewportSequence, viewportIds, root.id)" in viewport_builder
+    assert "buildSequentialLinks(urlNode.viewportSequence, viewportIds, null)" in viewport_builder
     assert "viewports.map(vp => ({ source: root.id, target: vp.id" not in viewport_builder
+    assert "nodes: viewports," in viewport_builder
 
     action_builder = PANEL_HTML.split("function buildActionGraphData(viewportId)", 1)[1].split(
         "function trajectoryLabelFor(n)", 1
     )[0]
-    assert "buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true)" in action_builder
+    assert "buildSequentialLinks(viewportNode.actionSequence, actionIds, null, true)" in action_builder
     assert "actions.map(action => ({ source: root.id, target: action.id" not in action_builder
+    assert "nodes: actions," in action_builder
 
 
 def test_panel_sequence_links_anchor_first_node_and_preserve_returns():
@@ -239,13 +241,13 @@ def test_panel_action_graph_reuses_same_action_nodes_and_draws_cycles():
     assert "actionNodeIdByStep.set(stepIdKey, actionId);" in PANEL_HTML
     assert "actionNode.visits += 1;" in PANEL_HTML
     assert "viewportNode.actionSequence.push(actionId);" in PANEL_HTML
-    assert "buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true)" in PANEL_HTML
+    assert "buildSequentialLinks(viewportNode.actionSequence, actionIds, null, true)" in PANEL_HTML
     assert "linkG.selectAll('path.graph-link')" in PANEL_HTML
     assert "function linkPath(d)" in PANEL_HTML
     assert "return `M ${sx} ${sy - 8} C" in PANEL_HTML
     assert "function detectCycleEdges(links)" in PANEL_HTML
     assert "const isCycleEdge = !!source && !!target && (source === target || (cyclicNodes.has(source) && cyclicNodes.has(target)));" in PANEL_HTML
-    assert "detectCycleEdges(buildSequentialLinks(viewportNode.actionSequence, actionIds, root.id, true))" in PANEL_HTML
+    assert "detectCycleEdges(buildSequentialLinks(viewportNode.actionSequence, actionIds, null, true))" in PANEL_HTML
     assert ".classed('cycle', d => !!d.isCycleEdge)" in PANEL_HTML
     assert ".graph-link.cycle" in PANEL_HTML
     assert 'id="graph-arrow-cycle"' in PANEL_HTML
@@ -527,23 +529,24 @@ def test_panel_graph_compute_own_cues_handles_all_three_layers():
     assert "loop:" in body
     assert "revisit:" in body
     assert "deadEnd:" in body
-    # Severity logic: red wins over gray; none when no cues
+    # Severity logic: motif cues are red; dead-end alone is not a motif badge.
     assert "loop || revisit" in body
     assert "'red'" in body
-    assert "'gray'" in body
     assert "'none'" in body
     # Sequence helpers used (consecutive dup for loop, non-consecutive occurrence for revisit)
     assert "sequence[i - 1] === node.id" in body or "seq[i - 1] === node.id" in body
 
 
-def test_panel_graph_dead_end_uses_bounce_back_not_terminal():
+def test_panel_graph_bounce_back_counts_as_loop_not_dead_end():
     body = PANEL_HTML.split("function computeOwnCues(type, node, sequence)", 1)[1].split(
         "\nfunction ", 1
     )[0]
-    # Dead-end means A -> node -> A, so the node is the branch that got backed out of.
+    # A -> node -> A means the branch bounced back; count it as a loop motif.
     assert "seq[i + 1] === seq[i - 1]" in body
     assert "seq[i] !== seq[i - 1]" in body
     assert "i < seq.length - 1" in body
+    assert "loop = true" in body
+    assert "deadEnd = true" not in body
     # The old terminal-node marker must not set deadEnd anymore.
     assert "seq[seq.length - 1] === node.id" not in body
 
@@ -570,15 +573,15 @@ def test_panel_graph_builders_attach_cue_fields():
         assert "computeOwnCues" in body, f"{fn} must compute own cues"
         assert "rollupCueFor" in body, f"{fn} must compute rollup"
         assert "badgeCount" in body, f"{fn} must derive badgeCount"
-    # badgeCount formula: own contributes 1 when not 'none', plus rollupCount
-    assert "(ownSeverity !== 'none' ? 1 : 0) + rollupCount" in PANEL_HTML
+    # badgeCount formula: own contributes only loop/revisit motifs, not dead-end.
+    assert "(own.loop || own.revisit ? 1 : 0) + rollupCount" in PANEL_HTML
 
 
 def test_panel_graph_cue_badge_css_present():
     assert ".node-cue-badge circle.own-red" in PANEL_HTML
-    assert ".node-cue-badge circle.own-gray" in PANEL_HTML
     assert ".node-cue-badge circle.rollup-red" in PANEL_HTML
-    # dead-end is excluded from rollup → no rollup-gray class
+    # dead-end is excluded from motif badges entirely.
+    assert ".node-cue-badge circle.own-gray" not in PANEL_HTML
     assert ".node-cue-badge circle.rollup-gray" not in PANEL_HTML
     assert ".node-cue-badge text" in PANEL_HTML
 
@@ -592,9 +595,8 @@ def test_panel_graph_renders_cue_badge_with_severity_matrix():
     assert "g').attr('class', 'node-cue-badge'" in update_body or 'class\', \'node-cue-badge\'' in update_body
     # Badge visibility gated on badgeCount > 0
     assert "d.badgeCount > 0" in update_body or "d.badgeCount >= 1" in update_body
-    # Severity matrix: own-red > rollup-red > own-gray, plus hidden state
+    # Severity matrix: own-red > rollup-red, plus hidden state
     assert "own-red" in update_body
-    assert "own-gray" in update_body
     assert "rollup-red" in update_body
     # Text class toggles between on-fill (filled badge) and on-stroke (outlined)
     assert "on-fill" in update_body
@@ -609,7 +611,7 @@ def test_panel_graph_tooltip_includes_cue_breakdown():
     assert "Cues" in tooltip_block
     assert "loop" in tooltip_block
     assert "revisit" in tooltip_block
-    assert "dead-end" in tooltip_block
+    assert "dead-end" not in tooltip_block
     # own / inside split
     assert "own" in tooltip_block
     assert "inside" in tooltip_block
@@ -677,46 +679,69 @@ def test_panel_plan_items_jump_to_subgoal_start_rows():
     assert ".todo.jumpable:hover" in PANEL_HTML
 
 
-def test_panel_graph_pins_root_nodes_and_seeds_children_from_parent():
+def test_panel_graph_uses_top_down_tree_targets():
     graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
         "function isGraphViewActive()", 1
     )[0]
 
     assert "function rootPosition(" in graph_renderer
     assert "function arrangeGraphNodes(" in graph_renderer
-    assert "x: graphMode === 'url' ? (index - (count - 1) / 2) * 140 : 0," in graph_renderer
-    assert "y: graphMode === 'url' ? -180 : -220," in graph_renderer
-    assert "node.fx = pinned.x;" in graph_renderer
-    assert "node.fy = pinned.y;" in graph_renderer
-    assert "const targetXPos = baseX + (col - (visibleColumns - 1) / 2) * spacingX;" in graph_renderer
-    assert "const targetYPos = baseY + 126 + (row - (rowCount - 1) / 2) * spacingY;" in graph_renderer
-    assert "node._targetX = targetXPos;" in graph_renderer
-    assert "node._targetY = targetYPos;" in graph_renderer
-    assert "if (d && Number.isFinite(d._targetY)) return d._targetY;" in graph_renderer
-    assert "simulation.force('x').x(d => targetX(d));" in graph_renderer
-    assert "simulation.force('y').y(d => targetY(d));" in graph_renderer
-    assert "if (d.isRoot) {" in graph_renderer
+    assert "const GRAPH_TREE_LAYER_SPACING = 96;" in graph_renderer
+    assert "const GRAPH_TREE_SIBLING_SPACING = 118;" in graph_renderer
+    assert "function buildTopDownLayoutTargets(nodes)" in graph_renderer
+    assert "const acyclicLinks = linksData.filter(e => !e.isCycleEdge);" in graph_renderer
+    assert "const layoutTargets = buildTopDownLayoutTargets(nodes);" in graph_renderer
+    assert "const target = layoutTargets.get(node.id) || { x: 0, y: 90 };" in graph_renderer
+    assert "node._targetX = target.x;" in graph_renderer
+    assert "node._targetY = target.y;" in graph_renderer
+    assert "simulation.force('x').x(d => targetX(d)).strength(0.45);" in graph_renderer
+    assert "simulation.force('y').y(d => targetY(d)).strength(0.42);" in graph_renderer
 
 
-def test_panel_graph_drilldown_keeps_double_clicked_node_position_as_child_root():
-    drill_fn = PANEL_HTML.split("function drillGraphNode(d)", 1)[1].split(
-        "let selectedNodeId", 1
-    )[0]
+def test_panel_graph_linear_acyclic_trajectory_targets_single_vertical_column():
     graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
         "function isGraphViewActive()", 1
     )[0]
 
-    assert "let graphDrillAnchor = null;" in PANEL_HTML
-    assert "function rememberGraphDrillAnchor(d, nextDrilldown)" in PANEL_HTML
-    assert "rememberGraphDrillAnchor(d, nextDrilldown);" in drill_fn
-    assert "fromLevel: graphDrilldown.level," in PANEL_HTML
-    assert "toLevel: nextDrilldown && nextDrilldown.level," in PANEL_HTML
-    assert "function drillAnchorForNode(node)" in graph_renderer
-    assert "if (graphMode === 'url' || !graphDrillAnchor || !node) return null;" in graph_renderer
-    assert "if (graphDrillAnchor.id !== node.id) return null;" in graph_renderer
-    assert "if (graphDrillAnchor.toLevel !== graphMode) return null;" in graph_renderer
-    assert "return { x: graphDrillAnchor.x, y: graphDrillAnchor.y };" in graph_renderer
-    assert "const pinned = drillAnchorForNode(node) || rootPosition(index, rootNodes.length);" in graph_renderer
+    assert "function isLinearAcyclicGraph(nodes, acyclicLinks)" in graph_renderer
+    assert "if (isLinearAcyclicGraph(orderedNodes, acyclicLinks))" in graph_renderer
+    assert "{ x: 0, y: topY + index * GRAPH_TREE_LAYER_SPACING }" in graph_renderer
+    assert "const orderedNodes = [...nodes].sort((a, b) => {" in graph_renderer
+    assert "const bySequence = (a._sequenceIndex || 0) - (b._sequenceIndex || 0);" in graph_renderer
+
+
+def test_panel_graph_arranges_with_current_render_links():
+    update_body = PANEL_HTML.split("function update(payload) {", 1)[1].split(
+        "function reset()", 1
+    )[0]
+
+    assert update_body.index("linksData = incomingLinks.map(e => ({ ...e }));") < update_body.index(
+        "arrangeGraphNodes(nodesData, prevById);"
+    )
+
+
+def test_panel_graph_root_pin_stays_available_for_root_nodes():
+    graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
+        "function isGraphViewActive()", 1
+    )[0]
+
+    assert "x: graphMode === 'url' ? (index - (count - 1) / 2) * 140 : 0," in graph_renderer
+    assert "y: graphMode === 'url' ? -180 : -220," in graph_renderer
+    assert "node.fx = pinned.x;" in graph_renderer
+    assert "node.fy = pinned.y;" in graph_renderer
+    assert "if (d && Number.isFinite(d._targetY)) return d._targetY;" in graph_renderer
+    assert "simulation.force('x').x(d => targetX(d)).strength(0.45);" in graph_renderer
+    assert "simulation.force('y').y(d => targetY(d)).strength(0.42);" in graph_renderer
+    assert "if (d.isRoot) {" in graph_renderer
+
+
+def test_panel_graph_drilldown_does_not_pin_double_clicked_node_position():
+    drill_fn = PANEL_HTML.split("function drillGraphNode(d)", 1)[1].split(
+        "let selectedNodeId", 1
+    )[0]
+
+    assert "rememberGraphDrillAnchor(d, nextDrilldown);" not in drill_fn
+    assert "clearGraphDrillAnchor();" in drill_fn
 
 
 
@@ -1184,7 +1209,7 @@ def test_panel_graph_separates_selected_and_running_node_accents():
     assert ".classed('current', d => d.isCurrent)" not in PANEL_HTML
     assert "activeGraphStepId = stepId != null ? String(stepId) : null;" in PANEL_HTML
     assert "function refreshRunning()" in PANEL_HTML
-    assert "return { update, reset, resize, refreshSelection, refreshRunning };" in PANEL_HTML
+    assert "return { update, reset, resize, refreshSelection, refreshRunning, fitToNodes };" in PANEL_HTML
     assert "updateGraphRunningClass();" in PANEL_HTML
 
 
@@ -1207,7 +1232,8 @@ def test_panel_graph_uses_total_action_steps_for_work_color_scale():
     assert "Math.sqrt(Math.min(count, maxWorkCount) / maxWorkCount)" in PANEL_HTML
     assert "d3.interpolateViridis(t)" in PANEL_HTML
     assert "d3.interpolateBlues" not in PANEL_HTML
-    assert "const maxWorkCount = Math.max(1, ...nodesData.map(graphNodeWorkCount));" in PANEL_HTML
+    assert "const maxWorkCount = Math.max(1, trajectoryMaxWorkCount(), ...nodesData.map(graphNodeWorkCount));" in PANEL_HTML
+    assert "function trajectoryMaxWorkCount()" in PANEL_HTML
     assert ".style('--graph-node-fill', d => graphNodeFill(d, maxWorkCount));" in PANEL_HTML
     assert "stroke: transparent;" in PANEL_HTML
     assert "stroke-width: 0;" in PANEL_HTML

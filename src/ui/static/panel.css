@@ -604,6 +604,40 @@
     stroke-width: 3;
   }
   .graph-node circle { cursor: pointer; }
+  .graph-node .graph-node-shape {
+    fill: var(--graph-node-fill, var(--surface-2));
+    stroke: transparent;
+    stroke-width: 0;
+    cursor: pointer;
+    transition: fill 0.16s ease, stroke 0.16s ease, stroke-width 0.16s ease;
+  }
+  .graph-node.start .graph-node-shape,
+  .graph-node.end .graph-node-shape {
+    stroke: color-mix(in srgb, var(--md-sys-color-primary) 60%, white 6%);
+    stroke-width: 1.5;
+  }
+  .graph-node.start > circle,
+  .graph-node.end > circle { display: none; }
+  .graph-node.root.start .graph-node-shape,
+  .graph-node.root.end .graph-node-shape {
+    stroke: color-mix(in srgb, var(--md-sys-color-primary) 72%, white 10%);
+    stroke-width: 2.5;
+  }
+  .graph-node.current.start .graph-node-shape,
+  .graph-node.current.end .graph-node-shape {
+    stroke: var(--md-sys-color-tertiary);
+    stroke-width: 3;
+  }
+  .graph-node.running.start .graph-node-shape,
+  .graph-node.running.end .graph-node-shape {
+    stroke: var(--md-sys-color-warning);
+    stroke-width: 3;
+  }
+  .graph-node.selected.start .graph-node-shape,
+  .graph-node.selected.end .graph-node-shape {
+    stroke: var(--md-sys-color-primary);
+    stroke-width: 3;
+  }
   .graph-node.selected circle {
     stroke: var(--md-sys-color-primary);
     stroke-width: 3;
@@ -780,7 +814,6 @@
   .graph-tooltip .tt-row .v { color: var(--fg); }
   .node-cue-badge { cursor: pointer; }
   .node-cue-badge circle.own-red    { fill: var(--md-sys-color-error); stroke: none; }
-  .node-cue-badge circle.own-gray   { fill: var(--fg-mute);            stroke: none; }
   .node-cue-badge circle.rollup-red {
     fill: var(--surface-1);
     stroke: var(--md-sys-color-error);
