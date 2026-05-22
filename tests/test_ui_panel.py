@@ -210,7 +210,7 @@ def test_panel_uses_user_friendly_viewport_and_action_labels():
     assert "label: viewportLabel(viewport, ev.step_id)" in PANEL_HTML
     assert "label: actionLabel(actionName, actionArgs)" in PANEL_HTML
     assert "if (actionName === 'click_at') return `Click at (${values.x}, ${values.y})`;" in PANEL_HTML
-    assert "if (actionName === 'navigate') return `Open ${values.url || 'page'}`;" in PANEL_HTML
+    assert "if (actionName === 'navigate') return `Open ${truncateLabel(values.url || 'page', 40)}`;" in PANEL_HTML
     assert "return String(actionName || 'Action').replace(/_/g, ' ');" in PANEL_HTML
 
 

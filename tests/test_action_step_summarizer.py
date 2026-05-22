@@ -329,6 +329,45 @@ class TestActionReviewServiceSummarizer(unittest.TestCase):
         self.assertEqual(persisted_metadata["summary_source"], "openrouter")
         self.assertEqual(len(summarizer.calls), 1)
 
+    def test_aria_snapshot_diff_is_forwarded_to_summarizer(self):
+        summarizer = _FakeStepSummarizer()
+        review_service = ActionReviewService(
+            query="검색 버튼을 눌러줘",
+            step_summarizer=summarizer,
+        )
+
+        review_service.build_review_metadata_for_action(
+            step_id=1,
+            function_call_index=1,
+            function_call=types.FunctionCall(name="navigate", args={"url": "https://example.com"}),
+            reasoning=None,
+            artifacts={
+                "url": "https://example.com",
+                "aria_snapshot": '- button "Search"\n- link "Home"\n',
+            },
+        )
+        review_service.build_review_metadata_for_action(
+            step_id=2,
+            function_call_index=1,
+            function_call=types.FunctionCall(name="click_at", args={"x": 10, "y": 20}),
+            reasoning=None,
+            artifacts={
+                "url": "https://example.com/results",
+                "aria_snapshot": '- button "Search"\n- heading "Results"\n',
+            },
+        )
+
+        self.assertEqual(len(summarizer.calls), 2)
+        first_diff = summarizer.calls[0]["aria_diff"]
+        second_diff = summarizer.calls[1]["aria_diff"]
+        self.assertIsNotNone(first_diff)
+        assert isinstance(first_diff, str)
+        self.assertIn("initial", first_diff.lower())
+        self.assertIsNotNone(second_diff)
+        assert isinstance(second_diff, str)
+        self.assertIn('+ - heading "Results"', second_diff)
+        self.assertIn('- - link "Home"', second_diff)
+
     def test_build_final_result_summary_uses_step_summarizer(self):
         summarizer = _FakeStepSummarizer()
         review_service = ActionReviewService(
