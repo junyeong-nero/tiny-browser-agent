@@ -27,6 +27,11 @@ FALLBACK_REASON_TEMPLATES: dict[str, str] = {
     "click_at": "Needed to click the selected page location.",
     "hover_at": "Needed to inspect the selected page location.",
     "type_text_at": "Needed to enter text into the page.",
+    "type_by_ref": "Needed to enter text into the focused field.",
+    "click_by_ref": "Needed to click the referenced element.",
+    "hover_by_ref": "Needed to inspect the referenced element.",
+    "scroll_by_ref": "Needed to scroll the referenced element.",
+    "check_by_ref": "Needed to toggle the referenced control.",
     "scroll_document": "Needed to move the page view to continue.",
     "scroll_at": "Needed to move the page view to continue.",
     "wait_5_seconds": "Needed to wait for the page state to settle.",
@@ -80,14 +85,37 @@ def _format_drag_and_drop(action_args: dict[str, Any]) -> str:
     )
 
 
+def _format_type_text_at(action_args: dict[str, Any]) -> str:
+    text = action_args.get("text")
+    location = f"({action_args.get('x')}, {action_args.get('y')})"
+    if text:
+        suffix = " and pressed Enter" if action_args.get("press_enter") else ""
+        return f'Typed "{text}" at {location}{suffix}'
+    return _format_point_action("Typed text", action_args)
+
+
+def _format_type_by_ref(action_args: dict[str, Any]) -> str:
+    text = action_args.get("text")
+    ref = action_args.get("ref")
+    suffix = " and pressed Enter" if action_args.get("press_enter") else ""
+    if text:
+        return f'Typed "{text}" into ref {ref}{suffix}'
+    return f"Typed text into ref {ref}{suffix}"
+
+
 ACTION_SUMMARY_FORMATTERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "click_at": lambda args: _format_point_action("Clicked", args),
     "hover_at": lambda args: _format_point_action("Hovered", args),
-    "type_text_at": lambda args: _format_point_action("Typed text", args),
+    "type_text_at": _format_type_text_at,
     "scroll_at": _format_scroll_at,
     "navigate": lambda args: f"Navigated to {args.get('url')}",
     "key_combination": lambda args: f"Pressed key combination {args.get('keys')}",
     "drag_and_drop": _format_drag_and_drop,
+    "click_by_ref": lambda args: f"Clicked ref {args.get('ref')}",
+    "hover_by_ref": lambda args: f"Hovered ref {args.get('ref')}",
+    "type_by_ref": _format_type_by_ref,
+    "scroll_by_ref": lambda args: f"Scrolled {args.get('direction')} on ref {args.get('ref')}",
+    "check_by_ref": lambda args: f"Toggled ref {args.get('ref')}",
 }
 
 
