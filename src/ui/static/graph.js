@@ -376,24 +376,42 @@ function hydrateBrowserStateButtons(root = document) {
   });
 }
 
+function truncateLabel(value, max = 28) {
+  const s = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
+  if (!s) return '';
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+function refDescriptor(values) {
+  if (values.ref_name) return `“${truncateLabel(values.ref_name)}”`;
+  if (values.ref != null && values.ref !== '') return `ref ${values.ref}`;
+  return 'element';
+}
+
+function textDescriptor(values) {
+  const t = truncateLabel(values.text, 24);
+  return t ? `“${t}”` : '';
+}
+
 function actionLabel(actionName, args) {
   const values = args || {};
-  const refLabel = values.ref_name || values.ref;
-  if (actionName === 'navigate') return `Open ${values.url || 'page'}`;
+  const ref = refDescriptor(values);
+  const text = textDescriptor(values);
+  if (actionName === 'navigate') return `Open ${truncateLabel(values.url || 'page', 40)}`;
   if (actionName === 'search') return 'Open search page';
   if (actionName === 'open_web_browser') return 'Open browser';
   if (actionName === 'go_back') return 'Go back';
   if (actionName === 'go_forward') return 'Go forward';
   if (actionName === 'reload_page') return 'Reload page';
   if (actionName === 'click_at') return `Click at (${values.x}, ${values.y})`;
-  if (actionName === 'click_by_ref') return `Click “${refLabel}”`;
+  if (actionName === 'click_by_ref') return `Click ${ref}`;
   if (actionName === 'hover_at') return `Hover at (${values.x}, ${values.y})`;
-  if (actionName === 'type_text_at') return 'Type text';
-  if (actionName === 'type_by_ref') return `Type into “${refLabel}”`;
-  if (actionName === 'hover_by_ref') return `Hover “${refLabel}”`;
-  if (actionName === 'scroll_by_ref') return `Scroll ${values.direction || 'area'} on “${refLabel}”`;
-  if (actionName === 'check_by_ref') return `Check “${refLabel}”`;
-  if (actionName === 'wait_for_ref') return `Wait for “${refLabel}”`;
+  if (actionName === 'type_text_at') return text ? `Type ${text} at (${values.x}, ${values.y})` : `Type at (${values.x}, ${values.y})`;
+  if (actionName === 'type_by_ref') return text ? `Type ${text} → ${ref}` : `Type into ${ref}`;
+  if (actionName === 'hover_by_ref') return `Hover ${ref}`;
+  if (actionName === 'scroll_by_ref') return `Scroll ${values.direction || 'area'} on ${ref}`;
+  if (actionName === 'check_by_ref') return `Check ${ref}`;
+  if (actionName === 'wait_for_ref') return `Wait for ${ref}`;
   if (actionName === 'key_combination') return `Press ${Array.isArray(values.keys) ? values.keys.join(' + ') : values.keys || 'keys'}`;
   if (actionName === 'scroll_document') return `Scroll ${values.direction || 'page'}`;
   if (actionName === 'scroll_at') return `Scroll ${values.direction || 'area'}`;
