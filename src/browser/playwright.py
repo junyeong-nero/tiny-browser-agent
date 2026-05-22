@@ -25,6 +25,12 @@ PlaywrightTimeoutError = playwright_sync_module.TimeoutError
 
 from .aria_snapshot import AriaSnapshot, NodeInfo, build_aria_snapshot
 from .artifact_logger import ArtifactLogger
+from .dom_interactive import (
+    DOM_REF_ATTR,
+    build_dom_node_infos,
+    extract_dom_interactive,
+    initial_occurrence_counter,
+)
 from .recording import BrowserRecordingHelper
 from .state import BrowserState, EnvState, InteractionState, PageState, ViewportState
 from .state_graph import browser_state_to_graph
@@ -502,6 +508,8 @@ class PlaywrightBrowser:
         if self._aria_ref_target_map is not None:
             target = self._aria_ref_target_map.get(ref, self._page)
         role_target = cast(Any, target)
+        if node.dom_ref:
+            return role_target.locator(f'[{DOM_REF_ATTR}="{node.dom_ref}"]').first
         if node.name:
             locator = role_target.get_by_role(node.role, name=node.name)
         else:
@@ -1212,18 +1220,34 @@ class PlaywrightBrowser:
                     continue
                 raise
             snapshot = build_aria_snapshot(raw_yaml, target_url, ref_offset=ref_offset)
+            frame_ref_map: dict[int, NodeInfo] = dict(snapshot.ref_map)
+            frame_lines = snapshot.text.splitlines() if snapshot.text else []
+
+            dom_nodes = extract_dom_interactive(target)
+            if dom_nodes:
+                counter = initial_occurrence_counter(frame_ref_map)
+                dom_entries, dom_lines, _ = build_dom_node_infos(
+                    dom_nodes,
+                    counter,
+                    next_ref=ref_offset + len(frame_ref_map) + 1,
+                )
+                if dom_entries:
+                    frame_ref_map.update(dom_entries)
+                    frame_lines.append("# dom-augmented (aria-hidden / inert / shadow):")
+                    frame_lines.extend(dom_lines)
+
             if multi_frame:
                 combined_lines.append(f"Frame {index}: {target_url}")
-                if snapshot.text:
+                if frame_lines:
                     combined_lines.extend(
                         f"  {line}" if line else line
-                        for line in snapshot.text.splitlines()
+                        for line in frame_lines
                     )
-            elif snapshot.text:
-                combined_lines.extend(snapshot.text.splitlines())
-            combined_ref_map.update(snapshot.ref_map)
-            target_map.update({ref: target for ref in snapshot.ref_map})
-            ref_offset += len(snapshot.ref_map)
+            elif frame_lines:
+                combined_lines.extend(frame_lines)
+            combined_ref_map.update(frame_ref_map)
+            target_map.update({ref: target for ref in frame_ref_map})
+            ref_offset += len(frame_ref_map)
             captured_frame_count += 1
 
         self._aria_ref_target_map = target_map

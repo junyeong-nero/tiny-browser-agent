@@ -14,6 +14,10 @@ class NodeInfo:
     raw_attrs: str = ""
     states: dict[str, str | bool] = field(default_factory=dict)
     actionable: bool = False
+    # When set, the node was discovered via DOM augmentation (not ARIA tree),
+    # and should be resolved via `[data-tba-dom-ref="<dom_ref>"]` instead of
+    # role/name selectors.
+    dom_ref: str | None = None
 
 
 class AriaSnapshot(pydantic.BaseModel):
