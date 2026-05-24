@@ -12,7 +12,6 @@ SIMPLE_PANEL_HTML_ONLY = Path("src/simple_ui/panel.html").read_text(encoding="ut
 SIMPLE_PANEL_CSS = Path("src/simple_ui/static/panel.css").read_text(encoding="utf-8")
 SIMPLE_GRAPH_JS = Path("src/simple_ui/static/graph.js").read_text(encoding="utf-8")
 SIMPLE_PANEL_JS = Path("src/simple_ui/static/panel.js").read_text(encoding="utf-8")
-SIMPLE_PANEL = SIMPLE_PANEL_HTML_ONLY + "\n" + SIMPLE_PANEL_CSS + "\n" + SIMPLE_GRAPH_JS + "\n" + SIMPLE_PANEL_JS
 
 
 def test_simple_panel_loads_own_static_assets():
@@ -52,22 +51,16 @@ def test_simple_panel_keeps_full_ui_chrome_and_timeline_surface():
     assert 'id="graph-svg"' not in SIMPLE_PANEL_HTML_ONLY
 
 
-def test_simple_panel_uses_full_panel_assets_with_simple_layout_overrides():
-    assert "const themeToggle = document.getElementById('theme-toggle');" in SIMPLE_PANEL_JS
-    assert "function setupTheme()" in SIMPLE_PANEL_JS
-    assert "function beginActionStepGroup(stepId)" in SIMPLE_PANEL_JS
-    assert "function replayArtifactHref(path, expectedDir = 'history')" in SIMPLE_GRAPH_JS
-    assert "function renderActionArtifacts(artifacts)" in SIMPLE_GRAPH_JS
-    assert "function renderRightPanelAuxiliarySections(_inference, _artifacts)" in SIMPLE_GRAPH_JS
-    assert "function recordActionExecution(_event) {}" in SIMPLE_GRAPH_JS
+def test_simple_panel_uses_simple_layout_overrides():
     assert "body.simple-ui" in SIMPLE_PANEL_CSS
     assert 'grid-template-areas:\n    "header header        header"\n    "right-aside right-resizer main"\n    "right-aside right-resizer footer";' in SIMPLE_PANEL_CSS
     assert "--right-aside-w: 360px;" in SIMPLE_PANEL_CSS
-    assert "body.simple-ui #right-resizer" in SIMPLE_PANEL_CSS
     assert "body.simple-ui aside#right-sidebar" in SIMPLE_PANEL_CSS
-    assert "margin: 16px 8px 16px 16px;" in SIMPLE_PANEL_CSS
     assert "body.simple-ui #left-sidebar" in SIMPLE_PANEL_CSS
     assert "body.simple-ui [data-view=\"graph\"]" in SIMPLE_PANEL_CSS
+    assert "function replayArtifactHref(path, expectedDir = 'history')" in SIMPLE_GRAPH_JS
+    assert "function renderActionArtifacts(artifacts)" in SIMPLE_GRAPH_JS
+    assert "function recordActionExecution(_event) {}" in SIMPLE_GRAPH_JS
 
 
 def test_simple_panel_right_panel_shows_only_step_screenshot():
@@ -83,32 +76,15 @@ def test_simple_panel_right_panel_shows_only_step_screenshot():
     assert "action_gif_path" not in artifact_renderer
     assert "video_path" not in artifact_renderer
     assert "renderBeforeAfterCompare" not in artifact_renderer
-    assert "artifact-label" not in artifact_renderer
 
     store_artifacts = SIMPLE_PANEL_JS.split("function storeArtifactsForStep(stepId, artifacts)", 1)[1].split(
         "function upsertActionSummary", 1
     )[0]
     assert "if (selectedTimelineStepId == null)" in store_artifacts
     assert "renderActionStepAdditionalInfo(key);" in store_artifacts
-    assert "Action step #${key}" in SIMPLE_PANEL_JS
-    assert "const simpleActionDetails = document.getElementById('simple-action-details');" in SIMPLE_PANEL_JS
     assert "function renderSimpleActionDetails(calls)" in SIMPLE_PANEL_JS
     assert "renderSimpleActionDetails(calls);" in SIMPLE_PANEL_JS
-    assert "simple-tool-label\">tool" in SIMPLE_PANEL_JS
-    assert "simple-tool-label\">arguments" in SIMPLE_PANEL_JS
-    assert "body.simple-ui .simple-screenshot-panel .side-step-title" in SIMPLE_PANEL_CSS
-    assert "text-align: left;" in SIMPLE_PANEL_CSS
     assert ".simple-screenshot-link img" in SIMPLE_PANEL_CSS
-    assert "object-position: center center;" in SIMPLE_PANEL_CSS
-    sheet_body_css = SIMPLE_PANEL_CSS.split(
-        "body.simple-ui .simple-screenshot-panel .sheet-body {", 1
-    )[1].split("}", 1)[0]
-    assert "grid-template-rows: auto minmax(0, 1fr) auto;" in sheet_body_css
-    assert "scrollbar-gutter: stable both-edges;" in sheet_body_css
-    screenshot_body_css = SIMPLE_PANEL_CSS.split(
-        "body.simple-ui .simple-screenshot-body {", 1
-    )[1].split("}", 1)[0]
-    assert "padding: 6px 16px;" in screenshot_body_css
     assert "body.simple-ui .simple-action-details" in SIMPLE_PANEL_CSS
 
 

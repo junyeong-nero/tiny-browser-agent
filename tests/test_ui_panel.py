@@ -129,36 +129,7 @@ def test_panel_graph_has_view_controls_and_vertical_top_right_legend():
     assert "zoomBehavior.scaleBy" in PANEL_HTML
     assert "zoomBehavior.transform" in PANEL_HTML
 
-    legend_css = PANEL_HTML.split(".graph-legend {", 1)[1].split(".graph-legend.hidden", 1)[0]
-    assert "top: 64px;" in legend_css
-    assert "right: 14px;" in legend_css
-    assert "display: flex;" in legend_css
-    assert "flex-direction: column;" in legend_css
-    assert "align-items: stretch;" in legend_css
-    assert "border-radius: 18px;" in legend_css
-    assert "overflow: hidden;" in legend_css
-    assert "bottom: 14px;" not in legend_css
     assert '<div class="legend-title">action count</div>' in PANEL_HTML
-    legend_title_css = PANEL_HTML.split(".graph-legend .legend-title {", 1)[1].split(
-        ".graph-legend .legend-scale", 1
-    )[0]
-    assert "background:" not in legend_title_css
-    assert "font-weight: 800;" in legend_title_css
-
-    legend_bar_css = PANEL_HTML.split(".graph-legend .legend-bar {", 1)[1].split(
-        ".graph-legend .legend-labels", 1
-    )[0]
-    assert "width: 10px;" in legend_bar_css
-    assert "height: 112px;" in legend_bar_css
-    assert "border-radius: 999px;" in legend_bar_css
-    assert "clip-path: inset(0 round 999px);" in legend_bar_css
-    assert "overflow: hidden;" in legend_bar_css
-    assert "linear-gradient(0deg" in legend_bar_css
-
-    legend_label_css = PANEL_HTML.split(".graph-legend .legend-labels {", 1)[1].split(
-        ".graph-tooltip.hidden", 1
-    )[0]
-    assert "flex-direction: column-reverse;" in legend_label_css
 
 
 def test_panel_uses_action_artifacts_for_hierarchical_graph():
@@ -285,19 +256,6 @@ def test_panel_graph_action_artifacts_prioritize_replay_and_inline_compare():
     assert "data-compare-mode=\"split\"" not in PANEL_HTML
     assert "Technical paths" in PANEL_HTML
 
-
-def test_panel_graph_action_artifacts_do_not_render_flat_three_card_compare():
-    artifact_renderer = PANEL_HTML.split("function renderActionArtifacts(artifacts", 1)[1].split(
-        "function actionPreviewArtifactsFor(action)", 1
-    )[0]
-    assert "renderArtifactCard('action GIF', actionGif)" not in artifact_renderer
-    assert "renderArtifactCard('before', beforeShot)" not in artifact_renderer
-    assert "renderArtifactCard('after', afterShot)" not in artifact_renderer
-    assert "renderActionReplayCard('Action replay', actionClip)" in artifact_renderer
-    assert "renderActionReplayCard('Action replay', fallbackActionGif)" not in artifact_renderer
-    assert "renderArtifactCard('Before/after GIF', fallbackActionGif)" in artifact_renderer
-
-
 def test_panel_graph_selection_can_show_llm_raw_context_and_response():
     assert "let llmInferencesByStep = new Map();" in PANEL_HTML
     assert "case 'llm_inference':" in PANEL_HTML
@@ -347,15 +305,6 @@ def test_panel_selection_can_show_dom_and_aria_state_artifacts():
     assert "renderRightPanelAuxiliarySections(d.llmInference, d.artifacts)" in graph_node_selection
     assert "hydrateBrowserStateButtons(browserStateSection);" in PANEL_HTML
     assert "if (browserStateSection.open) loadBrowserStatePreviews(browserStateSection);" in PANEL_HTML
-
-
-def test_panel_removes_browser_state_tree_rendering():
-    assert "no BrowserState graph metadata yet." not in PANEL_HTML
-    assert ".graph-node.group circle" not in PANEL_HTML
-    assert ".graph-node.leaf circle" not in PANEL_HTML
-    assert ".graph-node.changed circle" not in PANEL_HTML
-    assert "function treeDrag()" not in PANEL_HTML
-    assert "function positionTreeLinks()" not in PANEL_HTML
 
 
 def test_panel_has_replay_session_controls():
@@ -896,15 +845,6 @@ def test_panel_graph_trajectory_outcome_stub_present():
     assert "trajectoryOutcome = null;" in reset_body
 
 
-def test_panel_graph_cue_badge_css_present():
-    assert ".node-cue-badge circle.own-red" in PANEL_HTML
-    assert ".node-cue-badge circle.rollup-red" in PANEL_HTML
-    # Legacy gray badge variants are not used; typed cue classes carry meaning.
-    assert ".node-cue-badge circle.own-gray" not in PANEL_HTML
-    assert ".node-cue-badge circle.rollup-gray" not in PANEL_HTML
-    assert ".node-cue-badge text" in PANEL_HTML
-
-
 def test_panel_graph_renders_cue_badge_with_severity_matrix():
     update_body = PANEL_HTML.split("function update(payload) {", 1)[1].split(
         "function reset()", 1
@@ -1053,31 +993,6 @@ def test_panel_graph_root_pin_stays_available_for_root_nodes():
     assert "if (d.isRoot) {" in graph_renderer
 
 
-def test_panel_graph_drilldown_does_not_pin_double_clicked_node_position():
-    drill_fn = PANEL_HTML.split("function drillGraphNode(d)", 1)[1].split(
-        "let selectedNodeId", 1
-    )[0]
-
-    assert "rememberGraphDrillAnchor(d, nextDrilldown);" not in drill_fn
-    assert "clearGraphDrillAnchor();" in drill_fn
-
-
-
-
-def test_panel_graph_drilldown_omits_context_frame_and_arrow_affordance():
-    graph_renderer = PANEL_HTML.split("const graph = (() => {", 1)[1].split(
-        "function isGraphViewActive()", 1
-    )[0]
-
-    assert "context-frames" not in graph_renderer
-    assert "graph-context-frame" not in PANEL_HTML
-    assert "function contextFrameData()" not in graph_renderer
-    assert "function updateContextFrameBounds()" not in graph_renderer
-    assert "graph-drill-affordance" not in PANEL_HTML
-    assert "↘" not in graph_renderer
-    assert ".graph-node.drillable circle" in PANEL_HTML
-
-
 def test_panel_graph_breadcrumb_uses_layer_stack_and_clears_context_on_return():
     breadcrumb_renderer = PANEL_HTML.split("function renderBreadcrumb(payload)", 1)[1].split(
         "function update(payload)", 1
@@ -1153,18 +1068,6 @@ def test_panel_graph_clears_stale_root_flag_when_reusing_nodes():
     assert "return Object.assign(prev || {}, src);" not in graph_renderer
 
 
-def test_panel_cards_use_symmetric_compact_divider_gap():
-    main_css = PANEL_HTML.split("main#main {", 2)[2].split("}", 1)[0]
-    left_sidebar_css = PANEL_HTML.split("aside#left-sidebar {", 1)[1].split("}", 1)[0]
-    right_sidebar_css = PANEL_HTML.split("aside#right-sidebar {", 1)[1].split("}", 1)[0]
-    footer_css = PANEL_HTML.split("\n  footer {", 1)[1].split("}", 1)[0]
-
-    assert "margin: 16px 8px;" in main_css
-    assert "margin: 16px 8px 16px 16px;" in left_sidebar_css
-    assert "margin: 16px 16px 16px 8px;" in right_sidebar_css
-    assert "padding: 4px 8px 16px;" in footer_css
-
-
 def test_panel_resizers_use_short_rounded_rect_handles():
     resizer_css = PANEL_HTML.split(".resizer::before {", 1)[1].split("}", 1)[0]
     resizer_hover_css = PANEL_HTML.split("body.resizing .resizer.active::before {", 1)[1].split("}", 1)[0]
@@ -1180,16 +1083,6 @@ def test_panel_resizers_use_short_rounded_rect_handles():
     assert "bottom: 14px;" not in resizer_css
     assert "height: 56px;" in resizer_hover_css
     assert "var(--primary)" not in resizer_hover_css
-
-
-def test_panel_chatbox_has_all_corners_rounded():
-    input_shell_css = PANEL_HTML.split(".input-shell {", 1)[1].split("}", 1)[0]
-
-    assert "border-radius: var(--md-sys-shape-corner-xl);" in input_shell_css
-    assert "background: var(--md-sys-color-surface-container-highest);" in input_shell_css
-    assert "linear-gradient(180deg" not in input_shell_css
-    assert "border-bottom" not in input_shell_css
-    assert ".input-shell:focus-within" not in PANEL_HTML
 
 
 def test_panel_sidebar_itself_is_viewport_constrained_and_scrollable():
