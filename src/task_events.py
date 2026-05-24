@@ -32,27 +32,77 @@ def result_status(result: Any) -> str:
     return status if isinstance(status, str) else "complete"
 
 
+def _with_task_id(event: dict[str, Any], task_id: int | None) -> dict[str, Any]:
+    if task_id is not None:
+        event["task_id"] = task_id
+    return event
+
+
 def build_task_failed_event_from_result(
     *,
     query: str,
     result: Any,
     task_id: int | None = None,
+    terminal_step_id: int | None = None,
 ) -> dict[str, Any]:
-    event: dict[str, Any] = {
-        "type": "task_failed",
-        "query": query,
-        "status": result_status(result),
-        "error_message": (
-            getattr(result, "reason", None)
-            or getattr(result, "summary", None)
-            or "Task did not complete successfully."
-        ),
-        "succeeded_subgoals": getattr(result, "succeeded_subgoals", 0),
-        "failed_subgoals": getattr(result, "failed_subgoals", 0),
-    }
-    if task_id is not None:
-        event["task_id"] = task_id
-    return event
+    return _with_task_id(
+        {
+            "type": "task_failed",
+            "query": query,
+            "status": result_status(result),
+            "error_message": (
+                getattr(result, "reason", None)
+                or getattr(result, "summary", None)
+                or "Task did not complete successfully."
+            ),
+            "succeeded_subgoals": getattr(result, "succeeded_subgoals", 0),
+            "failed_subgoals": getattr(result, "failed_subgoals", 0),
+            # Outcome metadata consumed by graph dead-end / dead-action cues
+            # (outline §F2). task_success=False ⇒ terminal step is a candidate.
+            "task_success": False,
+            "terminal_step_id": terminal_step_id,
+        },
+        task_id,
+    )
+
+
+def build_task_failed_event(
+    *,
+    query: str,
+    error_message: str,
+    task_id: int | None = None,
+    terminal_step_id: int | None = None,
+) -> dict[str, Any]:
+    return _with_task_id(
+        {
+            "type": "task_failed",
+            "query": query,
+            "status": "failed",
+            "error_message": error_message,
+            "task_success": False,
+            "terminal_step_id": terminal_step_id,
+        },
+        task_id,
+    )
+
+
+def build_task_interrupted_event(
+    *,
+    query: str,
+    reason: str,
+    task_id: int | None = None,
+    terminal_step_id: int | None = None,
+) -> dict[str, Any]:
+    return _with_task_id(
+        {
+            "type": "task_interrupted",
+            "query": query,
+            "reason": reason,
+            "task_success": False,
+            "terminal_step_id": terminal_step_id,
+        },
+        task_id,
+    )
 
 
 def final_reasoning_from_agent_result(agent: Any, result: Any) -> str | None:
@@ -71,14 +121,18 @@ def build_task_complete_event(
     agent: Any,
     result: Any,
     task_id: int | None = None,
+    terminal_step_id: int | None = None,
 ) -> dict[str, Any]:
-    event: dict[str, Any] = {
-        "type": "task_complete",
-        "query": query,
-        "status": "complete",
-    }
-    if task_id is not None:
-        event["task_id"] = task_id
+    event: dict[str, Any] = _with_task_id(
+        {
+            "type": "task_complete",
+            "query": query,
+            "status": "complete",
+            "task_success": True,
+            "terminal_step_id": terminal_step_id,
+        },
+        task_id,
+    )
     final_reasoning = final_reasoning_from_agent_result(agent, result)
     if final_reasoning is not None:
         event["final_reasoning"] = final_reasoning
