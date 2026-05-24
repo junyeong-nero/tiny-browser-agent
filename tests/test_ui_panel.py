@@ -9,7 +9,20 @@ from ui.server import app
 PANEL_HTML_ONLY = Path("src/ui/panel.html").read_text(encoding="utf-8")
 PANEL_CSS = Path("src/ui/static/panel.css").read_text(encoding="utf-8")
 PANEL_JS = Path("src/ui/static/panel.js").read_text(encoding="utf-8")
-GRAPH_JS = Path("src/ui/static/graph.js").read_text(encoding="utf-8")
+_GRAPH_JS_PARTS = (
+    "graph-state.js",
+    "graph-artifacts.js",
+    "graph-noop-evidence.js",
+    "graph-right-panel.js",
+    "graph-cues.js",
+    "graph-build.js",
+    "graph-selection.js",
+    "graph-render.js",
+)
+GRAPH_JS = "\n".join(
+    Path(f"src/ui/static/graph/{name}").read_text(encoding="utf-8")
+    for name in _GRAPH_JS_PARTS
+)
 # Existing static-contract tests search the asset that now owns the code/CSS.
 PANEL_HTML = PANEL_HTML_ONLY + "\n" + PANEL_CSS + "\n" + PANEL_JS + "\n" + GRAPH_JS
 
@@ -19,7 +32,8 @@ PANEL_HTML = PANEL_HTML_ONLY + "\n" + PANEL_CSS + "\n" + PANEL_JS + "\n" + GRAPH
 def test_panel_loads_split_static_assets():
     assert '<link rel="stylesheet" href="/static/panel.css">' in PANEL_HTML_ONLY
     assert '<script src="https://d3js.org/d3.v7.min.js"></script>' in PANEL_HTML_ONLY
-    assert '<script src="/static/graph.js"></script>' in PANEL_HTML_ONLY
+    for name in _GRAPH_JS_PARTS:
+        assert f'<script src="/static/graph/{name}"></script>' in PANEL_HTML_ONLY
     assert '<script src="/static/panel.js"></script>' in PANEL_HTML_ONLY
     assert '<style>' not in PANEL_HTML_ONLY
     assert '<script>' not in PANEL_HTML_ONLY
@@ -27,11 +41,11 @@ def test_panel_loads_split_static_assets():
 
 def test_panel_static_assets_are_served():
     client = TestClient(app)
-    for path, expected in (
+    paths = [
         ('/static/panel.css', 'text/css'),
         ('/static/panel.js', 'javascript'),
-        ('/static/graph.js', 'javascript'),
-    ):
+    ] + [(f'/static/graph/{name}', 'javascript') for name in _GRAPH_JS_PARTS]
+    for path, expected in paths:
         response = client.get(path)
         assert response.status_code == 200
         assert expected in response.headers['content-type']
@@ -41,7 +55,8 @@ def test_panel_static_assets_are_served():
     assert html.status_code == 200
     assert html.headers['cache-control'] == 'no-store'
     assert '/static/panel.css' in html.text
-    assert '/static/graph.js' in html.text
+    for name in _GRAPH_JS_PARTS:
+        assert f'/static/graph/{name}' in html.text
     assert '/static/panel.js' in html.text
 
 
@@ -49,7 +64,8 @@ def test_panel_served_html_cache_busts_local_static_assets():
     html = TestClient(app).get('/')
 
     assert html.status_code == 200
-    for asset in ('panel.css', 'graph.js', 'panel.js'):
+    assets = ['panel.css', 'panel.js'] + [f'graph/{name}' for name in _GRAPH_JS_PARTS]
+    for asset in assets:
         assert re.search(rf'/static/{re.escape(asset)}\?v=\d+', html.text)
 
 
@@ -611,7 +627,7 @@ def test_panel_graph_dominant_cue_priority_ordering():
     #   repeated → encoded by node fill+radius
     #   cycle    → encoded by edge highlight
     #   deadEnd  → encoded by cue-ring stroke (terminal outline)
-    #   noop     → encoded by detail-panel before/after alert
+    #   noop     → encoded by cue-ring stroke (no-op outline) plus detail-panel evidence
     # Rollup badges surface every cue type named by outline §S2 examples so
     # collapsed parents advertise descendant cues hidden by collapse.
     rollup_decl = GRAPH_JS.split("const ROLLUP_CUE_PRIORITY =", 1)[1].split(";", 1)[0]
@@ -634,12 +650,15 @@ def test_panel_graph_badges_are_rollup_only():
 
 
 def test_panel_graph_renders_cue_ring_on_nodes():
-    # Cue-ring SVG element is appended on enter and reflects the dominant cue.
+    # Cue-ring SVG element is appended on enter and reflects dead-end/no-op cues.
     update_body = GRAPH_JS.split("function update(payload) {", 1)[1].split(
         "\n  function reset()", 1
     )[0]
     assert "'cue-ring'" in update_body
-    assert "d.ownCues.deadEnd" in update_body
+    assert "ownCueRingType(d)" in update_body
+    ring_body = GRAPH_JS.split("function ownCueRingType(d)", 1)[1].split("\nfunction ", 1)[0]
+    assert "d.ownCues.deadEnd" in ring_body
+    assert "d.ownCues.noop" in ring_body
     # Badge label combines glyph + count once count ≥ 2.
     assert "d.badgeCount >= 2" in update_body
 
@@ -648,6 +667,8 @@ def test_panel_css_cue_ring_and_typed_badge_styles():
     for sel in (
         ".graph-node circle.cue-ring",
         ".graph-node circle.cue-ring.cue-deadEnd",
+        ".graph-node circle.cue-ring.cue-noop",
+        ".cue-legend-swatch.cue-noop",
         ".cue-legend-swatch.cue-currentNode",
         ".cue-legend-swatch.cue-selectedNode",
         ".node-cue-badge circle.cue-cycle",   # rollup badge for cycle still needed
@@ -656,11 +677,10 @@ def test_panel_css_cue_ring_and_typed_badge_styles():
         ".node-cue-badge circle.cue-repeated",
     ):
         assert sel in PANEL_CSS, f"missing css rule: {sel}"
-    # Cues that have another visual channel or are unreliable get no ring/badge.
+    # Cues that have another visual channel get no ring/badge.
     for absent in (
         ".graph-node circle.cue-ring.cue-repeated",
         ".graph-node circle.cue-ring.cue-cycle",
-        ".graph-node circle.cue-ring.cue-noop",
     ):
         assert absent not in PANEL_CSS, f"unexpected css rule: {absent}"
 
@@ -769,8 +789,8 @@ def test_p5_noop_alert_requires_dom_aria_and_screenshot_thresholds():
     assert "fetchArtifactTextByName(paths.beforeAria)" in evidence_helper
     assert "fetchArtifactTextByName(paths.afterAria)" in evidence_helper
     assert "screenshotDiffRatio(" in evidence_helper
-    assert "domRatio <= NOOP_EVIDENCE_DIFF_THRESHOLD" in evidence_helper
-    assert "ariaRatio <= NOOP_EVIDENCE_DIFF_THRESHOLD" in evidence_helper
+    assert "domRatio === 0" in evidence_helper
+    assert "ariaRatio === 0" in evidence_helper
     assert "screenshotRatio <= NOOP_EVIDENCE_DIFF_THRESHOLD" in evidence_helper
     screenshot_helper = GRAPH_JS.split("function screenshotDiffRatio(beforeSrc, afterSrc)", 1)[1].split(
         "\nfunction ", 1
@@ -800,28 +820,30 @@ def test_p5_aria_diff_styles_and_truncation_hint():
 
 def test_graph_cue_legend_pinned_bottom_right_with_motif_and_highlight_rows():
     # Legend reflects motif cues plus the node-selection stroke accents:
-    #   cycle    → edge highlight (line swatch)
     #   dead end → thick black ring on the node itself
+    #   no-op    → thick red ring on the action node itself
     #   current  → bright magenta node stroke
     #   selected → bright blue node stroke after clicking a node/timeline item
-    # `repeated` (node fill/radius) and `noop` (suppressed; ARIA-equality has
-    # too many false positives on hover/expand) get no legend row.
+    # `cycle` (edge highlight) and `repeated` (node fill/radius) get no legend row.
     assert 'id="graph-cue-legend"' in PANEL_HTML_ONLY
     assert 'aria-label="Graph cue and node highlight legend"' in PANEL_HTML_ONLY
-    assert 'data-cue="cycle"' in PANEL_HTML_ONLY
-    assert 'cue-legend-swatch cue-cycle-edge' in PANEL_HTML_ONLY
-    assert '>cycle (edge)<' in PANEL_HTML_ONLY
+    assert 'data-cue="cycle"' not in PANEL_HTML_ONLY
+    assert 'cue-legend-swatch cue-cycle-edge' not in PANEL_HTML_ONLY
+    assert '>cycle (edge)<' not in PANEL_HTML_ONLY
     assert 'data-cue="deadEnd"' in PANEL_HTML_ONLY
     assert 'cue-legend-swatch cue-deadEnd' in PANEL_HTML_ONLY
     assert '<span class="cue-legend-glyph" aria-hidden="true">■</span>' not in PANEL_HTML_ONLY
     assert '>dead end<' in PANEL_HTML_ONLY
+    assert 'data-cue="noop"' in PANEL_HTML_ONLY
+    assert 'cue-legend-swatch cue-noop' in PANEL_HTML_ONLY
+    assert '>no-op<' in PANEL_HTML_ONLY
     assert 'data-cue="currentNode"' in PANEL_HTML_ONLY
     assert 'cue-legend-swatch cue-currentNode' in PANEL_HTML_ONLY
     assert '>current node<' in PANEL_HTML_ONLY
     assert 'data-cue="selectedNode"' in PANEL_HTML_ONLY
     assert 'cue-legend-swatch cue-selectedNode' in PANEL_HTML_ONLY
     assert '>selected node<' in PANEL_HTML_ONLY
-    for absent in ('data-cue="repeated"', 'data-cue="noop"'):
+    for absent in ('data-cue="repeated"', 'data-cue="cycle"'):
         assert absent not in PANEL_HTML_ONLY, f'{absent} should be removed from legend'
     # Pinned to bottom-right.
     css_block = PANEL_CSS.split('.graph-cue-legend {', 1)[1].split('}', 1)[0]
