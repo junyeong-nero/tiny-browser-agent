@@ -143,15 +143,15 @@
     <div id="graph-cue-legend" class="graph-cue-legend hidden" aria-label="Graph cue and node highlight legend">
       <div class="legend-title">cues</div>
       <ul class="cue-legend-list">
-        <li class="cue-legend-row" data-cue="cycle">
-          <span class="cue-legend-swatch cue-cycle-edge" aria-hidden="true"></span>
-          <span class="cue-legend-glyph" aria-hidden="true"></span>
-          <span class="cue-legend-label">cycle (edge)</span>
-        </li>
         <li class="cue-legend-row" data-cue="deadEnd">
           <span class="cue-legend-swatch cue-deadEnd" aria-hidden="true"></span>
           <span class="cue-legend-glyph" aria-hidden="true"></span>
           <span class="cue-legend-label">dead end</span>
+        </li>
+        <li class="cue-legend-row" data-cue="noop">
+          <span class="cue-legend-swatch cue-noop" aria-hidden="true"></span>
+          <span class="cue-legend-glyph" aria-hidden="true"></span>
+          <span class="cue-legend-label">no-op</span>
         </li>
         <li class="cue-legend-row" data-cue="currentNode">
           <span class="cue-legend-swatch cue-currentNode" aria-hidden="true"></span>
@@ -236,7 +236,14 @@
   </div>
 </footer>
 
-<script src="/static/graph.js"></script>
+<script src="/static/graph/graph-state.js"></script>
+<script src="/static/graph/graph-artifacts.js"></script>
+<script src="/static/graph/graph-noop-evidence.js"></script>
+<script src="/static/graph/graph-right-panel.js"></script>
+<script src="/static/graph/graph-cues.js"></script>
+<script src="/static/graph/graph-build.js"></script>
+<script src="/static/graph/graph-selection.js"></script>
+<script src="/static/graph/graph-render.js"></script>
 <script src="/static/panel.js"></script>
 </body>
 </html>
