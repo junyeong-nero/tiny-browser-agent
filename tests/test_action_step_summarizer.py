@@ -1,6 +1,7 @@
 import json
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from google.genai import types
@@ -482,15 +483,18 @@ class TestActionStepSummarizer(unittest.TestCase):
         self.assertEqual(summarizer._model, "gpt-4o-mini")
         mock_provider_from_env.assert_called_once_with()
 
+    @patch("agents.summarizer.step_summarizer.app_config.summary_config")
     @patch("agents.summarizer.step_summarizer.OpenAIProvider.from_env")
     @patch("agents.summarizer.step_summarizer.OpenRouterProvider.from_env")
     def test_from_env_uses_configured_openai_provider_when_credentials_exist(
         self,
         mock_openrouter_provider_from_env,
         mock_openai_provider_from_env,
+        mock_summary_config,
     ):
         provider = object()
         mock_openai_provider_from_env.return_value = provider
+        mock_summary_config.return_value = SimpleNamespace(provider="openai", model="gpt-4o-mini")
 
         with patch.dict(
             os.environ,
@@ -509,13 +513,17 @@ class TestActionStepSummarizer(unittest.TestCase):
         mock_openai_provider_from_env.assert_called_once_with()
         mock_openrouter_provider_from_env.assert_not_called()
 
+    @patch("agents.summarizer.step_summarizer.app_config.summary_config")
     @patch("agents.summarizer.step_summarizer.OpenAIProvider.from_env")
     @patch("agents.summarizer.step_summarizer.OpenRouterProvider.from_env")
     def test_from_env_uses_configured_provider_instead_of_other_available_credentials(
         self,
         mock_openrouter_provider_from_env,
         mock_openai_provider_from_env,
+        mock_summary_config,
     ):
+        mock_summary_config.return_value = SimpleNamespace(provider="openai", model="gpt-4o-mini")
+
         with patch.dict(
             os.environ,
             {

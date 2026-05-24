@@ -711,7 +711,7 @@ class TestBrowserToolExecutor(unittest.TestCase):
         self.assertEqual(response["aria_snapshot_original_chars"], len(oversized_snapshot))
         self.assertIn("ARIA snapshot truncated", response["aria_snapshot"])
 
-    def test_text_grounding_declares_open_web_browser_observation_tool(self):
+    def test_text_grounding_declares_observe_page_tool(self):
         executor = BrowserToolExecutor(
             browser_computer=self.mock_browser_computer,
             grounding="text",
@@ -727,9 +727,10 @@ class TestBrowserToolExecutor(unittest.TestCase):
 
         declarations = tools[0].function_declarations or []
         names = [declaration.name for declaration in declarations]
-        self.assertIn("open_web_browser", names)
+        self.assertIn("observe_page", names)
+        self.assertNotIn("open_web_browser", names)
 
-    def test_text_grounding_open_web_browser_response_includes_aria_snapshot(self):
+    def test_text_grounding_observe_page_response_includes_aria_snapshot(self):
         executor = BrowserToolExecutor(
             browser_computer=self.mock_browser_computer,
             grounding="text",
@@ -741,7 +742,7 @@ class TestBrowserToolExecutor(unittest.TestCase):
         self.mock_browser_computer.take_aria_snapshot.return_value.text = "- button: Continue"
 
         executed_call = executor.execute_call(
-            types.FunctionCall(id="call-open", name="open_web_browser", args={})
+            types.FunctionCall(id="call-observe", name="observe_page", args={})
         )
         function_response = executor.serialize_function_response(executed_call)
 

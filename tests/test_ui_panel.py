@@ -122,7 +122,7 @@ def test_panel_graph_has_view_controls_and_vertical_top_right_legend():
     assert "border-radius: 18px;" in legend_css
     assert "overflow: hidden;" in legend_css
     assert "bottom: 14px;" not in legend_css
-    assert '<div class="legend-title">max steps</div>' in PANEL_HTML
+    assert '<div class="legend-title">action count</div>' in PANEL_HTML
     legend_title_css = PANEL_HTML.split(".graph-legend .legend-title {", 1)[1].split(
         ".graph-legend .legend-scale", 1
     )[0]
@@ -257,7 +257,12 @@ def test_panel_graph_action_artifacts_prioritize_replay_and_inline_compare():
     assert "function renderActionReplayCard(label, href)" in PANEL_HTML
     assert "function renderBeforeAfterCompare(beforeHref, afterHref)" in PANEL_HTML
     assert "class=\"artifact-primary\"" in PANEL_HTML
-    assert "class=\"artifact-split\"" in PANEL_HTML
+    # P5: side-by-side .artifact-split was replaced with a CSS clip-path slider
+    # overlay so reviewers can scrub between before/after in one viewport.
+    assert "class=\"artifact-slider\"" in PANEL_HTML
+    assert "class=\"artifact-slider-after\"" in PANEL_HTML
+    assert "class=\"artifact-slider-range\"" in PANEL_HTML
+    assert "class=\"artifact-split\"" not in PANEL_HTML
     assert "class=\"artifact-compare-tabs\"" not in PANEL_HTML
     assert "data-compare-mode=\"before\"" not in PANEL_HTML
     assert "data-compare-mode=\"after\"" not in PANEL_HTML
@@ -266,7 +271,7 @@ def test_panel_graph_action_artifacts_prioritize_replay_and_inline_compare():
 
 
 def test_panel_graph_action_artifacts_do_not_render_flat_three_card_compare():
-    artifact_renderer = PANEL_HTML.split("function renderActionArtifacts(artifacts)", 1)[1].split(
+    artifact_renderer = PANEL_HTML.split("function renderActionArtifacts(artifacts", 1)[1].split(
         "function actionPreviewArtifactsFor(action)", 1
     )[0]
     assert "renderArtifactCard('action GIF', actionGif)" not in artifact_renderer
@@ -285,7 +290,8 @@ def test_panel_graph_selection_can_show_llm_raw_context_and_response():
     assert 'id="side-llm-raw-section" class="side-section side-scroll-section side-llm-raw-section" hidden' in PANEL_HTML_ONLY
     assert '<summary data-icon="psychology">View LLM raw context / response</summary>' in PANEL_HTML_ONLY
     assert "function renderLlmInferenceBody(inference)" in PANEL_HTML
-    assert "function renderRightPanelAuxiliarySections(inference, artifacts)" in PANEL_HTML
+    # P5: signature gained an optional actionNode for ARIA pre/post diff.
+    assert "function renderRightPanelAuxiliarySections(inference, artifacts, actionNode)" in PANEL_HTML
     assert "View LLM raw context / response" in PANEL_HTML
     assert "Raw context" in PANEL_HTML
     assert "Output response" in PANEL_HTML
@@ -309,7 +315,8 @@ def test_panel_selection_can_show_dom_and_aria_state_artifacts():
 
     assert 'id="side-browser-state-section" class="side-section side-scroll-section side-browser-state-section browser-state-details" hidden' in PANEL_HTML_ONLY
     assert '<summary data-icon="account_tree">View DOM/ARIA State</summary>' in PANEL_HTML_ONLY
-    assert "function renderBrowserStateBody(artifacts)" in PANEL_HTML
+    # P5: renderBrowserStateBody gained an optional actionNode arg for ARIA diff.
+    assert "function renderBrowserStateBody(artifacts, actionNode)" in PANEL_HTML
     assert "function renderBrowserStateMetaLink(label, href, linkText)" in PANEL_HTML
     assert "View DOM/ARIA State" in PANEL_HTML
     assert "DOM snapshot" in PANEL_HTML
@@ -318,9 +325,10 @@ def test_panel_selection_can_show_dom_and_aria_state_artifacts():
     assert "artifacts.a11y_path || artifacts.after_a11y_path" in PANEL_HTML
     assert "function hydrateBrowserStateButtons(root = document)" in PANEL_HTML
     assert "fetch(src, { cache: 'no-store' })" in PANEL_HTML
-    assert "renderRightPanelAuxiliarySections(inference, artifacts);" in step_render
-    assert "renderRightPanelAuxiliarySections(inference, artifacts);" in group_render
-    assert "renderRightPanelAuxiliarySections(d.llmInference, d.artifacts);" in graph_node_selection
+    # Step/group selectors thread the action node through so ARIA diff can fire.
+    assert "renderRightPanelAuxiliarySections(inference, artifacts, actionNode)" in step_render
+    assert "renderRightPanelAuxiliarySections(inference, artifacts, actionNode)" in group_render
+    assert "renderRightPanelAuxiliarySections(d.llmInference, d.artifacts)" in graph_node_selection
     assert "hydrateBrowserStateButtons(browserStateSection);" in PANEL_HTML
     assert "if (browserStateSection.open) loadBrowserStatePreviews(browserStateSection);" in PANEL_HTML
 
@@ -520,67 +528,356 @@ def test_panel_graph_tracks_global_url_sequence():
     assert "urlSequence.length = 0;" in reset_fn or "urlSequence = [];" in reset_fn
 
 
-def test_panel_graph_compute_own_cues_handles_all_three_layers():
-    assert "function computeOwnCues(type, node, sequence)" in PANEL_HTML
-    body = PANEL_HTML.split("function computeOwnCues(type, node, sequence)", 1)[1].split(
+def test_panel_graph_compute_own_cues_emits_four_motif_types():
+    # P2 (outline §F2): cue function emits cycle/repeated/noop/deadEnd per layer.
+    assert "function computeOwnCues(type, node, cyclicSet, outcome)" in GRAPH_JS
+    body = GRAPH_JS.split("function computeOwnCues(type, node, cyclicSet, outcome)", 1)[1].split(
         "\nfunction ", 1
     )[0]
-    # All three cue keys present in returned shape
-    assert "loop:" in body
-    assert "revisit:" in body
-    assert "deadEnd:" in body
-    # Severity logic: motif cues are red; dead-end alone is not a motif badge.
-    assert "loop || revisit" in body
+    for key in ("cycle", "repeated", "noop", "deadEnd"):
+        assert f"{key}," in body or f"{key}:" in body, f"missing cue key {key}"
+    # Cycle membership is set-driven (SCC), not a fragile A→B→A bounce.
+    assert "cyclicSet.has(node.id)" in body
+    # Repeated is amber (own attention but not red).
+    assert "'amber'" in body
     assert "'red'" in body
-    assert "'none'" in body
-    # Sequence helpers used (revisit detected by non-consecutive re-occurrence)
-    assert "seq[i - 1] !== node.id" in body
+    # noop is action-only.
+    assert "type === 'action'" in body and "noopFlag(node)" in body
+    # Dead-end gated on outcome.
+    assert "isDeadEndCandidate(type, node, outcome)" in body
 
 
-def test_panel_graph_bounce_back_counts_as_loop_not_dead_end():
-    body = PANEL_HTML.split("function computeOwnCues(type, node, sequence)", 1)[1].split(
+def test_panel_graph_cycle_detection_reused_from_scc():
+    # P2: detectCycleEdges must delegate to the extracted SCC helper so cue
+    # computation and edge highlighting share the same definition of cycle.
+    assert "function computeCyclicNodes(links)" in GRAPH_JS
+    detect_body = GRAPH_JS.split("function detectCycleEdges(links) {", 1)[1].split(
         "\nfunction ", 1
     )[0]
-    # A -> node -> A means the branch bounced back; count it as a loop motif.
-    assert "seq[i + 1] === seq[i - 1]" in body
-    assert "seq[i] !== seq[i - 1]" in body
-    assert "i < seq.length - 1" in body
-    assert "loop = true" in body
-    assert "deadEnd = true" not in body
-    # The old terminal-node marker must not set deadEnd anymore.
-    assert "seq[seq.length - 1] === node.id" not in body
+    assert "computeCyclicNodes(links)" in detect_body
 
 
-def test_panel_graph_rollup_excludes_dead_end():
-    assert "function buildCueContext()" in PANEL_HTML
-    assert "function rollupCueFor(type, scope, context)" in PANEL_HTML
-    body = PANEL_HTML.split("function rollupCueFor(type, scope, context)", 1)[1].split(
+def test_panel_graph_build_cue_context_precomputes_layer_cyclic_sets():
+    body = GRAPH_JS.split("function buildCueContext()", 1)[1].split(
         "\nfunction ", 1
     )[0]
-    # rollup counts loops only; revisit and deadEnd are intentionally not added
-    assert "if (cues.loop) {" in body
-    assert "cues.deadEnd" not in body  # dead-end never contributes to rollup
-    # rollupSeverity is binary: 'red' or 'none'
-    assert "'red'" in body
-    assert "'none'" in body
+    # Three layer-specific cyclic sets seed cue computation.
+    assert "urlCyclic" in body
+    assert "viewportCyclicByUrl" in body
+    assert "actionCyclicByViewport" in body
+    assert "computeCyclicNodes(" in body
+    # Outcome is threaded through for dead-end gating (set by P3).
+    assert "trajectoryOutcome" in body
+
+
+def test_panel_graph_rollup_breakdown_covers_all_four_motif_types():
+    body = GRAPH_JS.split("function rollupCueFor(type, scope, context)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    # breakdown initialized with all four cue types.
+    for key in ("cycle:", "repeated:", "noop:", "deadEnd:"):
+        assert key in body
+    # Outline §S2 examples include repeated action and no-op action in collapsed
+    # lower-layer badge summaries, so every motif cue contributes to rollupCount.
+    assert "count += 1" in body
+    assert "cues.cycle || cues.noop || cues.deadEnd" not in body
+    # URL badges summarize hidden viewport and action descendants.
+    assert "scope.viewportIds" in body
+    assert "scope.actionIds" in body
 
 
 def test_panel_graph_builders_attach_cue_fields():
     for fn in ("buildUrlGraphData", "buildViewportGraphData", "buildActionGraphData"):
-        body = PANEL_HTML.split(f"function {fn}", 1)[1].split(
+        body = GRAPH_JS.split(f"function {fn}", 1)[1].split(
             "\nfunction ", 1
         )[0]
-        assert "computeOwnCues" in body, f"{fn} must compute own cues"
-        assert "rollupCueFor" in body, f"{fn} must compute rollup"
-        assert "badgeCount" in body, f"{fn} must derive badgeCount"
-    # badgeCount formula: only descendant rollup contributes, own-layer motifs are excluded.
-    assert "const badgeCount = rollupCount;" in PANEL_HTML
+        assert "buildCueContext()" in body or "cueContext" in body, f"{fn} must use cue context"
+        assert "attachCueFields" in body, f"{fn} must attach cue fields"
+    # Cue lookup goes through the cached ownCuesById map, not a recomputation.
+    attach_body = GRAPH_JS.split("function attachCueFields(", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "context.ownCuesById.get(src.id)" in attach_body
+    assert "badgeCount" in attach_body
+    # Badge principle: own-layer cues already visible in the current graph layer
+    # must not inflate badgeCount. Badges summarize lower layers only.
+    assert "badgeCount = rollupCount" in attach_body
+    assert "ownRedCount" not in attach_body
+
+
+def test_panel_graph_dominant_cue_priority_ordering():
+    # Outline §S2 badge principle: an own-layer cue with another visual channel
+    # must NOT also appear in the badge.
+    #   repeated → encoded by node fill+radius
+    #   cycle    → encoded by edge highlight
+    #   deadEnd  → encoded by cue-ring stroke (terminal outline)
+    #   noop     → encoded by detail-panel before/after alert
+    # Rollup badges surface every cue type named by outline §S2 examples so
+    # collapsed parents advertise descendant cues hidden by collapse.
+    rollup_decl = GRAPH_JS.split("const ROLLUP_CUE_PRIORITY =", 1)[1].split(";", 1)[0]
+    for included in ("'deadEnd'", "'cycle'", "'noop'", "'repeated'"):
+        assert included in rollup_decl, f"{included} should surface collapsed lower-layer cues"
+    assert "const CUE_PRIORITY" not in GRAPH_JS
+    assert "dominantOwnCueType" not in GRAPH_JS
+
+
+def test_panel_graph_badges_are_rollup_only():
+    # Outline §S2: badges summarize collapsed lower-layer cues only. Action
+    # nodes have no lower layer, so own action cues are not rendered as badges.
+    badge_body = GRAPH_JS.split("function cueBadgeClass(d)", 1)[1].split("}\n", 1)[0]
+    assert "ownType" not in badge_body
+    assert "dominantOwnCueType" not in badge_body
+    assert "rollupType" in badge_body
+    # Badge exposes a glyph and a cue-type class.
+    assert "cue-${" in badge_body or "cue-${rollupType}" in badge_body
+    assert "CUE_GLYPH" in GRAPH_JS
+
+
+def test_panel_graph_renders_cue_ring_on_nodes():
+    # Cue-ring SVG element is appended on enter and reflects the dominant cue.
+    update_body = GRAPH_JS.split("function update(payload) {", 1)[1].split(
+        "\n  function reset()", 1
+    )[0]
+    assert "'cue-ring'" in update_body
+    assert "d.ownCues.deadEnd" in update_body
+    # Badge label combines glyph + count once count ≥ 2.
+    assert "d.badgeCount >= 2" in update_body
+
+
+def test_panel_css_cue_ring_and_typed_badge_styles():
+    for sel in (
+        ".graph-node circle.cue-ring",
+        ".graph-node circle.cue-ring.cue-deadEnd",
+        ".cue-legend-swatch.cue-currentNode",
+        ".cue-legend-swatch.cue-selectedNode",
+        ".node-cue-badge circle.cue-cycle",   # rollup badge for cycle still needed
+        ".node-cue-badge circle.cue-deadEnd",
+        ".node-cue-badge circle.cue-noop",
+        ".node-cue-badge circle.cue-repeated",
+    ):
+        assert sel in PANEL_CSS, f"missing css rule: {sel}"
+    # Cues that have another visual channel or are unreliable get no ring/badge.
+    for absent in (
+        ".graph-node circle.cue-ring.cue-repeated",
+        ".graph-node circle.cue-ring.cue-cycle",
+        ".graph-node circle.cue-ring.cue-noop",
+    ):
+        assert absent not in PANEL_CSS, f"unexpected css rule: {absent}"
+
+
+def test_noop_alert_renders_above_compare_when_isnoop():
+    # Outline §F2.4: no-op outcome cue surfaces as a banner above the
+    # before/after compare only after DOM, ARIA, and screenshot evidence all
+    # satisfy the <= K no-change threshold.
+    body = GRAPH_JS.split("function renderActionArtifacts(artifacts", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    # No longer accepts/trusts caller-supplied isNoop or same screenshot path alone.
+    assert "function renderActionArtifacts(artifacts)" in GRAPH_JS
+    assert "beforeShot === afterShot" not in body
+    # Renders the alert class above artifact-compare (cards array order).
+    assert "artifact-noop-alert" in body
+    assert 'hidden data-noop-evidence="true"' in body
+    assert "Checking no-op evidence" in body
+    compare_pos = body.find("renderBeforeAfterCompare(beforeShot, afterShot)")
+    alert_pos = body.find("noopAlert,")
+    assert 0 < alert_pos < compare_pos, "noop alert must precede compare in cards array"
+    assert "hydrateNoopEvidence(sideReplay);" in PANEL_JS
+    assert "hydrateNoopEvidence(replayEl);" in GRAPH_JS
+
+
+def test_noop_alert_css_present():
+    assert ".artifact-noop-alert" in PANEL_CSS
+    assert ".artifact-noop-alert[hidden]" in PANEL_CSS
+    assert ".artifact-noop-text" in PANEL_CSS
+
+
+def test_p5_action_node_carries_raw_pre_post_aria_text():
+    # P5: noop signatures alone can't be diffed in the UI; the raw text must
+    # also flow onto each action node and into trajectoryLastSnapshot.
+    record_body = GRAPH_JS.split("function recordActionExecution(ev)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "postAriaText = (ev.artifacts && ev.artifacts.aria_snapshot) || ''" in record_body
+    assert "preAriaText = preSnap ? (preSnap.ariaText || '') : ''" in record_body
+    assert "preAriaText," in record_body
+    assert "postAriaText," in record_body
+    assert "ariaText: postAriaText," in record_body
+
+
+def test_p5_aria_pre_post_diff_renderer_is_set_based():
+    helper = GRAPH_JS.split("function ariaDiffLines(", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    # Removals and additions derive from set membership.
+    assert "preSet = new Set(preLines)" in helper
+    assert "postSet = new Set(postLines)" in helper
+    assert "kind: 'removed'" in helper
+    assert "kind: 'added'" in helper
+    # Truncated flag prevents the panel from rendering pathologically long diffs.
+    assert "truncated = true" in helper
+    renderer = GRAPH_JS.split("function renderAriaPrePostDiff(", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "ariaDiffLines(preText, postText)" in renderer
+    assert "aria-diff-line" in renderer
+    assert "ARIA diff" in renderer
+
+
+def test_p5_browser_state_body_injects_aria_diff_when_action_node_known():
+    body = GRAPH_JS.split("function renderBrowserStateBody(artifacts, actionNode)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "renderAriaPrePostDiff(actionNode.preAriaText, actionNode.postAriaText)" in body
+    # When no action node is available (e.g. URL/viewport selection) the
+    # diff block is skipped but DOM/ARIA artifact links still render.
+    assert "actionNode\n" in body or "actionNode ?" in body
+
+
+def test_p5_before_after_slider_uses_clip_path_split():
+    renderer = GRAPH_JS.split("function renderBeforeAfterCompare(beforeHref, afterHref)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "artifact-slider" in renderer
+    assert "--split" in renderer
+    assert "artifact-slider-before" in renderer
+    assert "artifact-slider-after" in renderer
+    assert "type=\"range\"" in renderer
+    # CSS implements the actual reveal.
+    assert ".artifact-slider .artifact-slider-after" in PANEL_CSS
+    assert "clip-path: inset(0 0 0 var(--split" in PANEL_CSS
+
+
+def test_p5_noop_alert_requires_dom_aria_and_screenshot_thresholds():
+    renderer = GRAPH_JS.split("function renderBeforeAfterCompare(beforeHref, afterHref)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "artifact-visual-diff" not in renderer
+    assert "Visual diff" not in renderer
+    helper = GRAPH_JS.split("function hydrateNoopEvidence(root = document)", 1)[1].split(
+        "\n// Set-based ARIA diff", 1
+    )[0]
+    assert "NOOP_EVIDENCE_DIFF_THRESHOLD = 0.01" in GRAPH_JS
+    assert "function evaluateNoopEvidence(artifacts)" in GRAPH_JS
+    assert "function primeNoopEvidenceForAction(actionNode)" in GRAPH_JS
+    assert ".artifact-noop-alert[data-noop-evidence]:not([data-noop-ready])" in helper
+    evidence_helper = GRAPH_JS.split("function evaluateNoopEvidence(artifacts)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "fetchArtifactTextByName(paths.beforeHtml)" in evidence_helper
+    assert "fetchArtifactTextByName(paths.afterHtml)" in evidence_helper
+    assert "fetchArtifactTextByName(paths.beforeAria)" in evidence_helper
+    assert "fetchArtifactTextByName(paths.afterAria)" in evidence_helper
+    assert "screenshotDiffRatio(" in evidence_helper
+    assert "domRatio <= NOOP_EVIDENCE_DIFF_THRESHOLD" in evidence_helper
+    assert "ariaRatio <= NOOP_EVIDENCE_DIFF_THRESHOLD" in evidence_helper
+    assert "screenshotRatio <= NOOP_EVIDENCE_DIFF_THRESHOLD" in evidence_helper
+    screenshot_helper = GRAPH_JS.split("function screenshotDiffRatio(beforeSrc, afterSrc)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "getImageData(0, 0, w, h)" in screenshot_helper
+    assert "changedPixels" in screenshot_helper
+    assert "window.hydrateNoopEvidence = hydrateNoopEvidence;" in GRAPH_JS
+    prime_body = GRAPH_JS.split("function primeNoopEvidenceForAction(actionNode)", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "actionNode.noopEvidenceKey = evidenceKey" in prime_body
+    assert "actionNode.noopEvidenceStatus = evidence.ok ? 'pass' : 'fail'" in prime_body
+    assert "scheduleGraphUpdate();" in prime_body
+
+
+def test_p5_aria_diff_styles_and_truncation_hint():
+    for sel in (
+        ".aria-diff",
+        ".aria-diff-line.added",
+        ".aria-diff-line.removed",
+        ".aria-diff-prefix",
+        ".aria-diff-truncated",
+    ):
+        assert sel in PANEL_CSS, f"missing diff style: {sel}"
+    assert ".artifact-visual-diff" not in PANEL_CSS
+
+
+def test_graph_cue_legend_pinned_bottom_right_with_motif_and_highlight_rows():
+    # Legend reflects motif cues plus the node-selection stroke accents:
+    #   cycle    → edge highlight (line swatch)
+    #   dead end → thick black ring on the node itself
+    #   current  → bright magenta node stroke
+    #   selected → bright blue node stroke after clicking a node/timeline item
+    # `repeated` (node fill/radius) and `noop` (suppressed; ARIA-equality has
+    # too many false positives on hover/expand) get no legend row.
+    assert 'id="graph-cue-legend"' in PANEL_HTML_ONLY
+    assert 'aria-label="Graph cue and node highlight legend"' in PANEL_HTML_ONLY
+    assert 'data-cue="cycle"' in PANEL_HTML_ONLY
+    assert 'cue-legend-swatch cue-cycle-edge' in PANEL_HTML_ONLY
+    assert '>cycle (edge)<' in PANEL_HTML_ONLY
+    assert 'data-cue="deadEnd"' in PANEL_HTML_ONLY
+    assert 'cue-legend-swatch cue-deadEnd' in PANEL_HTML_ONLY
+    assert '<span class="cue-legend-glyph" aria-hidden="true">■</span>' not in PANEL_HTML_ONLY
+    assert '>dead end<' in PANEL_HTML_ONLY
+    assert 'data-cue="currentNode"' in PANEL_HTML_ONLY
+    assert 'cue-legend-swatch cue-currentNode' in PANEL_HTML_ONLY
+    assert '>current node<' in PANEL_HTML_ONLY
+    assert 'data-cue="selectedNode"' in PANEL_HTML_ONLY
+    assert 'cue-legend-swatch cue-selectedNode' in PANEL_HTML_ONLY
+    assert '>selected node<' in PANEL_HTML_ONLY
+    for absent in ('data-cue="repeated"', 'data-cue="noop"'):
+        assert absent not in PANEL_HTML_ONLY, f'{absent} should be removed from legend'
+    # Pinned to bottom-right.
+    css_block = PANEL_CSS.split('.graph-cue-legend {', 1)[1].split('}', 1)[0]
+    assert 'bottom: 14px' in css_block
+    assert 'right: 14px' in css_block
+    # Show/hide piggy-backs on the existing updateGraphLegend trigger so the
+    # legend appears only after the first node is rendered.
+    legend_update = GRAPH_JS.split('function updateGraphLegend(maxWorkCount, hasNodes)', 1)[1].split(
+        '\n  function ', 1
+    )[0]
+    assert 'cueLegendEl.classList.toggle' in legend_update
+
+
+def test_p5_panel_threads_action_node_into_auxiliary_sections():
+    assert "window.actionNodeForStep = actionNodeForStep;" in GRAPH_JS
+    assert "function actionNodeForStep(stepId)" in GRAPH_JS
+    # Step-level selector resolves the action node before rendering.
+    step_render = PANEL_JS.split("function renderActionStepAdditionalInfo(stepId)", 1)[1].split(
+        "function actionGroupStepIds", 1
+    )[0]
+    assert "window.actionNodeForStep(key)" in step_render
+
+
+def test_panel_dispatches_setTrajectoryOutcome_on_task_lifecycle_events():
+    # P3: panel.js must forward outcome metadata from the WebSocket terminal
+    # events into the graph so dead-end / dead-action cues can fire.
+    body = PANEL_JS
+    for case_key, success in (
+        ("case 'task_complete':", "taskSuccess: true"),
+        ("case 'task_failed':", "taskSuccess: false"),
+        ("case 'task_interrupted':", "taskSuccess: false"),
+    ):
+        # Each terminal-event handler invokes the global setter with the right success flag.
+        chunk = body.split(case_key, 1)[1].split("break;", 1)[0]
+        assert "dispatchTrajectoryOutcome" in chunk, f"{case_key} missing outcome dispatch"
+        assert success in chunk, f"{case_key} missing {success}"
+        assert "terminalStepId: ev.terminal_step_id" in chunk
+    assert "window.setTrajectoryOutcome(outcome);" in body
+    # Setter is exported on the window from graph.js so panel.js can call it.
+    assert "window.setTrajectoryOutcome = setTrajectoryOutcome;" in GRAPH_JS
+
+
+def test_panel_graph_trajectory_outcome_stub_present():
+    # P2 declares the outcome holder; P3 fills it. Reset must clear it.
+    assert "let trajectoryOutcome" in GRAPH_JS
+    assert "function setTrajectoryOutcome(" in GRAPH_JS
+    reset_body = GRAPH_JS.split("function resetTrajectoryGraphState() {", 1)[1].split(
+        "\nfunction ", 1
+    )[0]
+    assert "trajectoryOutcome = null;" in reset_body
 
 
 def test_panel_graph_cue_badge_css_present():
     assert ".node-cue-badge circle.own-red" in PANEL_HTML
     assert ".node-cue-badge circle.rollup-red" in PANEL_HTML
-    # dead-end is excluded from motif badges entirely.
+    # Legacy gray badge variants are not used; typed cue classes carry meaning.
     assert ".node-cue-badge circle.own-gray" not in PANEL_HTML
     assert ".node-cue-badge circle.rollup-gray" not in PANEL_HTML
     assert ".node-cue-badge text" in PANEL_HTML
@@ -595,11 +892,11 @@ def test_panel_graph_renders_cue_badge_with_severity_matrix():
     assert "g').attr('class', 'node-cue-badge'" in update_body or 'class\', \'node-cue-badge\'' in update_body
     # Badge visibility gated on badgeCount > 0
     assert "d.badgeCount > 0" in update_body or "d.badgeCount >= 1" in update_body
-    # Severity matrix: own-red > rollup-red, plus hidden state
-    assert "own-red" in update_body
+    # Badge severity is rollup-only; own-layer cues use primary encodings.
+    assert "own-red" not in update_body
     assert "rollup-red" in update_body
-    # Text class toggles between on-fill (filled badge) and on-stroke (outlined)
-    assert "on-fill" in update_body
+    # Rollup badges use one readable text style over their cue-specific badge.
+    assert "on-fill" not in update_body
     assert "on-stroke" in update_body
 
 
@@ -607,12 +904,11 @@ def test_panel_graph_tooltip_includes_cue_breakdown():
     tooltip_block = PANEL_HTML.split("function showTooltip(event, d) {", 1)[1].split(
         "function moveTooltip(event)", 1
     )[0]
-    # Section header + per-type rows
+    # Section header + per-type rows for all four motif types.
     assert "Cues" in tooltip_block
-    assert "loop" in tooltip_block
-    assert "revisit" in tooltip_block
-    assert "dead-end" not in tooltip_block
-    # own / inside split
+    for label in ("cycle", "repeated", "no-op", "dead end"):
+        assert label in tooltip_block
+    # own / inside split preserved.
     assert "own" in tooltip_block
     assert "inside" in tooltip_block
     # Guarded: only renders when something to show
@@ -817,7 +1113,9 @@ def test_panel_graph_performance_avoids_full_force_on_every_update():
     assert "contextFrameTick" not in graph_renderer
     assert "updateContextFrameBounds" not in graph_renderer
     assert "const structureChanged =" in update_body
-    assert "simulation.alpha(Math.max(simulation.alpha(), 0.28)).restart();" in update_body
+    assert "simulation.alpha(1);" in update_body
+    assert "for (let i = 0; i < 300; i++) simulation.tick();" in update_body
+    assert "simulation.alpha(0);" in update_body
     assert "simulation.alpha(Math.max(simulation.alpha(), 0.06)).restart();" in update_body
     assert "simulation.alpha(0.6).restart();" not in PANEL_HTML
     assert "filter: drop-shadow" not in node_circle_css
@@ -1055,7 +1353,7 @@ def test_panel_right_additional_info_includes_reasoning_artifacts_and_llm_button
         "function renderTimelineActionStepInfo", 1
     )[0]
     assert "renderActionArtifacts(artifacts)" in step_render
-    assert "renderRightPanelAuxiliarySections(inference, artifacts)" in step_render
+    assert "renderRightPanelAuxiliarySections(inference, artifacts, actionNode)" in step_render
     assert "let artifactsByStep = new Map();" in PANEL_HTML
     assert "storeArtifactsForStep(ev.step_id, ev.artifacts);" in PANEL_HTML
 
@@ -1113,7 +1411,7 @@ def test_panel_removes_keybind_help_bar():
 
 
 def test_panel_graph_selection_renders_action_before_after_artifacts():
-    assert "function renderActionArtifacts(artifacts)" in PANEL_HTML
+    assert "function renderActionArtifacts(artifacts" in PANEL_HTML
     assert "function replayArtifactHref(path, expectedDir = 'history')" in PANEL_HTML
     assert "beforeScreenshotPath: ev.artifacts && ev.artifacts.before_screenshot_path" in PANEL_HTML
     assert "afterScreenshotPath: ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path)" in PANEL_HTML
@@ -1245,7 +1543,7 @@ def test_panel_graph_uses_total_action_steps_for_work_color_scale():
 
 def test_panel_current_node_accent_preserves_work_fill():
     current_rule = PANEL_HTML.split(".graph-node.current circle {", 1)[1].split("}", 1)[0]
-    assert "stroke: var(--md-sys-color-tertiary);" in current_rule
+    assert "stroke: var(--graph-accent-current);" in current_rule
     assert "stroke-width: 3;" in current_rule
     assert "fill:" not in current_rule
     assert "filter:" not in current_rule
@@ -1272,7 +1570,7 @@ def test_panel_graph_shows_work_color_legend():
     assert 'id="graph-legend"' in PANEL_HTML
     assert 'aria-label="Node color legend"' in PANEL_HTML
     assert "work count" not in PANEL_HTML
-    assert '<div class="legend-title">max steps</div>' in PANEL_HTML
+    assert '<div class="legend-title">action count</div>' in PANEL_HTML
     assert "data-legend-max" in PANEL_HTML
     assert "<span>few steps</span>" not in PANEL_HTML
     assert "<span>0</span>" in PANEL_HTML
@@ -1329,7 +1627,7 @@ def test_panel_aggregates_child_action_gif_previews_for_url_and_viewport_nodes()
 
 
 def test_panel_prefers_action_clip_gif_over_two_frame_fallback():
-    artifact_renderer = PANEL_HTML.split("function renderActionArtifacts(artifacts)", 1)[1].split(
+    artifact_renderer = PANEL_HTML.split("function renderActionArtifacts(artifacts", 1)[1].split(
         "function actionPreviewArtifactsFor(action)", 1
     )[0]
     assert "const actionClip = replayArtifactHref(artifacts.action_clip_gif_path, 'history');" in artifact_renderer
@@ -1363,3 +1661,27 @@ def test_panel_replay_mode_processes_live_events_for_state_but_not_ui():
     
     live_btn = PANEL_HTML.split("liveBtn.addEventListener('click', () => {", 1)[1].split("});", 1)[0]
     assert "isRunning = liveIsRunning;" in live_btn
+
+
+def test_graph_exposes_aria_diff_signature_and_noop_tracking():
+    # P1: no-op detection infrastructure (outline §F2 No-op Action Candidate).
+    # The action layer must (a) normalize ARIA snapshots, (b) remember the
+    # previous post-state, and (c) expose a noopFlag helper that downstream
+    # cue computation in P2 can consume.
+    assert "function ariaDiffSignature(text)" in GRAPH_JS
+    assert "function noopFlag(actionNode)" in GRAPH_JS
+    assert "let trajectoryLastSnapshot" in GRAPH_JS
+    # Reset wiring so live → replay → live transitions do not leak state.
+    reset_body = GRAPH_JS.split("function resetTrajectoryGraphState() {", 1)[1].split("\nfunction ", 1)[0]
+    assert "trajectoryLastSnapshot = null;" in reset_body
+    # No-op graph cue is evidence-gated; URL/viewport/ARIA snapshot tracking
+    # remains as context, but badges wait for DOM+ARIA+screenshot <= K.
+    record_body = GRAPH_JS.split("function recordActionExecution(ev)", 1)[1].split("\nfunction ", 1)[0]
+    # P5 wraps the snapshot in postAriaText for both the signature and the raw text.
+    assert "(ev.artifacts && ev.artifacts.aria_snapshot)" in record_body
+    assert "ariaDiffSignature(postAriaText)" in record_body
+    assert "noopEvidenceStatus: 'unknown'" in record_body
+    assert "primeNoopEvidenceForAction(actionNode)" in record_body
+    noop_body = GRAPH_JS.split("function noopFlag(actionNode)", 1)[1].split("\nfunction ", 1)[0]
+    assert "noopEvidenceStatus === 'pass'" in noop_body
+    assert "trajectoryLastSnapshot = {" in record_body
