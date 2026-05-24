@@ -18,7 +18,18 @@ from ui.replay import router as replay_router
 _UI_DIR = Path(__file__).parent
 _STATIC_DIR = _UI_DIR / "static"
 _PANEL_HTML = (_UI_DIR / "panel.html").read_text(encoding="utf-8")
-_STATIC_ASSET_NAMES = ("panel.css", "graph.js", "panel.js")
+_STATIC_ASSET_NAMES = (
+    "panel.css",
+    "graph/graph-state.js",
+    "graph/graph-artifacts.js",
+    "graph/graph-noop-evidence.js",
+    "graph/graph-right-panel.js",
+    "graph/graph-cues.js",
+    "graph/graph-build.js",
+    "graph/graph-selection.js",
+    "graph/graph-render.js",
+    "panel.js",
+)
 
 HOST = "127.0.0.1"
 _DEFAULT_PORT = 8765
