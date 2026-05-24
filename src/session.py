@@ -9,9 +9,11 @@ from browser import ArtifactLogger, PlaywrightBrowser
 import config as app_config
 from core.types import GroundingMode
 from task_events import (
+    build_task_failed_event,
     build_session_metadata,
     build_task_complete_event,
     build_task_failed_event_from_result,
+    build_task_interrupted_event,
     result_status,
 )
 from ui.bridge import (
@@ -111,6 +113,44 @@ class BrowserSession:
         """
         return "TERMINATE"
 
+    @staticmethod
+    def _terminal_step_id(agent: BrowserAgent | None) -> int | None:
+        return getattr(agent, "_step_id", None) if agent is not None else None
+
+    def _emit_task_interrupted(
+        self,
+        *,
+        query: str,
+        task_id: int,
+        reason: str,
+        agent: BrowserAgent | None = None,
+    ) -> None:
+        emit(
+            build_task_interrupted_event(
+                query=query,
+                task_id=task_id,
+                reason=reason,
+                terminal_step_id=self._terminal_step_id(agent),
+            )
+        )
+
+    def _emit_task_failed(
+        self,
+        *,
+        query: str,
+        task_id: int,
+        error_message: str,
+        agent: BrowserAgent | None = None,
+    ) -> None:
+        emit(
+            build_task_failed_event(
+                query=query,
+                task_id=task_id,
+                error_message=error_message,
+                terminal_step_id=self._terminal_step_id(agent),
+            )
+        )
+
     def run_task(self, query: str) -> None:
         task_id = start_next_task()
         artifact_logger = self._make_artifact_logger()
@@ -147,7 +187,11 @@ class BrowserSession:
                 planner = PlannerAgent(query=query, event_sink=emit)
                 subgoals = planner.plan()
                 if is_task_interrupted():
-                    emit({"type": "task_interrupted", "query": query, "task_id": task_id, "reason": "Task interrupted by user."})
+                    self._emit_task_interrupted(
+                        query=query,
+                        task_id=task_id,
+                        reason="Task interrupted by user.",
+                    )
                     return
                 if not subgoals:
                     emit({"type": "planner_fallback", "reason": "no valid subgoals returned"})
@@ -175,16 +219,31 @@ class BrowserSession:
                 result = agent.agent_loop()
             except AgentInterrupted as exc:
                 self._browser.reset_to_blank()
-                emit({"type": "task_interrupted", "query": query, "task_id": task_id, "reason": str(exc)})
+                self._emit_task_interrupted(
+                    query=query,
+                    task_id=task_id,
+                    reason=str(exc),
+                    agent=agent,
+                )
                 return
             except Exception as exc:
                 emit({"type": "step_error", "step_id": -1, "error_message": str(exc)})
                 self._browser.reset_to_blank()
-                emit({"type": "task_failed", "query": query, "task_id": task_id, "status": "failed", "error_message": str(exc)})
+                self._emit_task_failed(
+                    query=query,
+                    task_id=task_id,
+                    error_message=str(exc),
+                    agent=agent,
+                )
                 return
             if is_task_interrupted():
                 self._browser.reset_to_blank()
-                emit({"type": "task_interrupted", "query": query, "task_id": task_id, "reason": "Task interrupted by user."})
+                self._emit_task_interrupted(
+                    query=query,
+                    task_id=task_id,
+                    reason="Task interrupted by user.",
+                    agent=agent,
+                )
                 return
             if result_status(result) != "complete":
                 emit(
@@ -192,6 +251,7 @@ class BrowserSession:
                         query=query,
                         result=result,
                         task_id=task_id,
+                        terminal_step_id=self._terminal_step_id(agent),
                     )
                 )
                 return
@@ -203,6 +263,7 @@ class BrowserSession:
                     agent=agent,
                     result=result,
                     task_id=task_id,
+                    terminal_step_id=self._terminal_step_id(agent),
                 )
             )
         except Exception as exc:
@@ -211,7 +272,12 @@ class BrowserSession:
                 self._browser.reset_to_blank()
             except Exception as reset_exc:
                 emit({"type": "step_error", "step_id": -1, "error_message": f"Browser reset failed: {reset_exc}"})
-            emit({"type": "task_failed", "query": query, "task_id": task_id, "status": "failed", "error_message": str(exc)})
+            self._emit_task_failed(
+                query=query,
+                task_id=task_id,
+                error_message=str(exc),
+                agent=agent,
+            )
         finally:
             finish_active_task(task_id)
             if sink_registered:
