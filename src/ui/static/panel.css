@@ -132,6 +132,7 @@
     --secondary:  var(--md-sys-color-secondary);
     --outline:    var(--md-sys-color-outline);
     --graph-accent-dead-end: #111;
+    --graph-accent-noop:     #b42318;
     --graph-accent-current:  #ff4f9a;
     --graph-accent-selected: #4cc9ff;
     --graph-accent-running:  var(--graph-accent-current);
@@ -194,6 +195,7 @@
     --app-bg-radial-3: rgba(20, 108, 46, 0.08);
 
     --graph-accent-dead-end: #111;
+    --graph-accent-noop:     #b42318;
     --graph-accent-current:  #c2185b;
     --graph-accent-selected: #0057d9;
     --graph-accent-running:  var(--graph-accent-current);
@@ -861,6 +863,7 @@
     box-sizing: border-box;
   }
   .cue-legend-swatch.cue-deadEnd  { border: 4px solid var(--graph-accent-dead-end); }
+  .cue-legend-swatch.cue-noop     { border: 4px solid var(--graph-accent-noop); }
   .cue-legend-swatch.cue-currentNode  { border: 3px solid var(--graph-accent-current); }
   .cue-legend-swatch.cue-selectedNode { border: 3px solid var(--graph-accent-selected); }
   .cue-legend-swatch.cue-cycle-edge {
@@ -975,9 +978,9 @@
      while letting the inner viridis frequency fill remain readable. */
   .graph-node circle.cue-ring { fill: none; pointer-events: none; }
   /* No .cue-ring.cue-cycle: cycle membership is already shown by edge
-     highlight. No .cue-ring.cue-noop: ARIA-equality noop detection has too
-     many false positives on hover/expand/focus to deserve its own ring. */
+     highlight. No .cue-ring.cue-repeated: repetition is encoded by fill/radius. */
   .graph-node circle.cue-ring.cue-deadEnd  { stroke: var(--graph-accent-dead-end); stroke-width: 4; }
+  .graph-node circle.cue-ring.cue-noop     { stroke: var(--graph-accent-noop); stroke-width: 4; }
 
   #timeline::-webkit-scrollbar,
   aside.side-panel::-webkit-scrollbar,
