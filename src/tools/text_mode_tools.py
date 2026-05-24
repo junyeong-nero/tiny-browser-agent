@@ -8,12 +8,22 @@ BrowserToolExecutor handler map.
 from typing import Literal
 
 
-def open_web_browser(url: str = "") -> dict:
-    """Open the browser or observe the current browser state.
+def observe_page() -> dict:
+    """Observe the current browser state without changing it.
 
-    Args:
-        url: Optional URL to navigate to. Leave empty to observe the current
-            page state and ARIA snapshot without choosing a new destination.
+    Returns the current URL and ARIA snapshot so you can re-orient when the
+    page state is unclear. Does not navigate or reload — use navigate() to go
+    to a URL or reload_page() to refresh.
+    """
+    ...
+
+
+def open_web_browser(url: str = "") -> dict:
+    """Reserved for native Gemini Computer Use vision mode only.
+
+    Text/mixed grounding should use observe_page() to observe the current
+    page or navigate() to change URL. This descriptor is kept so the vision
+    tool set can still declare it.
     """
     ...
 
@@ -116,7 +126,7 @@ def wait_for_ref(
 
 # Descriptors exposed for text/mixed mode
 TEXT_MODE_TOOL_DESCRIPTORS = [
-    open_web_browser,
+    observe_page,
     navigate,
     go_back,
     go_forward,

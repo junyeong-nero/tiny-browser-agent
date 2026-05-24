@@ -18,7 +18,7 @@ from tools.hover_at import handle_hover_at
 from tools.hover_by_ref import handle_hover_by_ref
 from tools.key_combination import handle_key_combination
 from tools.navigate import handle_navigate
-from tools.open_web_browser import handle_open_web_browser
+from tools.open_web_browser import handle_observe_page, handle_open_web_browser
 from tools.scroll_at import handle_scroll_at
 from tools.scroll_by_ref import handle_scroll_by_ref
 from tools.scroll_document import handle_scroll_document
@@ -43,6 +43,7 @@ MAX_ARIA_SNAPSHOT_CHARS = 120_000
 
 TOOL_HANDLERS = {
     "open_web_browser": handle_open_web_browser,
+    "observe_page": handle_observe_page,
     "click_at": handle_click_at,
     "hover_at": handle_hover_at,
     "type_text_at": handle_type_text_at,

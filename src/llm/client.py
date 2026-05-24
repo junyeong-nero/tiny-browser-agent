@@ -37,6 +37,32 @@ PROVIDER_FACTORIES: dict[str, ProviderFactory] = {
 }
 
 
+def _describe_empty_response(response: types.GenerateContentResponse) -> str:
+    parts: list[str] = []
+    feedback = getattr(response, "prompt_feedback", None)
+    if feedback is not None:
+        block_reason = getattr(feedback, "block_reason", None)
+        if block_reason is not None:
+            parts.append(f"prompt_block_reason={block_reason}")
+        block_message = getattr(feedback, "block_reason_message", None)
+        if block_message:
+            parts.append(f"prompt_block_message={block_message!r}")
+        safety = getattr(feedback, "safety_ratings", None)
+        if safety:
+            parts.append(f"prompt_safety_ratings={safety}")
+
+    usage = getattr(response, "usage_metadata", None)
+    if usage is not None:
+        prompt_tokens = getattr(usage, "prompt_token_count", None)
+        total_tokens = getattr(usage, "total_token_count", None)
+        thoughts_tokens = getattr(usage, "thoughts_token_count", None)
+        parts.append(
+            f"usage(prompt={prompt_tokens}, total={total_tokens}, thoughts={thoughts_tokens})"
+        )
+
+    return "; ".join(parts) if parts else "no prompt_feedback or usage metadata available"
+
+
 class LLMError(Exception):
     pass
 
@@ -136,8 +162,14 @@ class LLMClient:
             else:
                 if response.candidates:
                     return response
+                diagnostics = _describe_empty_response(response)
+                termcolor.cprint(
+                    f"Empty response diagnostics: {diagnostics}\n",
+                    color="yellow",
+                )
                 last_error = EmptyResponseError(
-                    "Model returned no candidates after a successful request."
+                    "Model returned no candidates after a successful request. "
+                    f"{diagnostics}"
                 )
 
             if attempt < self._max_retries - 1:
