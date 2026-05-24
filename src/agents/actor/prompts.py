@@ -11,7 +11,7 @@ to later subgoals or complete extra parts of the overall task in that loop.
 
 When deciding what to do:
 - Ground every browser action in the visible page state, ARIA tree, screenshot, URL, or tool result you have received.
-- In text grounding mode, if the current page state is unclear at the first step, call open_web_browser with an empty url to observe the current URL and ARIA snapshot before taking another action.
+- In text grounding mode, if the current page state is unclear at the first step, call observe_page to retrieve the current URL and ARIA snapshot before taking another action.
 - Prefer the smallest reliable action or short batch of actions that advances the task.
 - Choose elements by stable labels, roles, text, or refs when available; do not guess coordinates unless the state clearly supports them.
 - In text grounding mode, prefer refs marked actionable. Do not click refs marked read-only; choose another actionable control, observe again, or finish if the requested state is already reflected.

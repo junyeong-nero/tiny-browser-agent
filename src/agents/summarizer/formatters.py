@@ -15,6 +15,7 @@ NAVIGATION_ACTION_NAMES = {
 
 ACTION_SUMMARY_TEMPLATES: dict[str, str] = {
     "open_web_browser": "Opened the web browser",
+    "observe_page": "Observed the current page",
     "scroll_document": "Scrolled the document {direction}",
     "wait_5_seconds": "Waited for 5 seconds",
     "go_back": "Went back to the previous page",
@@ -44,6 +45,7 @@ FALLBACK_REASON_TEMPLATES: dict[str, str] = {
 
 PHASE_GROUPS: dict[str, tuple[str, str]] = {
     "open_web_browser": ("phase-navigation", "페이지 이동"),
+    "observe_page": ("phase-observation", "페이지 확인"),
     "search": ("phase-navigation", "페이지 이동"),
     "navigate": ("phase-navigation", "페이지 이동"),
     "go_back": ("phase-navigation", "페이지 이동"),
