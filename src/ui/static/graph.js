@@ -20,6 +20,21 @@ let urlSequence = [];
 let graphDrilldown = { level: 'url', urlId: null, viewportId: null };
 let graphDrillAnchor = null;
 let actionSequence = 0;
+// Tracks the most-recently-observed post-action browser state so that the
+// next step can compute (urlEq ∧ viewportEq ∧ ariaEq) → no-op.
+let trajectoryLastSnapshot = null;
+// Populated by P3 (task lifecycle event). dead-end / dead-action cues are
+// gated on this being non-null + taskSuccess === false.
+let trajectoryOutcome = null;
+
+function setTrajectoryOutcome(outcome) {
+  if (!outcome) { trajectoryOutcome = null; return; }
+  trajectoryOutcome = {
+    taskSuccess: !!outcome.taskSuccess,
+    terminalStepId: outcome.terminalStepId != null ? String(outcome.terminalStepId) : null,
+  };
+  scheduleGraphUpdate();
+}
 const GRAPH_NODE_LABEL_MAX_CHARS = 28;
 
 function resetTrajectoryGraphState() {
@@ -38,6 +53,28 @@ function resetTrajectoryGraphState() {
   graphDrillAnchor = null;
   actionSequence = 0;
   activeGraphStepId = null;
+  trajectoryLastSnapshot = null;
+  trajectoryOutcome = null;
+}
+
+// Normalize an ARIA snapshot for structural comparison. Strips bracketed [ref]
+// ids, collapses whitespace, and masks long digit runs that change between
+// otherwise-identical snapshots (timestamps, counters). Intentionally cheap —
+// similarity-aware matching is future work per docs/outline.md.
+function ariaDiffSignature(text) {
+  if (text == null) return '';
+  let s = String(text);
+  s = s.replace(/\[ref=[^\]]*\]/g, '');
+  s = s.replace(/\[\s*\d+\s*\]/g, '');
+  s = s.replace(/\b\d{3,}\b/g, '#');
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+// True only after the evidence gate proves DOM, ARIA, and screenshot diffs are
+// all under K. Until the async gate resolves, no-op badges stay hidden.
+function noopFlag(actionNode) {
+  return !!(actionNode && actionNode.noopEvidenceStatus === 'pass');
 }
 
 function rememberGraphDrillAnchor(d, nextDrilldown) {
@@ -170,16 +207,258 @@ function renderBeforeAfterCompare(beforeHref, afterHref) {
     const label = beforeHref ? 'Before screenshot' : 'After screenshot';
     return renderArtifactCard(label, beforeHref || afterHref);
   }
+  // P5: slider overlay. The "after" image stacks on top and a CSS clip-path
+  // tied to a range input reveals the "before" underneath as the user drags.
   const before = escHtml(beforeHref);
   const after = escHtml(afterHref);
   return `
     <div class="artifact-compare-control">
       <div class="artifact-compare-title">Compare · <a class="artifact-link" target="_blank" rel="noreferrer" href="${before}">open before</a> · <a class="artifact-link" target="_blank" rel="noreferrer" href="${after}">open after</a></div>
-      <div class="artifact-split">
-        <figure><figcaption>Before</figcaption><a target="_blank" rel="noreferrer" href="${before}"><img src="${before}" alt="Before screenshot"></a></figure>
-        <figure><figcaption>After</figcaption><a target="_blank" rel="noreferrer" href="${after}"><img src="${after}" alt="After screenshot"></a></figure>
+      <div class="artifact-slider" style="--split:50%">
+        <img class="artifact-slider-before" src="${before}" alt="Before screenshot">
+        <img class="artifact-slider-after" src="${after}" alt="After screenshot">
+        <input class="artifact-slider-range" type="range" min="0" max="100" value="50" aria-label="Before/after slider"
+          oninput="this.parentElement.style.setProperty('--split', this.value + '%')">
       </div>
     </div>`;
+}
+
+const NOOP_EVIDENCE_DIFF_THRESHOLD = 0.01;
+
+function loadArtifactImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`failed to load ${src}`));
+    img.src = src;
+  });
+}
+
+function normalizeNoopEvidenceText(text) {
+  return String(text || '')
+    .replace(/\[ref=[^\]]*\]/g, '')
+    .replace(/\b\d{4,}\b/g, '#')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function setDiffRatio(aText, bText) {
+  const a = normalizeNoopEvidenceText(aText);
+  const b = normalizeNoopEvidenceText(bText);
+  if (!a && !b) return 0;
+  if (!a || !b) return 1;
+  if (a === b) return 0;
+  const tokenize = (text) => text.split(/[\s<>="']+/).map(t => t.trim()).filter(Boolean);
+  const aSet = new Set(tokenize(a));
+  const bSet = new Set(tokenize(b));
+  const union = new Set([...aSet, ...bSet]);
+  if (!union.size) return 0;
+  let changed = 0;
+  union.forEach(token => {
+    if (!aSet.has(token) || !bSet.has(token)) changed += 1;
+  });
+  return changed / union.size;
+}
+
+function screenshotDiffRatio(beforeSrc, afterSrc) {
+  return Promise.all([loadArtifactImage(beforeSrc), loadArtifactImage(afterSrc)])
+    .then(([beforeImg, afterImg]) => {
+      if ((beforeImg.naturalWidth !== afterImg.naturalWidth) || (beforeImg.naturalHeight !== afterImg.naturalHeight)) {
+        return 1;
+      }
+      const rawW = beforeImg.naturalWidth || beforeImg.width;
+      const rawH = beforeImg.naturalHeight || beforeImg.height;
+      if (!rawW || !rawH) return 1;
+      const maxSide = 320;
+      const scale = Math.min(1, maxSide / Math.max(rawW, rawH));
+      const w = Math.max(1, Math.round(rawW * scale));
+      const h = Math.max(1, Math.round(rawH * scale));
+      const beforeCanvas = document.createElement('canvas');
+      const afterCanvas = document.createElement('canvas');
+      beforeCanvas.width = afterCanvas.width = w;
+      beforeCanvas.height = afterCanvas.height = h;
+      const beforeCtx = beforeCanvas.getContext('2d', { willReadFrequently: true });
+      const afterCtx = afterCanvas.getContext('2d', { willReadFrequently: true });
+      beforeCtx.drawImage(beforeImg, 0, 0, w, h);
+      afterCtx.drawImage(afterImg, 0, 0, w, h);
+      const beforeData = beforeCtx.getImageData(0, 0, w, h);
+      const afterData = afterCtx.getImageData(0, 0, w, h);
+      let changedPixels = 0;
+      const threshold = 32;
+      for (let i = 0; i < afterData.data.length; i += 4) {
+        const dr = Math.abs(beforeData.data[i] - afterData.data[i]);
+        const dg = Math.abs(beforeData.data[i + 1] - afterData.data[i + 1]);
+        const db = Math.abs(beforeData.data[i + 2] - afterData.data[i + 2]);
+        if ((dr + dg + db) > threshold) changedPixels += 1;
+      }
+      return changedPixels / (w * h);
+    });
+}
+
+function artifactHrefFromName(name) {
+  return replayArtifactHref(name, 'history');
+}
+
+function fetchArtifactTextByName(name) {
+  const href = artifactHrefFromName(name);
+  if (!href) return Promise.resolve('');
+  return fetch(href, { cache: 'no-store' }).then(res => res.ok ? res.text() : '');
+}
+
+function fetchArtifactJsonByName(name) {
+  const href = artifactHrefFromName(name);
+  if (!href) return Promise.resolve(null);
+  return fetch(href, { cache: 'no-store' }).then(res => res.ok ? res.json() : null).catch(() => null);
+}
+
+function resolveNoopEvidencePaths(artifacts) {
+  const beforeMetaName = artifacts.before_metadata_path;
+  const afterMetaName = artifacts.after_metadata_path || artifacts.metadata_path;
+  return Promise.all([
+    fetchArtifactJsonByName(beforeMetaName),
+    fetchArtifactJsonByName(afterMetaName),
+  ]).then(([beforeMeta, afterMeta]) => ({
+    beforeHtml: (beforeMeta && beforeMeta.html_path) || artifacts.before_html_path || '',
+    afterHtml: artifacts.html_path || artifacts.after_html_path || (afterMeta && afterMeta.html_path) || '',
+    beforeAria: (beforeMeta && beforeMeta.a11y_path) || artifacts.before_a11y_path || '',
+    afterAria: artifacts.a11y_path || artifacts.after_a11y_path || (afterMeta && afterMeta.a11y_path) || '',
+    beforeScreenshot: artifacts.before_screenshot_path || (beforeMeta && beforeMeta.screenshot_path) || '',
+    afterScreenshot: artifacts.after_screenshot_path || artifacts.screenshot_path || (afterMeta && afterMeta.screenshot_path) || '',
+  }));
+}
+
+function evaluateNoopEvidence(artifacts) {
+  return resolveNoopEvidencePaths(artifacts).then(paths => {
+    if (!paths.beforeHtml || !paths.afterHtml || !paths.beforeAria || !paths.afterAria || !paths.beforeScreenshot || !paths.afterScreenshot) {
+      return null;
+    }
+    return Promise.all([
+      fetchArtifactTextByName(paths.beforeHtml),
+      fetchArtifactTextByName(paths.afterHtml),
+      fetchArtifactTextByName(paths.beforeAria),
+      fetchArtifactTextByName(paths.afterAria),
+      screenshotDiffRatio(artifactHrefFromName(paths.beforeScreenshot), artifactHrefFromName(paths.afterScreenshot)),
+    ]);
+  }).then(result => {
+    if (!result) return null;
+    const [beforeDom, afterDom, beforeAria, afterAria, screenshotRatio] = result;
+    const domRatio = setDiffRatio(beforeDom, afterDom);
+    const ariaRatio = setDiffRatio(beforeAria, afterAria);
+    const ok = domRatio <= NOOP_EVIDENCE_DIFF_THRESHOLD &&
+      ariaRatio <= NOOP_EVIDENCE_DIFF_THRESHOLD &&
+      screenshotRatio <= NOOP_EVIDENCE_DIFF_THRESHOLD;
+    return { ok, domRatio, ariaRatio, screenshotRatio };
+  });
+}
+
+function formatNoopEvidenceText(evidence) {
+  const pct = (value) => `${(value * 100).toFixed(2)}%`;
+  return `No-op: DOM, ARIA, and screenshot changes are all ≤ ${(NOOP_EVIDENCE_DIFF_THRESHOLD * 100).toFixed(0)}% (DOM ${pct(evidence.domRatio)}, ARIA ${pct(evidence.ariaRatio)}, screenshot ${pct(evidence.screenshotRatio)}).`;
+}
+
+function primeNoopEvidenceForAction(actionNode) {
+  if (!actionNode || !actionNode.artifacts) return;
+  const evidenceKey = [
+    actionNode.artifacts.before_metadata_path,
+    actionNode.artifacts.after_metadata_path || actionNode.artifacts.metadata_path,
+    actionNode.artifacts.before_screenshot_path,
+    actionNode.artifacts.after_screenshot_path || actionNode.artifacts.screenshot_path,
+  ].join('|');
+  if (actionNode.noopEvidenceKey === evidenceKey &&
+    (actionNode.noopEvidenceStatus === 'pending' || actionNode.noopEvidenceStatus === 'pass' || actionNode.noopEvidenceStatus === 'fail')) {
+    return;
+  }
+  actionNode.noopEvidenceKey = evidenceKey;
+  actionNode.noopEvidenceStatus = 'pending';
+  evaluateNoopEvidence(actionNode.artifacts).then(evidence => {
+    if (actionNode.noopEvidenceKey !== evidenceKey) return;
+    if (!evidence) {
+      actionNode.noopEvidenceStatus = 'fail';
+      actionNode.noopEvidence = null;
+      return;
+    }
+    actionNode.noopEvidence = evidence;
+    actionNode.noopEvidenceStatus = evidence.ok ? 'pass' : 'fail';
+    actionNode.noopCount = evidence.ok ? Math.max(1, actionNode.noopCount || 0) : 0;
+    scheduleGraphUpdate();
+  }).catch(() => {
+    if (actionNode.noopEvidenceKey !== evidenceKey) return;
+    actionNode.noopEvidenceStatus = 'fail';
+    actionNode.noopEvidence = null;
+  });
+}
+
+function hydrateNoopEvidence(root = document) {
+  const scope = root && root.querySelectorAll ? root : document;
+  scope.querySelectorAll('.artifact-noop-alert[data-noop-evidence]:not([data-noop-ready])').forEach(alert => {
+    alert.dataset.noopReady = 'true';
+    let artifacts = null;
+    try {
+      artifacts = JSON.parse(alert.getAttribute('data-artifacts') || '{}');
+    } catch (_) {
+      alert.remove();
+      return;
+    }
+    evaluateNoopEvidence(artifacts).then(evidence => {
+      if (!evidence || !evidence.ok) {
+        alert.remove();
+        return;
+      }
+      const text = alert.querySelector('.artifact-noop-text');
+      if (text) {
+        text.textContent = formatNoopEvidenceText(evidence);
+      }
+      alert.hidden = false;
+    }).catch(() => {
+      alert.remove();
+    });
+  });
+}
+
+// Set-based ARIA diff per outline §S3 — no LCS, no library. Lines unique to
+// the pre-state are removals; lines unique to the post-state are additions;
+// shared lines are context. Capped output keeps the panel snappy.
+function ariaDiffLines(preText, postText, maxLines = 200) {
+  const splitLines = (text) => String(text || '').split('\n').map(line => line.trim()).filter(Boolean);
+  const preLines = splitLines(preText);
+  const postLines = splitLines(postText);
+  const preSet = new Set(preLines);
+  const postSet = new Set(postLines);
+  const out = [];
+  let truncated = false;
+  for (const line of preLines) {
+    if (!postSet.has(line)) {
+      if (out.length >= maxLines) { truncated = true; break; }
+      out.push({ kind: 'removed', text: line });
+    }
+  }
+  if (!truncated) {
+    for (const line of postLines) {
+      if (!preSet.has(line)) {
+        if (out.length >= maxLines) { truncated = true; break; }
+        out.push({ kind: 'added', text: line });
+      }
+    }
+  }
+  return { lines: out, truncated, preCount: preLines.length, postCount: postLines.length };
+}
+
+function renderAriaPrePostDiff(preText, postText) {
+  if (!preText && !postText) return '';
+  const diff = ariaDiffLines(preText, postText);
+  if (!diff.lines.length) {
+    return `
+      <div class="llm-raw-title">ARIA diff</div>
+      <div class="aria-diff aria-diff-empty">No structural change between pre and post ARIA snapshots (${diff.preCount} → ${diff.postCount} lines).</div>`;
+  }
+  const rows = diff.lines.map(line => {
+    const prefix = line.kind === 'added' ? '+' : '−';
+    return `<div class="aria-diff-line ${line.kind}"><span class="aria-diff-prefix">${prefix}</span><span class="aria-diff-text">${escHtml(line.text)}</span></div>`;
+  });
+  const note = diff.truncated ? '<div class="aria-diff-truncated">…diff truncated.</div>' : '';
+  return `
+    <div class="llm-raw-title">ARIA diff (pre → post)</div>
+    <div class="aria-diff">${rows.join('')}${note}</div>`;
 }
 
 function renderActionArtifacts(artifacts) {
@@ -189,9 +468,32 @@ function renderActionArtifacts(artifacts) {
   const beforeShot = replayArtifactHref(artifacts.before_screenshot_path, 'history');
   const afterShot = replayArtifactHref(artifacts.after_screenshot_path || artifacts.screenshot_path, 'history');
   const video = replayArtifactHref(artifacts.video_path, 'video');
+  // Outline §F2.4 no-op outcome cue: when the agent's action produced no
+  // meaningful state change, surface a banner only after asynchronous evidence
+  // checks prove DOM diff, ARIA diff, and screenshot pixel diff are all <= K.
+  // The hidden placeholder is removed unless all evidence gates pass.
+  const noopPayload = escHtml(JSON.stringify({
+    before_metadata_path: artifacts.before_metadata_path,
+    after_metadata_path: artifacts.after_metadata_path || artifacts.metadata_path,
+    metadata_path: artifacts.metadata_path,
+    before_html_path: artifacts.before_html_path,
+    html_path: artifacts.html_path || artifacts.after_html_path,
+    before_a11y_path: artifacts.before_a11y_path,
+    a11y_path: artifacts.a11y_path || artifacts.after_a11y_path,
+    before_screenshot_path: artifacts.before_screenshot_path,
+    after_screenshot_path: artifacts.after_screenshot_path || artifacts.screenshot_path,
+    screenshot_path: artifacts.screenshot_path,
+  }));
+  const noopAlert = (beforeShot && afterShot)
+    ? `<div class="artifact-noop-alert" role="status" hidden data-noop-evidence="true" data-artifacts="${noopPayload}">
+         <span class="material-symbols-rounded" aria-hidden="true">block</span>
+         <span class="artifact-noop-text">Checking no-op evidence…</span>
+       </div>`
+    : '';
   const cards = [
     renderActionReplayCard('Action replay', actionClip),
     !actionClip && fallbackActionGif ? renderArtifactCard('Before/after GIF', fallbackActionGif) : '',
+    noopAlert,
     renderBeforeAfterCompare(beforeShot, afterShot),
   ].filter(Boolean);
   const videoCard = renderArtifactCard('session video', video, 'video');
@@ -295,9 +597,12 @@ function renderBrowserStateMetaLink(label, href, linkText) {
   return `<div class="bullet"><span class="dot">•</span><span><span class="k">${escHtml(label)}</span> <a class="artifact-link" target="_blank" rel="noreferrer" href="${escHtml(href)}">${escHtml(linkText)}</a></span></div>`;
 }
 
-function renderBrowserStateBody(artifacts) {
+function renderBrowserStateBody(artifacts, actionNode) {
+  const ariaDiffBlock = actionNode
+    ? renderAriaPrePostDiff(actionNode.preAriaText, actionNode.postAriaText)
+    : '';
   const state = browserStateArtifactInfo(artifacts);
-  if (!state) return '';
+  if (!state) return ariaDiffBlock;
   const metaRows = [];
   if (state.a11ySource) metaRows.push(renderBrowserStateMetaRow('ARIA source', state.a11ySource));
   if (state.a11yStatus) metaRows.push(renderBrowserStateMetaRow('ARIA capture', state.a11yStatus));
@@ -308,6 +613,7 @@ function renderBrowserStateBody(artifacts) {
     renderBrowserStatePreview('ARIA snapshot', state.ariaHref, 'ARIA'),
   ].filter(Boolean).join('');
   return `
+    ${ariaDiffBlock}
     ${metaRows.join('')}
     ${previews || '<div class="side-empty">No DOM or ARIA artifact for this action.</div>'}`;
 }
@@ -324,19 +630,28 @@ function setOptionalSideSection(section, body, content) {
   section.hidden = false;
 }
 
-function renderRightPanelAuxiliarySections(inference, artifacts) {
+function renderRightPanelAuxiliarySections(inference, artifacts, actionNode) {
   const llmSection = document.getElementById('side-llm-raw-section');
   const llmBody = document.getElementById('side-llm-raw');
   const browserStateSection = document.getElementById('side-browser-state-section');
   const browserStateBody = document.getElementById('side-browser-state');
 
   setOptionalSideSection(llmSection, llmBody, renderLlmInferenceBody(inference));
-  const browserStateContent = renderBrowserStateBody(artifacts);
+  const browserStateContent = renderBrowserStateBody(artifacts, actionNode);
   setOptionalSideSection(browserStateSection, browserStateBody, browserStateContent);
   if (browserStateContent && browserStateSection) {
     hydrateBrowserStateButtons(browserStateSection);
     if (browserStateSection.open) loadBrowserStatePreviews(browserStateSection);
   }
+}
+
+// Look up action node by step id for callers that only have stepIds (per-step
+// selection path). Returns null when no graph action has been recorded yet
+// (e.g. the timeline event arrives before the graph builds).
+function actionNodeForStep(stepId) {
+  if (stepId == null) return null;
+  const actionId = actionNodeIdByStep.get(String(stepId));
+  return actionId ? trajectoryActions.get(actionId) : null;
 }
 
 async function loadBrowserStatePreviews(container) {
@@ -400,6 +715,7 @@ function actionLabel(actionName, args) {
   if (actionName === 'navigate') return `Open ${truncateLabel(values.url || 'page', 40)}`;
   if (actionName === 'search') return 'Open search page';
   if (actionName === 'open_web_browser') return 'Open browser';
+  if (actionName === 'observe_page') return 'Observe page';
   if (actionName === 'go_back') return 'Go back';
   if (actionName === 'go_forward') return 'Go forward';
   if (actionName === 'reload_page') return 'Reload page';
@@ -447,64 +763,104 @@ function actionStepCountForActionIds(actionIds) {
   }, 0);
 }
 
-function computeOwnCues(type, node, sequence) {
-  let loop = false;
-  let revisit = false;
-  let deadEnd = false;
-  const seq = sequence || [];
-  let seen = false;
-  for (let i = 0; i < seq.length; i++) {
-    if (seq[i] !== node.id) continue;
-    if (i > 0 && i < seq.length - 1 && seq[i + 1] === seq[i - 1] && seq[i] !== seq[i - 1]) loop = true;
-    if (seen && (i === 0 || seq[i - 1] !== node.id)) revisit = true;
-    seen = true;
+// Outline §F2 motif-candidate cue types. `repeated` and `cycle` apply to every
+// layer; `noop` is action-only; `deadEnd` requires P3 outcome metadata and
+// applies to whichever layer's terminal node matches the failed terminal step.
+const MOTIF_CUE_TYPES = ['cycle', 'repeated', 'noop', 'deadEnd'];
+
+// Outline §S2 badge principle: own-layer cues that already have a dedicated
+// visual channel must NOT duplicate into the badge. Badges summarize only
+// collapsed lower-layer cues. The priority below chooses the dominant glyph /
+// color when multiple descendant cue types are present.
+const ROLLUP_CUE_PRIORITY = ['deadEnd', 'cycle', 'noop', 'repeated'];
+const CUE_GLYPH = { cycle: '↻', deadEnd: '■', noop: '⊘', repeated: '×' };
+
+function dominantRollupCueType(d) {
+  if (!d || !d.rollupBreakdown) return null;
+  for (const cueType of ROLLUP_CUE_PRIORITY) {
+    if (d.rollupBreakdown[cueType] > 0) return cueType;
   }
-  const severity = (loop || revisit) ? 'red' : 'none';
-  return { loop: loop, revisit: revisit, deadEnd: deadEnd, severity: severity };
+  return null;
+}
+
+function nodeVisitCount(type, node) {
+  if (type === 'action') {
+    if (Number.isFinite(node.execCount) && node.execCount > 0) return node.execCount;
+    if (Array.isArray(node.stepIds)) return node.stepIds.length;
+  }
+  return Number.isFinite(node.visits) ? node.visits : 0;
+}
+
+function isDeadEndCandidate(type, node, outcome) {
+  if (!outcome || outcome.taskSuccess !== false || !outcome.terminalStepId) return false;
+  const lastStep = node.lastStep != null ? String(node.lastStep) : null;
+  return lastStep === outcome.terminalStepId;
+}
+
+function computeOwnCues(type, node, cyclicSet, outcome) {
+  const cycle = !!(cyclicSet && cyclicSet.has(node.id));
+  const repeated = nodeVisitCount(type, node) >= 2;
+  const noop = type === 'action' && noopFlag(node);
+  const deadEnd = isDeadEndCandidate(type, node, outcome);
+  const anyRed = cycle || noop || deadEnd;
+  return {
+    cycle, repeated, noop, deadEnd,
+    severity: anyRed ? 'red' : (repeated ? 'amber' : 'none'),
+  };
 }
 
 function buildCueContext() {
-  const viewportSequenceByUrl = new Map();
+  const outcome = trajectoryOutcome;
+
+  const urlIds = new Set(Array.from(trajectoryNodes.keys()));
+  const urlCyclic = computeCyclicNodes(buildSequentialLinks(urlSequence, urlIds, null));
+
+  const viewportCyclicByUrl = new Map();
   for (const url of trajectoryNodes.values()) {
-    viewportSequenceByUrl.set(url.id, url.viewportSequence || []);
+    const ids = new Set(url.viewportIds || []);
+    const links = buildSequentialLinks(url.viewportSequence || [], ids, null);
+    viewportCyclicByUrl.set(url.id, computeCyclicNodes(links));
   }
-  const actionSequenceByViewport = new Map();
+  const actionCyclicByViewport = new Map();
   for (const vp of trajectoryViewports.values()) {
-    actionSequenceByViewport.set(vp.id, vp.actionSequence || []);
+    const ids = new Set(vp.actionIds || []);
+    const links = buildSequentialLinks(vp.actionSequence || [], ids, null, true);
+    actionCyclicByViewport.set(vp.id, computeCyclicNodes(links));
   }
+
   const ownCuesById = new Map();
   for (const url of trajectoryNodes.values()) {
-    ownCuesById.set(url.id, computeOwnCues('url', url, urlSequence));
+    ownCuesById.set(url.id, computeOwnCues('url', url, urlCyclic, outcome));
   }
   for (const vp of trajectoryViewports.values()) {
-    ownCuesById.set(vp.id, computeOwnCues('viewport', vp, viewportSequenceByUrl.get(vp.urlId)));
+    ownCuesById.set(vp.id, computeOwnCues('viewport', vp, viewportCyclicByUrl.get(vp.urlId), outcome));
   }
   for (const action of trajectoryActions.values()) {
-    ownCuesById.set(action.id, computeOwnCues('action', action, actionSequenceByViewport.get(action.viewportId)));
+    ownCuesById.set(action.id, computeOwnCues('action', action, actionCyclicByViewport.get(action.viewportId), outcome));
   }
-  return { ownCuesById: ownCuesById };
+  return { ownCuesById };
 }
 
 function rollupCueFor(type, scope, context) {
+  const breakdown = { cycle: 0, repeated: 0, noop: 0, deadEnd: 0 };
   let count = 0;
-  let hasRed = false;
-  const breakdown = { loop: 0, revisit: 0 };
   const tally = (id) => {
     const cues = context.ownCuesById.get(id);
     if (!cues) return;
-    if (cues.loop) {
-      count += 1;
-      hasRed = true;
-      breakdown.loop += 1;
+    for (const cueType of MOTIF_CUE_TYPES) {
+      if (cues[cueType]) {
+        breakdown[cueType] += 1;
+        count += 1;
+      }
     }
-    if (cues.revisit) breakdown.revisit += 1;
   };
   if (type === 'url') {
     for (const vpId of scope.viewportIds || []) tally(vpId);
+    for (const actId of scope.actionIds || []) tally(actId);
   } else if (type === 'viewport') {
     for (const actId of scope.actionIds || []) tally(actId);
   }
-  return { rollupCount: count, rollupSeverity: hasRed ? 'red' : 'none', rollupBreakdown: breakdown };
+  return { rollupCount: count, rollupSeverity: count > 0 ? 'red' : 'none', rollupBreakdown: breakdown };
 }
 
 function recordNavigation(url, stepId) {
@@ -585,6 +941,10 @@ function recordActionExecution(ev) {
   const actionArgs = action.args || {};
   const stepIdKey = ev.step_id != null ? String(ev.step_id) : null;
   const actionId = `action|${viewportId}|${actionSignature(actionName, actionArgs)}`;
+  const postAriaText = (ev.artifacts && ev.artifacts.aria_snapshot) || '';
+  const postAriaSig = ariaDiffSignature(postAriaText);
+  const preSnap = trajectoryLastSnapshot;
+  const preAriaText = preSnap ? (preSnap.ariaText || '') : '';
   let actionNode = trajectoryActions.get(actionId);
   if (!actionNode) {
     actionNode = {
@@ -608,6 +968,14 @@ function recordActionExecution(ev) {
       visits: 0,
       firstStep: ev.step_id,
       lastStep: ev.step_id,
+      preAriaSig: preSnap ? preSnap.ariaSig : null,
+      postAriaSig,
+      preAriaText,
+      postAriaText,
+      noopCount: 0,
+      noopEvidenceStatus: 'unknown',
+      noopEvidence: null,
+      execCount: 0,
     };
     trajectoryActions.set(actionId, actionNode);
     viewportNode.actionIds.add(actionId);
@@ -627,8 +995,23 @@ function recordActionExecution(ev) {
   actionNode.afterScreenshotPath = (ev.artifacts && (ev.artifacts.after_screenshot_path || ev.artifacts.screenshot_path)) || actionNode.afterScreenshotPath;
   actionNode.videoPath = (ev.artifacts && ev.artifacts.video_path) || actionNode.videoPath;
   actionNode.llmInference = llmInferenceForStep(ev.step_id) || actionNode.llmInference;
+  actionNode.execCount = (actionNode.execCount || 0) + 1;
+  actionNode.postAriaSig = postAriaSig;
+  actionNode.postAriaText = postAriaText;
+  if (actionNode.preAriaSig == null && preSnap) actionNode.preAriaSig = preSnap.ariaSig;
+  if (!actionNode.preAriaText && preAriaText) actionNode.preAriaText = preAriaText;
+  if (actionNode.artifacts && actionNode.noopEvidenceStatus === 'unknown') {
+    primeNoopEvidenceForAction(actionNode);
+  }
   viewportNode.actionSequence.push(actionId);
   trajectoryCurrentActionId = actionId;
+  trajectoryLastSnapshot = {
+    urlKey: urlNode.id,
+    viewportKey: viewport.key,
+    ariaSig: postAriaSig,
+    ariaText: postAriaText,
+    stepId: ev.step_id,
+  };
   scheduleGraphUpdate();
 }
 
@@ -682,7 +1065,10 @@ function edgeEndpointId(endpoint) {
   return endpoint && typeof endpoint === 'object' ? endpoint.id : endpoint;
 }
 
-function detectCycleEdges(links) {
+// Tarjan SCC over the link list. Returns the Set of node ids that participate
+// in a non-trivial strongly-connected component (size ≥ 2). Reused by both
+// edge highlighting and cue computation per outline §F2 State/Action Loop.
+function computeCyclicNodes(links) {
   const adjacency = new Map();
   for (const link of links || []) {
     const source = edgeEndpointId(link.source);
@@ -734,6 +1120,11 @@ function detectCycleEdges(links) {
     if (!indexById.has(id)) strongConnect(id);
   });
 
+  return cyclicNodes;
+}
+
+function detectCycleEdges(links) {
+  const cyclicNodes = computeCyclicNodes(links);
   return (links || []).map(link => {
     const source = edgeEndpointId(link.source);
     const target = edgeEndpointId(link.target);
@@ -742,19 +1133,23 @@ function detectCycleEdges(links) {
   });
 }
 
-function attachCueFields(type, src, sequence, context) {
-  const own = computeOwnCues(type, src, sequence);
+function attachCueFields(type, src, _sequence, context) {
+  const own = context.ownCuesById.get(src.id) || {
+    cycle: false, repeated: false, noop: false, deadEnd: false, severity: 'none',
+  };
   const rollup = rollupCueFor(type, src, context);
   const rollupCount = rollup.rollupCount;
-  const ownSeverity = own.severity;
+  // Badge principle: badgeCount is lower-layer rollup only. Own-layer cues are
+  // already visible via node size/fill, edge highlights, terminal outline, or
+  // action detail evidence, so they must not inflate the badge.
   const badgeCount = rollupCount;
   return {
     ownCues: own,
-    ownSeverity: ownSeverity,
-    rollupCount: rollupCount,
+    ownSeverity: own.severity,
+    rollupCount,
     rollupSeverity: rollup.rollupSeverity,
     rollupBreakdown: rollup.rollupBreakdown,
-    badgeCount: badgeCount,
+    badgeCount,
   };
 }
 
@@ -999,7 +1394,10 @@ function renderGraphNodeSelection(d) {
     titleEl.textContent = title;
   }
   const replayBody = renderActionArtifacts(d.artifacts) + renderActionPreviewGallery(d.actionPreviews);
-  if (replayEl) replayEl.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
+  if (replayEl) {
+    replayEl.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
+    hydrateNoopEvidence(replayEl);
+  }
   if (infoEl) {
     infoEl.innerHTML = rows.length ? rows.join('') : '<div class="side-empty">no info.</div>';
   }
@@ -1029,7 +1427,7 @@ function renderSelection(d) {
   renderGraphNodeSelection(d);
 }
 
-function scheduleGraphFit(delay = 320) {
+function scheduleGraphFit(delay = 30) {
   if (typeof graph === 'undefined' || !graph || !graph.fitToNodes) return;
   setTimeout(() => {
     if (!isGraphViewActive()) return;
@@ -1052,6 +1450,7 @@ const graph = (() => {
   const breadcrumbEl = document.getElementById('graph-breadcrumb');
   const tooltip = document.getElementById('graph-tooltip');
   const legendEl = document.getElementById('graph-legend');
+  const cueLegendEl = document.getElementById('graph-cue-legend');
   const fitBtn = document.getElementById('graph-fit');
   const zoomInBtn = document.getElementById('graph-zoom-in');
   const zoomOutBtn = document.getElementById('graph-zoom-out');
@@ -1109,10 +1508,10 @@ const graph = (() => {
     if (!width || !height) return;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     nodesData.forEach(n => {
-      const x = Number.isFinite(n._targetX) ? n._targetX : n.x;
-      const y = Number.isFinite(n._targetY) ? n._targetY : n.y;
+      const x = Number.isFinite(n.x) ? n.x : n._targetX;
+      const y = Number.isFinite(n.y) ? n.y : n._targetY;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      const r = graphNodeRadius(n) + 24;
+      const r = graphNodeRadius(n) + 8;
       if (x - r < minX) minX = x - r;
       if (x + r > maxX) maxX = x + r;
       if (y - r < minY) minY = y - r;
@@ -1124,10 +1523,10 @@ const graph = (() => {
     }
     const boundsWidth = Math.max(1, maxX - minX);
     const boundsHeight = Math.max(1, maxY - minY);
-    const padding = 80;
+    const padding = 40;
     const scale = Math.max(
       0.3,
-      Math.min(3, 0.95 / Math.max(boundsWidth / Math.max(1, width - padding), boundsHeight / Math.max(1, height - padding)))
+      Math.min(3, Math.min((width - padding) / boundsWidth, (height - padding) / boundsHeight))
     );
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
@@ -1357,11 +1756,15 @@ const graph = (() => {
     const cueRows = [];
     if (d && d.ownCues) {
       const own = d.ownCues;
-      const inside = d.rollupBreakdown || { loop: 0, revisit: 0 };
-      const loopOwn = own.loop ? 1 : 0;
-      const revisitOwn = own.revisit ? 1 : 0;
-      if (loopOwn || inside.loop) cueRows.push(`<div class="tt-row"><span>loop</span><span class="v">${loopOwn} own / ${inside.loop} inside</span></div>`);
-      if (revisitOwn || inside.revisit) cueRows.push(`<div class="tt-row"><span>revisit</span><span class="v">${revisitOwn} own / ${inside.revisit} inside</span></div>`);
+      const inside = d.rollupBreakdown || { cycle: 0, repeated: 0, noop: 0, deadEnd: 0 };
+      const cueLabels = { cycle: 'cycle', repeated: 'repeated', noop: 'no-op', deadEnd: 'dead end' };
+      for (const cueType of ['cycle', 'repeated', 'noop', 'deadEnd']) {
+        const ownN = own[cueType] ? 1 : 0;
+        const insideN = inside[cueType] || 0;
+        if (ownN || insideN) {
+          cueRows.push(`<div class="tt-row"><span>${cueLabels[cueType]}</span><span class="v">${ownN} own / ${insideN} inside</span></div>`);
+        }
+      }
     }
     const cueSection = cueRows.length
       ? `<div class="tt-section">Cues</div>` + cueRows.join('')
@@ -1429,15 +1832,16 @@ const graph = (() => {
   }
 
   function updateGraphLegend(maxWorkCount, hasNodes) {
-    if (!legendEl) return;
-    if (!hasNodes) {
-      legendEl.classList.add('hidden');
-      return;
+    if (legendEl) {
+      if (!hasNodes) legendEl.classList.add('hidden');
+      else {
+        const roundedMaxWorkCount = Math.round(Number(maxWorkCount) || 0);
+        const maxLabel = legendEl.querySelector('[data-legend-max]');
+        if (maxLabel) maxLabel.textContent = `${roundedMaxWorkCount}`;
+        legendEl.classList.remove('hidden');
+      }
     }
-    const roundedMaxWorkCount = Math.round(Number(maxWorkCount) || 0);
-    const maxLabel = legendEl.querySelector('[data-legend-max]');
-    if (maxLabel) maxLabel.textContent = `${roundedMaxWorkCount}`;
-    legendEl.classList.remove('hidden');
+    if (cueLegendEl) cueLegendEl.classList.toggle('hidden', !hasNodes);
   }
 
   function drag() {
@@ -1493,12 +1897,21 @@ const graph = (() => {
   }
 
   function update(payload) {
+    // Badges encode the dominant hidden lower-layer cue type (color + glyph).
+    // Own-layer cues are rendered through their primary visual channels instead
+    // of being duplicated in a badge.
     function cueBadgeClass(d) {
-      if (!d || !(d.badgeCount > 0)) return { circleClass: null, textClass: null, hidden: true };
-      if (d.type === 'action') return { circleClass: null, textClass: null, hidden: true };
-      if (d.ownSeverity === 'red') return { circleClass: 'own-red', textClass: 'on-fill', hidden: false };
-      if (d.rollupSeverity === 'red') return { circleClass: 'rollup-red', textClass: 'on-stroke', hidden: false };
-      return { circleClass: null, textClass: null, hidden: true };
+      if (!d || !(d.badgeCount > 0)) return { circleClass: null, textClass: null, glyph: '', hidden: true };
+      const rollupType = dominantRollupCueType(d);
+      if (rollupType) {
+        return {
+          circleClass: `rollup-red cue-${rollupType}`,
+          textClass: 'on-stroke',
+          glyph: CUE_GLYPH[rollupType] || '',
+          hidden: false,
+        };
+      }
+      return { circleClass: null, textClass: null, glyph: '', hidden: true };
     }
 
     graphMode = payload.mode || 'url';
@@ -1556,6 +1969,9 @@ const graph = (() => {
       .on('mousemove', moveTooltip)
       .on('mouseleave', hideTooltip);
     enter.append('circle').attr('r', 8);
+    // Cue-ring: outer stroke that carries the dominant cue color so the node's
+    // viridis frequency fill stays readable underneath (outline §S2).
+    enter.append('circle').attr('class', 'cue-ring').attr('r', 8);
     enter.append('path').attr('class', 'graph-node-shape');
     enter.append('text').attr('class', 'graph-node-label').attr('dx', 12).attr('dy', 4);
     const badgeEnter = enter.append('g').attr('class', 'node-cue-badge');
@@ -1574,7 +1990,15 @@ const graph = (() => {
       .classed('start', d => !!d.isStart)
       .classed('end', d => !!d.isEnd)
       .style('--graph-node-fill', d => graphNodeFill(d, maxWorkCount));
-    nodeSel.select('circle').attr('r', d => graphNodeRadius(d));
+    nodeSel.select('circle:not(.cue-ring)').attr('r', d => graphNodeRadius(d));
+    nodeSel.select('circle.cue-ring').each(function(d) {
+      const sel = d3.select(this);
+      const cueType = d && d.ownCues && d.ownCues.deadEnd ? 'deadEnd' : null;
+      const baseR = graphNodeRadius(d);
+      sel.attr('r', baseR + 3)
+        .attr('class', cueType ? `cue-ring cue-${cueType}` : 'cue-ring')
+        .style('display', cueType ? null : 'none');
+    });
     nodeSel.select('path.graph-node-shape')
       .attr('d', d => levelEndpointShape(d))
       .style('display', d => (d.isStart || d.isEnd) ? null : 'none');
@@ -1590,18 +2014,24 @@ const graph = (() => {
       sel.style('display', null);
       const r = graphNodeRadius(d);
       sel.attr('transform', `translate(${r + 4},${-(r + 4)})`);
+      // Glyph alone for badgeCount=1; glyph+count when ≥2 so reviewers see how
+      // many child cues rolled up without losing the cue-type signal.
+      const label = d.badgeCount >= 2 ? `${meta.glyph}${d.badgeCount}` : meta.glyph;
       sel.select('circle')
         .attr('class', meta.circleClass)
         .attr('r', d.badgeCount >= 10 ? 10 : 8);
       sel.select('text')
         .attr('class', meta.textClass)
-        .text(String(d.badgeCount));
+        .text(label);
     });
 
     simulation.nodes(nodesData);
     simulation.force('link').links(linksData);
     if (structureChanged) {
-      simulation.alpha(Math.max(simulation.alpha(), 0.28)).restart();
+      simulation.alpha(1);
+      for (let i = 0; i < 300; i++) simulation.tick();
+      simulation.alpha(0);
+      ticked();
     } else {
       simulation.alpha(Math.max(simulation.alpha(), 0.06)).restart();
     }
@@ -1664,3 +2094,6 @@ window.selectGraphActionForStep = selectGraphActionForStep;
 window.recordActionExecution = recordActionExecution;
 window.setGraphRunningStep = setGraphRunningStep;
 window.clearGraphRunningStep = clearGraphRunningStep;
+window.setTrajectoryOutcome = setTrajectoryOutcome;
+window.actionNodeForStep = actionNodeForStep;
+window.hydrateNoopEvidence = hydrateNoopEvidence;

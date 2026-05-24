@@ -131,6 +131,10 @@
     --on-primary: var(--md-sys-color-on-primary);
     --secondary:  var(--md-sys-color-secondary);
     --outline:    var(--md-sys-color-outline);
+    --graph-accent-dead-end: #111;
+    --graph-accent-current:  #ff4f9a;
+    --graph-accent-selected: #4cc9ff;
+    --graph-accent-running:  var(--graph-accent-current);
     --shadow:     var(--md-sys-elevation-1);
     --shadow-2:   var(--md-sys-elevation-3);
     --radius-sm:  var(--md-sys-shape-corner-sm);
@@ -188,6 +192,11 @@
     --app-bg-radial-1: rgba(11, 87, 208, 0.12);
     --app-bg-radial-2: rgba(110, 77, 116, 0.10);
     --app-bg-radial-3: rgba(20, 108, 46, 0.08);
+
+    --graph-accent-dead-end: #111;
+    --graph-accent-current:  #c2185b;
+    --graph-accent-selected: #0057d9;
+    --graph-accent-running:  var(--graph-accent-current);
   }
   html[data-theme="dark"] {
     color-scheme: dark;
@@ -596,11 +605,11 @@
     cursor: zoom-in;
   }
   .graph-node.current circle {
-    stroke: var(--md-sys-color-tertiary);
+    stroke: var(--graph-accent-current);
     stroke-width: 3;
   }
   .graph-node.running circle {
-    stroke: var(--md-sys-color-warning);
+    stroke: var(--graph-accent-running);
     stroke-width: 3;
   }
   .graph-node circle { cursor: pointer; }
@@ -625,24 +634,24 @@
   }
   .graph-node.current.start .graph-node-shape,
   .graph-node.current.end .graph-node-shape {
-    stroke: var(--md-sys-color-tertiary);
+    stroke: var(--graph-accent-current);
     stroke-width: 3;
   }
   .graph-node.running.start .graph-node-shape,
   .graph-node.running.end .graph-node-shape {
-    stroke: var(--md-sys-color-warning);
+    stroke: var(--graph-accent-running);
     stroke-width: 3;
   }
   .graph-node.selected.start .graph-node-shape,
   .graph-node.selected.end .graph-node-shape {
-    stroke: var(--md-sys-color-primary);
+    stroke: var(--graph-accent-selected);
     stroke-width: 3;
   }
   .graph-node.selected circle {
-    stroke: var(--md-sys-color-primary);
+    stroke: var(--graph-accent-selected);
     stroke-width: 3;
   }
-  .graph-node.selected text { fill: var(--md-sys-color-primary); font-weight: 600; }
+  .graph-node.selected text { fill: var(--graph-accent-selected); font-weight: 600; }
   .graph-node text {
     fill: var(--fg-dim);
     font-size: 11px;
@@ -654,8 +663,8 @@
   .graph-node.viewport .graph-node-label { font-size: 11px; letter-spacing: .01em; }
   .graph-node.action .graph-node-label { font-size: 10px; }
   .graph-node.root .graph-node-label { fill: var(--md-sys-color-primary); font-weight: 700; }
-  .graph-node.current text { fill: var(--md-sys-color-tertiary); font-weight: 600; }
-  .graph-node.running text { fill: var(--md-sys-color-warning); font-weight: 600; }
+  .graph-node.current text { fill: var(--graph-accent-current); font-weight: 600; }
+  .graph-node.running text { fill: var(--graph-accent-running); font-weight: 600; }
   .graph-breadcrumb .current-layer { font-weight: 700; color: var(--fg); }
   .graph-breadcrumb .parent-label {
     margin-left: 8px;
@@ -797,6 +806,76 @@
     line-height: 1.1;
     white-space: nowrap;
   }
+
+  /* Outline §S2 cue legend — pinned bottom-right so reviewers can map any
+     node color/glyph back to its motif candidate type at a glance. */
+  .graph-cue-legend {
+    position: absolute;
+    bottom: 14px;
+    right: 14px;
+    z-index: 10;
+    padding: 8px 10px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--md-sys-color-surface-container-high) 92%, transparent);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(12px);
+    pointer-events: none;
+    font-family: var(--sans);
+    color: var(--fg);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .graph-cue-legend.hidden { display: none; }
+  .graph-cue-legend .legend-title {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--fg);
+    text-transform: lowercase;
+    margin-bottom: 2px;
+  }
+  .cue-legend-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .cue-legend-row {
+    display: grid;
+    grid-template-columns: 14px 14px 1fr;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--fg-dim);
+    line-height: 1.2;
+  }
+  .cue-legend-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: transparent;
+    box-sizing: border-box;
+  }
+  .cue-legend-swatch.cue-deadEnd  { border: 4px solid var(--graph-accent-dead-end); }
+  .cue-legend-swatch.cue-currentNode  { border: 3px solid var(--graph-accent-current); }
+  .cue-legend-swatch.cue-selectedNode { border: 3px solid var(--graph-accent-selected); }
+  .cue-legend-swatch.cue-cycle-edge {
+    width: 16px; height: 0;
+    border-top: 3px solid #ff1d3a;
+    border-radius: 0;
+    align-self: center;
+  }
+  .cue-legend-glyph {
+    font-family: var(--mono);
+    font-weight: 700;
+    text-align: center;
+    color: var(--fg);
+  }
+  .cue-legend-label { color: var(--fg); }
   .graph-tooltip.hidden { display: none; }
   .graph-tooltip .tt-url {
     color: var(--orange);
@@ -815,6 +894,11 @@
   .node-cue-badge { cursor: pointer; }
   .node-cue-badge circle.own-red,
   .node-cue-badge circle.rollup-red { fill: #ff1d3a; stroke: none; }
+  /* Outline §S2: badge color encodes dominant cue type. */
+  .node-cue-badge circle.cue-cycle    { fill: #ff1d3a; stroke: none; }
+  .node-cue-badge circle.cue-deadEnd  { fill: #111; stroke: #ff1d3a; stroke-width: 2; }
+  .node-cue-badge circle.cue-noop     { fill: #b42318; stroke: none; }
+  .node-cue-badge circle.cue-repeated { fill: #f59e0b; stroke: none; }
   .node-cue-badge text {
     font-family: var(--mono);
     font-size: 9px;
@@ -825,6 +909,75 @@
   }
   .node-cue-badge text.on-fill,
   .node-cue-badge text.on-stroke { fill: white; }
+
+  /* P5: before/after slider — the "after" image clip-paths in from the right
+     based on --split, revealing the "before" beneath as the user drags. */
+  .artifact-slider {
+    position: relative;
+    width: 100%;
+    overflow: hidden;
+    border-radius: 6px;
+    background: var(--surface-2);
+    aspect-ratio: 16 / 10;
+  }
+  .artifact-slider img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    user-select: none;
+    pointer-events: none;
+  }
+  .artifact-slider .artifact-slider-after {
+    clip-path: inset(0 0 0 var(--split, 50%));
+  }
+  .artifact-slider .artifact-slider-range {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: ew-resize;
+    margin: 0;
+  }
+  .artifact-slider::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--orange, #f59e0b);
+    left: var(--split, 50%);
+    transform: translateX(-1px);
+    pointer-events: none;
+  }
+  /* P5: ARIA pre/post diff — color-coded line list, monospace, scrollable. */
+  .aria-diff {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.5;
+    max-height: 320px;
+    overflow: auto;
+    border: 1px solid var(--surface-3);
+    border-radius: 4px;
+    padding: 6px 8px;
+    background: var(--surface-1);
+  }
+  .aria-diff-empty { color: var(--fg-dim); font-family: inherit; }
+  .aria-diff-line { display: flex; gap: 6px; white-space: pre-wrap; word-break: break-word; }
+  .aria-diff-line.added   { background: rgba(34, 197, 94, 0.10); color: #16a34a; }
+  .aria-diff-line.removed { background: rgba(239, 68, 68, 0.10); color: #dc2626; }
+  .aria-diff-prefix { flex: 0 0 auto; font-weight: 700; opacity: 0.7; }
+  .aria-diff-truncated { color: var(--fg-dim); font-style: italic; margin-top: 4px; }
+
+  /* Cue-ring: outer stroke that announces the dominant own-cue at a glance
+     while letting the inner viridis frequency fill remain readable. */
+  .graph-node circle.cue-ring { fill: none; pointer-events: none; }
+  /* No .cue-ring.cue-cycle: cycle membership is already shown by edge
+     highlight. No .cue-ring.cue-noop: ARIA-equality noop detection has too
+     many false positives on hover/expand/focus to deserve its own ring. */
+  .graph-node circle.cue-ring.cue-deadEnd  { stroke: var(--graph-accent-dead-end); stroke-width: 4; }
 
   #timeline::-webkit-scrollbar,
   aside.side-panel::-webkit-scrollbar,
@@ -1320,6 +1473,25 @@
   .artifact-primary img {
     max-height: 260px;
   }
+  .artifact-noop-alert {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    border: 1px solid color-mix(in srgb, var(--md-sys-color-error) 55%, transparent);
+    border-radius: var(--md-sys-shape-corner-sm);
+    background: color-mix(in srgb, var(--md-sys-color-error-container) 28%, var(--surface-1));
+    color: var(--md-sys-color-on-error-container);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .artifact-noop-alert[hidden] { display: none; }
+  .artifact-noop-alert .material-symbols-rounded {
+    font-size: 18px;
+    color: var(--md-sys-color-error);
+  }
+  .artifact-noop-text { flex: 1; }
   .artifact-compare-control {
     min-width: 0;
     border: 1px solid var(--border);

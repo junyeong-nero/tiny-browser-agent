@@ -184,6 +184,23 @@ function setInputEnabled(enabled) {
   updateControlStates();
 }
 
+function finishTaskUi(activeSubgoalStatus) {
+  isRunning = false;
+  isSubmitting = false;
+  isStopping = false;
+  clearGraphRunningStep();
+  setStatus('connected', 'ready');
+  setInputEnabled(true);
+  subgoals.forEach(sg => { if (sg.status === 'active') sg.status = activeSubgoalStatus; });
+  renderPlan();
+}
+
+function dispatchTrajectoryOutcome(outcome) {
+  if (typeof window.setTrajectoryOutcome === 'function') {
+    window.setTrajectoryOutcome(outcome);
+  }
+}
+
 function resetTimeline() {
   timeline.replaceChildren();
   currentTimelineStepId = null;
@@ -358,12 +375,14 @@ function renderActionStepAdditionalInfo(stepId) {
   }
   if (sideReplay) {
     sideReplay.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
+    if (typeof hydrateNoopEvidence === 'function') hydrateNoopEvidence(sideReplay);
   }
   if (sideSelection) {
     sideSelection.innerHTML = rows.length ? rows.join('') : '<div class="side-empty">no info.</div>';
   }
   if (typeof renderRightPanelAuxiliarySections === 'function') {
-    renderRightPanelAuxiliarySections(inference, artifacts);
+    const actionNode = typeof window.actionNodeForStep === 'function' ? window.actionNodeForStep(key) : null;
+    renderRightPanelAuxiliarySections(inference, artifacts, actionNode);
   }
 }
 
@@ -424,12 +443,13 @@ function renderActionGroupAdditionalInfo(actionNode) {
   }
   if (sideReplay) {
     sideReplay.innerHTML = replayBody || '<div class="side-empty">no replay artifacts.</div>';
+    if (typeof hydrateNoopEvidence === 'function') hydrateNoopEvidence(sideReplay);
   }
   if (sideSelection) {
     sideSelection.innerHTML = (rows.length ? rows.join('') : '<div class="side-empty">no info.</div>') +
       memberList;
     if (typeof renderRightPanelAuxiliarySections === 'function') {
-      renderRightPanelAuxiliarySections(inference, artifacts);
+      renderRightPanelAuxiliarySections(inference, artifacts, actionNode);
     }
     sideSelection.querySelectorAll('[data-action-member-step]').forEach(button => {
       button.addEventListener('click', (event) => {
@@ -891,49 +911,31 @@ function handleEvent(ev) {
       break;
 
     case 'task_complete': {
-      isRunning = false;
-      isSubmitting = false;
-      isStopping = false;
-      clearGraphRunningStep();
-      setStatus('connected', 'ready');
-      setInputEnabled(true);
-      subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'done'; });
-      renderPlan();
+      finishTaskUi('done');
       const finalMessage = pendingAgentFinalMessage || ev.final_reasoning || ev.summary;
       if (finalMessage) addRow('agent-message', escHtml(finalMessage));
       pendingAgentFinalMessage = null;
+      dispatchTrajectoryOutcome({ taskSuccess: true, terminalStepId: ev.terminal_step_id });
       break;
     }
 
     case 'task_failed': {
-      isRunning = false;
-      isSubmitting = false;
-      isStopping = false;
-      clearGraphRunningStep();
-      setStatus('connected', 'ready');
-      setInputEnabled(true);
-      subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'failed'; });
-      renderPlan();
+      finishTaskUi('failed');
       pendingAgentFinalMessage = null;
       const errorMessage = ev.error_message || 'unknown error';
       addRow('agent-message failed-message',
         `<div class="message-title">task failed</div>` +
         `<div class="message-meta">${escHtml(errorMessage)}</div>`
       );
+      dispatchTrajectoryOutcome({ taskSuccess: false, terminalStepId: ev.terminal_step_id });
       break;
     }
 
     case 'task_interrupted':
-      isRunning = false;
-      isSubmitting = false;
-      isStopping = false;
-      clearGraphRunningStep();
-      setStatus('connected', 'ready');
-      setInputEnabled(true);
-      subgoals.forEach(sg => { if (sg.status === 'active') sg.status = 'failed'; });
-      renderPlan();
+      finishTaskUi('failed');
       pendingAgentFinalMessage = null;
       addBlock('orange', `<div class="title">task interrupted</div><div class="meta">${escHtml(ev.reason || 'stopped by user')}</div>`);
+      dispatchTrajectoryOutcome({ taskSuccess: false, terminalStepId: ev.terminal_step_id });
       break;
 
     case 'session_closed':
