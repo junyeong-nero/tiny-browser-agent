@@ -2,6 +2,7 @@
 set -euo pipefail
 
 uv run main.py --ui --highlight_mouse --planner --log \
+	--grounding text \
 	--stealth \
 	--locale ko-KR \
 	--timezone Asia/Seoul \

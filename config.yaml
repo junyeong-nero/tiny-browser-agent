@@ -4,10 +4,10 @@
 models:
   actor:
     provider: openrouter
-    model: poolside/laguna-m.1:free
+    model: openrouter/owl-alpha
   planner:
     provider: openrouter
-    model: poolside/laguna-m.1:free
+    model: openrouter/owl-alpha
   summary:
     provider: openrouter
     model: openai/gpt-oss-120b:free
